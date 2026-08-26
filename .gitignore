@@ -1,0 +1,29 @@
+# Runtime secrets and local overrides
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env.local
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+
+# Internal planning documents (not part of the public repository)
+enterprise_ai_platform_architecture.md
+enterprise_ai_platform_implementation_plan.md
+ui.md
+
+# Generated files
+.cache/
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

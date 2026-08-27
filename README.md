@@ -19,12 +19,12 @@ Repository chứa vertical slice đầu tiên có thể chạy end-to-end:
 - Chọn workspace cá nhân hoặc workspace doanh nghiệp theo quyền thành viên.
 - Tạo, lưu và mở lại lịch sử hội thoại trong PostgreSQL.
 - Stream câu trả lời từ API tương thích OpenAI; API key chỉ tồn tại ở backend.
-- Giao diện responsive cho đăng nhập, workspace và chat.
+- Giao diện responsive cho đăng nhập, workspace và chat, sử dụng Astryx Neutral cùng font Figtree tự host.
 
 ## Kiến trúc
 
 ```text
-Browser (React 19 / Vinext)
+Browser (React 19 / Vinext / Astryx)
           |
           | REST + streaming
           v

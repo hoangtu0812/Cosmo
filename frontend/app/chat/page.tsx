@@ -4,7 +4,12 @@ import {FormEvent, useEffect, useMemo, useRef, useState} from 'react';
 import Image from 'next/image';
 import {useRouter} from 'next/navigation';
 import {ThinkingOrb} from 'thinking-orbs';
-import {AlertTriangle, ArrowLeft, Bot, ChevronDown, CircleUserRound, FileText, LogOut, Menu, MessageSquare, Plus, Send, ShieldCheck, Sparkles, X} from 'lucide-react';
+import {AlertTriangle, ArrowLeft, Bot, ChevronDown, FileText, Inbox, LibraryBig, LogOut, Menu, MessageSquare, Paperclip, Plus, Send, ShieldCheck, Sparkles, X} from 'lucide-react';
+import {Avatar} from '@astryxdesign/core/Avatar';
+import {Badge} from '@astryxdesign/core/Badge';
+import {Button} from '@astryxdesign/core/Button';
+import {ClickableCard} from '@astryxdesign/core/ClickableCard';
+import {IconButton} from '@astryxdesign/core/IconButton';
 import {api, APIError, AuthConfig, Conversation, Message, streamChat, User, Workspace} from '../lib/api';
 
 const suggestions = [
@@ -103,17 +108,23 @@ export default function ChatPage() {
   return (
     <main className="chat-page">
       <aside className={`chat-sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="sidebar-brand"><span className="brand-symbol tiny" aria-hidden="true"><Image alt="" height={48} priority src="/cosmo-logo.png" width={48} /></span><div><strong>Cosmo</strong><span>Enterprise AI</span></div><button aria-label="Đóng menu" className="mobile-close" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
-        <button className="new-chat" onClick={newConversation}><Plus size={17} /> Cuộc trò chuyện mới</button>
-        <div className="conversation-heading"><span>Gần đây</span><MessageSquare size={14} /></div>
+        <div className="sidebar-brand"><span className="brand-symbol tiny" aria-hidden="true"><Image alt="" height={48} priority src="/cosmo-logo.png" width={48} /></span><div><strong>Cosmo</strong><span>Enterprise AI</span></div><Badge label="BETA" variant="blue" /><IconButton className="mobile-close" icon={<X size={16} />} label="Đóng menu" onClick={() => setSidebarOpen(false)} size="sm" variant="ghost" /></div>
+        <nav aria-label="Điều hướng Cosmo" className="product-navigation">
+          <button className="product-nav-item active" type="button"><Sparkles size={16} /> Trợ lý</button>
+          <button aria-disabled="true" className="product-nav-item is-unavailable" title="Sắp có" type="button"><Inbox size={16} /> Hộp thư</button>
+          <button className="product-nav-item" onClick={() => router.push('/workspaces')} type="button"><LibraryBig size={16} /> Không gian làm việc</button>
+        </nav>
+        <div className="sidebar-section-title"><span>Workspace</span></div>
+        <Button icon={<Plus size={15} />} label="Cuộc trò chuyện mới" onClick={newConversation} size="md" variant="secondary" width="100%" />
+        <div className="conversation-heading"><span>Cuộc hội thoại gần đây</span><MessageSquare size={14} /></div>
         <nav className="conversation-list">
           {conversations.map((item) => <button className={item.id === conversationID ? 'active' : ''} key={item.id} onClick={() => { setConversationID(item.id); setSidebarOpen(false); }}><MessageSquare size={15} /><span>{item.title}</span></button>)}
           {conversations.length === 0 && <p>Chưa có hội thoại nào.</p>}
         </nav>
         <div className="sidebar-bottom">
-          <button onClick={() => router.push('/workspaces')}><ArrowLeft size={16} /> Đổi workspace</button>
-          <button onClick={signOut}><LogOut size={16} /> Đăng xuất</button>
-          {user && <div className="sidebar-account"><div className="avatar small-avatar">{user.name.charAt(0).toUpperCase()}</div><div><strong>{user.name}</strong><span>{user.email}</span></div></div>}
+          <Button icon={<ArrowLeft size={15} />} label="Đổi workspace" onClick={() => router.push('/workspaces')} size="sm" variant="ghost" width="100%" />
+          <Button icon={<LogOut size={15} />} label="Đăng xuất" onClick={signOut} size="sm" variant="ghost" width="100%" />
+          {user && <div className="sidebar-account"><Avatar name={user.name} size="sm" tooltip={user.email} /><div><strong>{user.name}</strong><span>{user.email}</span></div><span className="account-online" aria-label="Đang hoạt động" /></div>}
         </div>
       </aside>
 
@@ -121,10 +132,10 @@ export default function ChatPage() {
 
       <section className="chat-main">
         <header className="chat-header">
-          <button className="menu-button" onClick={() => setSidebarOpen(true)}><Menu size={19} /></button>
+          <IconButton className="menu-button" icon={<Menu size={18} />} label="Mở menu" onClick={() => setSidebarOpen(true)} size="sm" variant="ghost" />
           <button className="workspace-switch" onClick={() => router.push('/workspaces')}><span className="workspace-dot" /><div><small>Workspace</small><strong>{workspace?.name ?? 'Đang tải…'}</strong></div><ChevronDown size={16} /></button>
-          <div className="header-center"><strong>{activeConversation?.title ?? 'Cuộc trò chuyện mới'}</strong><span><ShieldCheck size={13} /> Nội bộ</span></div>
-          <div className="header-actions"><span className={`model-status ${config?.model_configured ? 'ready' : ''}`}><i />{config?.model_alias ?? 'company-general'}</span><CircleUserRound size={23} /></div>
+          <div className="header-center"><strong>{activeConversation?.title ?? 'Cuộc trò chuyện mới'}</strong><Badge icon={<ShieldCheck size={11} />} label="INTERNAL" variant="success" /></div>
+          <div className="header-actions"><Badge icon={<span className={`model-dot ${config?.model_configured ? 'ready' : ''}`} />} label={config?.model_alias ?? 'company-general'} variant="neutral" />{user && <Avatar name={user.name} size="sm" tooltip={user.email} />}</div>
         </header>
 
         {!config?.model_configured && config && <div className="model-banner"><AlertTriangle size={17} /><span><strong>Model Gateway chưa được cấu hình.</strong> Giao diện và lịch sử đã sẵn sàng; thêm cấu hình LLM trong <code>.env</code> để nhận câu trả lời thật.</span></div>}
@@ -138,7 +149,7 @@ export default function ChatPage() {
               <h1>Xin chào{user ? `, ${user.name.split(' ').slice(-1)[0]}` : ''}.</h1>
               <p>Bạn muốn khám phá điều gì trong workspace này?</p>
               <div className="suggestion-grid">
-                {suggestions.map((suggestion, index) => <button key={suggestion} onClick={() => submit(undefined, suggestion)}><span>{index === 0 ? <FileText size={18} /> : index === 1 ? <Sparkles size={18} /> : <Bot size={18} />}</span>{suggestion}<Send size={15} /></button>)}
+                {suggestions.map((suggestion, index) => <ClickableCard className="suggestion-card" key={suggestion} label={suggestion} onClick={() => submit(undefined, suggestion)} padding={4}><span>{index === 0 ? <FileText size={17} /> : index === 1 ? <Sparkles size={17} /> : <Bot size={17} />}</span><strong>{index === 0 ? 'Tóm tắt tài liệu' : index === 1 ? 'Khám phá khả năng' : 'Prompt guide'}</strong><p>{suggestion}</p><Send size={14} /></ClickableCard>)}
               </div>
             </div>
           ) : (
@@ -157,7 +168,7 @@ export default function ChatPage() {
         <div className="composer-wrap">
           <form className="composer" onSubmit={submit}>
             <textarea aria-label="Câu hỏi" disabled={streaming} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="Hỏi Cosmo bất cứ điều gì…" rows={1} value={draft} />
-            <button aria-label="Gửi câu hỏi" disabled={!draft.trim() || streaming} type="submit">{streaming ? <ThinkingOrb state="composing" size={20} /> : <Send size={18} />}</button>
+            <div className="composer-actions"><span className="composer-context"><Paperclip size={14} /> Thêm ngữ cảnh</span><span className="composer-hint">Enter để gửi</span><IconButton icon={streaming ? <ThinkingOrb state="composing" size={20} /> : <Send size={16} />} isDisabled={!draft.trim() || streaming} label="Gửi câu hỏi" size="lg" type="submit" variant="primary" /></div>
           </form>
           <p>Cosmo có thể mắc lỗi. Hãy kiểm tra nguồn trước khi đưa ra quyết định quan trọng.</p>
         </div>

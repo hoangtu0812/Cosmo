@@ -3,7 +3,11 @@
 import {FormEvent, useEffect, useState} from 'react';
 import Image from 'next/image';
 import {useRouter} from 'next/navigation';
-import {AlertCircle, ArrowRight, Check, Eye, EyeOff, LoaderCircle, LockKeyhole, ShieldCheck} from 'lucide-react';
+import {Activity, AlertCircle, ArrowRight, Braces, Check, Cpu, Database, Eye, EyeOff, LockKeyhole, Network, ShieldCheck} from 'lucide-react';
+import {Badge} from '@astryxdesign/core/Badge';
+import {Button} from '@astryxdesign/core/Button';
+import {CheckboxInput} from '@astryxdesign/core/CheckboxInput';
+import {TextInput} from '@astryxdesign/core/TextInput';
 import {API_BASE, api, AuthConfig} from './lib/api';
 
 const oauthErrors: Record<string, string> = {
@@ -22,6 +26,9 @@ export default function Home() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -41,14 +48,11 @@ export default function Home() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const values = new FormData(event.currentTarget);
     setLoading(true);
     setError('');
     try {
-      const email = String(values.get('email') ?? '');
-      const password = String(values.get('password') ?? '');
       if (mode === 'signup') {
-        await api.signUp(String(values.get('name') ?? ''), email, password);
+        await api.signUp(name, email, password);
       } else {
         await api.signIn(email, password, remember);
       }
@@ -66,69 +70,72 @@ export default function Home() {
         <div className="brand-topline">
           <span className="brand-symbol" aria-hidden="true"><Image alt="" height={64} priority src="/cosmo-logo.png" width={64} /></span>
           <div><strong>Cosmo</strong><span>Enterprise AI Platform</span></div>
+          <Badge label="PRIVATE AI" variant="blue" />
         </div>
 
         <div className="brand-copy">
-          <span className="eyebrow">AI nội bộ · An toàn · Có kiểm soát</span>
-          <h1>Trí tuệ doanh nghiệp,<br />trong một không gian làm việc.</h1>
+          <span className="eyebrow"><Activity size={13} /> Intelligence fabric / online</span>
+          <h1>Một giao diện.<br />Toàn bộ trí tuệ<br />doanh nghiệp.</h1>
           <p>
-            Trò chuyện với dữ liệu nội bộ, cộng tác cùng các AI Agent và truy cập
-            công cụ nghiệp vụ theo đúng quyền của bạn.
+            Hỏi dữ liệu, điều phối AI Agent và truy cập công cụ nghiệp vụ trong
+            một lớp trải nghiệm được kiểm soát theo quyền của bạn.
           </p>
+          <div className="system-visual" aria-hidden="true">
+            <div className="system-grid" />
+            <div className="system-core"><Braces size={20} /><span>ORCHESTRATION CORE</span><strong>Context engine</strong><small><i /> Operational</small></div>
+            <div className="system-node node-data"><Database size={15} /><span>Knowledge</span><strong>Synced</strong></div>
+            <div className="system-node node-agent"><Cpu size={15} /><span>Agents</span><strong>12 ready</strong></div>
+            <div className="system-node node-policy"><ShieldCheck size={15} /><span>Policy</span><strong>Enforced</strong></div>
+            <div className="system-line line-one" /><div className="system-line line-two" /><div className="system-line line-three" />
+          </div>
           <div className="trust-list">
-            <div><Check size={17} /> Dữ liệu được phân quyền theo workspace</div>
-            <div><Check size={17} /> Câu trả lời có nguồn trích dẫn rõ ràng</div>
-            <div><Check size={17} /> Mọi hoạt động quan trọng đều được kiểm soát</div>
+            <div><Check size={15} /> Workspace-aware access</div>
+            <div><Check size={15} /> Governed model gateway</div>
+            <div><Check size={15} /> Observable by default</div>
           </div>
         </div>
 
-        <div className="brand-footer"><ShieldCheck size={18} /><span>Được bảo vệ bởi chính sách bảo mật doanh nghiệp</span></div>
+        <div className="brand-footer"><Network size={16} /><span>COSMO CORE</span><i /> <span>Secure enterprise runtime</span></div>
       </section>
 
       <section className="auth-panel">
-        <div className="environment-pill"><span /> Môi trường nội bộ</div>
+        <div className="environment-pill"><span /> Internal environment <code>AP-SE-01</code></div>
         <div className="auth-card">
           <div className="mobile-brand"><span className="brand-symbol" aria-hidden="true"><Image alt="" height={64} priority src="/cosmo-logo.png" width={64} /></span><strong>Cosmo</strong></div>
           <header>
-            <p className="section-kicker">Chào mừng bạn</p>
-            <h2>{mode === 'signin' ? 'Đăng nhập vào Cosmo' : 'Tạo tài khoản Cosmo'}</h2>
-            <p>{mode === 'signin' ? 'Sử dụng tài khoản công ty hoặc tài khoản Cosmo của bạn.' : 'Tạo tài khoản cá nhân để bắt đầu workspace của riêng bạn.'}</p>
+            <p className="section-kicker">Identity gateway</p>
+            <h2>{mode === 'signin' ? 'Truy cập Cosmo' : 'Khởi tạo tài khoản'}</h2>
+            <p>{mode === 'signin' ? 'Xác thực bằng danh tính doanh nghiệp hoặc tài khoản Cosmo.' : 'Tạo danh tính để bắt đầu workspace riêng của bạn.'}</p>
           </header>
 
           {error && <div className="form-alert" role="alert"><AlertCircle size={17} /><span>{error}</span></div>}
 
-          <button
-            className="microsoft-button"
-            disabled={!config?.entra_enabled || loading}
-            onClick={() => { window.location.href = `${API_BASE}/api/auth/entra/start`; }}
-            title={config?.entra_enabled ? 'Đăng nhập qua Microsoft Entra ID' : 'Cần cấu hình Azure AD trong .env'}
-            type="button"
-          >
-            <span className="microsoft-mark" aria-hidden="true"><i /><i /><i /><i /></span>
-            Tiếp tục với Microsoft
-            <ArrowRight size={17} />
-          </button>
+          <Button
+            endContent={<ArrowRight size={16} />}
+            href={config?.entra_enabled ? `${API_BASE}/api/auth/entra/start` : undefined}
+            icon={<span className="microsoft-mark" aria-hidden="true"><i /><i /><i /><i /></span>}
+            isDisabled={!config?.entra_enabled || loading}
+            label="Tiếp tục với Microsoft"
+            size="lg"
+            tooltip={config?.entra_enabled ? 'Đăng nhập qua Microsoft Entra ID' : 'Cần cấu hình Azure AD trong .env'}
+            variant="secondary"
+            width="100%"
+          />
           {config && !config.entra_enabled && <p className="provider-note">Quản trị viên cần cấu hình Microsoft Entra ID để bật lựa chọn này.</p>}
 
-          <div className="divider"><span>hoặc dùng tài khoản Cosmo</span></div>
+          <div className="divider"><span>Cosmo identity</span></div>
 
           <form className="auth-form" onSubmit={submit}>
-            {mode === 'signup' && <label><span>Họ và tên</span><input autoComplete="name" name="name" placeholder="Nguyễn Văn An" required /></label>}
-            <label><span>Email</span><input autoComplete="email" name="email" type="email" placeholder="tenban@congty.vn" required /></label>
-            <label>
-              <span>Mật khẩu</span>
-              <div className="password-field">
-                <input autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} minLength={10} name="password" type={showPassword ? 'text' : 'password'} placeholder={mode === 'signin' ? 'Nhập mật khẩu' : 'Tối thiểu 10 ký tự, gồm chữ và số'} required />
-                <button aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} onClick={() => setShowPassword((value) => !value)} type="button">{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button>
-              </div>
-            </label>
+            {mode === 'signup' && <TextInput className="auth-field" htmlName="name" isRequired label="Họ và tên" onChange={setName} placeholder="Nguyễn Văn An" size="lg" value={name} width="100%" />}
+            <TextInput className="auth-field" htmlName="email" isRequired label="Email doanh nghiệp" onChange={setEmail} placeholder="tenban@congty.vn" size="lg" type="email" value={email} width="100%" />
+            <div className="password-field">
+              <TextInput className="auth-field" htmlName="password" isRequired label="Mật khẩu" onChange={setPassword} placeholder={mode === 'signin' ? 'Nhập mật khẩu' : 'Tối thiểu 10 ký tự, gồm chữ và số'} size="lg" type={showPassword ? 'text' : 'password'} value={password} width="100%" />
+              <button aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} className="password-toggle" onClick={() => setShowPassword((value) => !value)} type="button">{showPassword ? <EyeOff size={15} /> : <Eye size={15} />}{showPassword ? 'Ẩn' : 'Hiện'}</button>
+            </div>
 
-            {mode === 'signin' && <div className="form-options"><label className="remember"><input checked={remember} onChange={(event) => setRemember(event.target.checked)} type="checkbox" /> <span>Ghi nhớ đăng nhập</span></label><span className="secure-session">Phiên đăng nhập được mã hóa</span></div>}
+            {mode === 'signin' && <div className="form-options"><CheckboxInput label="Ghi nhớ thiết bị này" onChange={setRemember} size="sm" value={remember} /><span className="secure-session"><LockKeyhole size={12} /> Encrypted session</span></div>}
 
-            <button className="primary-button" disabled={loading || checkingSession} type="submit">
-              {loading || checkingSession ? <LoaderCircle className="spin" size={18} /> : <LockKeyhole size={17} />}
-              {loading ? 'Đang xác thực…' : mode === 'signin' ? 'Đăng nhập' : 'Tạo tài khoản'}
-            </button>
+            <Button icon={<LockKeyhole size={16} />} isDisabled={loading || checkingSession} isLoading={loading || checkingSession} label={loading ? 'Đang xác thực…' : mode === 'signin' ? 'Đăng nhập an toàn' : 'Tạo tài khoản'} size="lg" type="submit" variant="primary" width="100%" />
           </form>
 
           <p className="switch-mode">{mode === 'signin' ? 'Chưa có tài khoản?' : 'Đã có tài khoản?'}{' '}<button onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }} type="button">{mode === 'signin' ? 'Đăng ký ngay' : 'Đăng nhập'}</button></p>

@@ -54,6 +54,9 @@ var migrations = []string{
 		content TEXT NOT NULL,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	// Kept as a standalone, idempotent migration so existing installations gain
+	// the preference without requiring a destructive schema reset.
+	`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_workspace_id TEXT`,
 	`CREATE INDEX IF NOT EXISTS idx_memberships_user ON workspace_memberships(user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_conversations_user_workspace_updated ON conversations(user_id, workspace_id, updated_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at ASC)`,

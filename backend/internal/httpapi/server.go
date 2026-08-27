@@ -40,10 +40,11 @@ type Server struct {
 }
 
 type User struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	ID              string `json:"id"`
+	Email           string `json:"email"`
+	Name            string `json:"name"`
+	Role            string `json:"role"`
+	LastWorkspaceID string `json:"last_workspace_id,omitempty"`
 }
 
 type Workspace struct {
@@ -111,6 +112,7 @@ func (s *Server) Router() http.Handler {
 		protected.Use(s.requireUser)
 		protected.Get("/api/auth/me", s.me)
 		protected.Get("/api/workspaces", s.workspaces)
+		protected.Post("/api/workspaces/{workspaceID}/select", s.selectWorkspace)
 		protected.Get("/api/conversations", s.listConversations)
 		protected.Post("/api/conversations", s.createConversation)
 		protected.Get("/api/conversations/{conversationID}/messages", s.listMessages)
@@ -223,6 +225,9 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO workspace_memberships(user_id, workspace_id, role) VALUES($1, $2, 'owner')`, userID, workspaceID)
 	}
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `UPDATE users SET last_workspace_id = $2, updated_at = NOW() WHERE id = $1`, userID, workspaceID)
+	}
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tạo workspace cá nhân.")
 		return
@@ -318,7 +323,7 @@ func (s *Server) entraCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setSession(w, user, true)
-	http.Redirect(w, r, s.cfg.FrontendURL+"/workspaces", http.StatusFound)
+	http.Redirect(w, r, s.cfg.FrontendURL+"/chat", http.StatusFound)
 }
 
 func (s *Server) upsertEntraUser(ctx context.Context, subject, email, name string) (User, error) {
@@ -363,6 +368,10 @@ func (s *Server) upsertEntraUser(ctx context.Context, subject, email, name strin
 	if err != nil {
 		return User{}, err
 	}
+	_, err = tx.Exec(ctx, `UPDATE users SET last_workspace_id = COALESCE(last_workspace_id, $2), updated_at = NOW() WHERE id = $1`, user.ID, workspaceID)
+	if err != nil {
+		return User{}, err
+	}
 	return user, tx.Commit(ctx)
 }
 
@@ -386,6 +395,20 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"workspaces": items})
+}
+
+func (s *Server) selectWorkspace(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
+	if !s.hasWorkspace(r.Context(), user.ID, workspaceID) {
+		writeError(w, http.StatusForbidden, "Bạn không có quyền truy cập workspace này.")
+		return
+	}
+	if _, err := s.db.Exec(r.Context(), `UPDATE users SET last_workspace_id = $2, updated_at = NOW() WHERE id = $1`, user.ID, workspaceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể lưu workspace gần nhất.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
@@ -568,7 +591,7 @@ func (s *Server) requireUser(next http.Handler) http.Handler {
 		}
 		userID, _ := claims.GetSubject()
 		var user User
-		if s.db.QueryRow(r.Context(), `SELECT id, email, name, role FROM users WHERE id = $1`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Role) != nil {
+		if s.db.QueryRow(r.Context(), `SELECT id, email, name, role, COALESCE(last_workspace_id, '') FROM users WHERE id = $1`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Role, &user.LastWorkspaceID) != nil {
 			writeError(w, http.StatusUnauthorized, "Tài khoản không còn hoạt động.")
 			return
 		}

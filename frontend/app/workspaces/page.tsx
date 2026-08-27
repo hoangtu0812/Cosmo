@@ -32,6 +32,16 @@ export default function WorkspacesPage() {
     router.replace('/');
   }
 
+  async function openWorkspace(workspaceID: string) {
+    setError('');
+    try {
+      await api.selectWorkspace(workspaceID);
+      router.push(`/chat?workspace=${encodeURIComponent(workspaceID)}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Không thể mở workspace.');
+    }
+  }
+
   return (
     <main className="workspace-page">
       <header className="workspace-header">
@@ -47,7 +57,7 @@ export default function WorkspacesPage() {
         {error && <div className="page-error">{error}</div>}
         {!loading && !error && <div className="workspace-grid">
           {items.map((workspace) => (
-            <ClickableCard className="workspace-card" elevation="low" key={workspace.id} label={`Mở workspace ${workspace.name}`} onClick={() => router.push(`/chat?workspace=${encodeURIComponent(workspace.id)}`)} padding={6}>
+            <ClickableCard className="workspace-card" elevation="low" key={workspace.id} label={`Mở workspace ${workspace.name}`} onClick={() => openWorkspace(workspace.id)} padding={6}>
               <div className={`workspace-symbol ${workspace.type}`}>
                 {workspace.type === 'personal' ? <UserRound size={23} /> : <Building2 size={23} />}
               </div>

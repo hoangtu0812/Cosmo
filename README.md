@@ -17,6 +17,7 @@ Repository chứa vertical slice đầu tiên có thể chạy end-to-end:
 - Tự động bootstrap tài khoản quản trị từ biến môi trường.
 - Phiên đăng nhập bằng JWT trong cookie `HttpOnly`.
 - Chọn workspace cá nhân hoặc workspace doanh nghiệp theo quyền thành viên.
+- Tự động mở workspace gần nhất sau đăng nhập; chỉ hiển thị màn chọn workspace khi cần đổi ngữ cảnh.
 - Tạo, lưu và mở lại lịch sử hội thoại trong PostgreSQL.
 - Stream câu trả lời từ API tương thích OpenAI; API key chỉ tồn tại ở backend.
 - Giao diện responsive cho đăng nhập, workspace và chat, sử dụng Astryx Neutral cùng font Figtree tự host.

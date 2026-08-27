@@ -41,7 +41,7 @@ export default function Home() {
     }
     Promise.allSettled([api.authConfig(), api.me()]).then(([configResult, meResult]) => {
       if (configResult.status === 'fulfilled') setConfig(configResult.value);
-      if (meResult.status === 'fulfilled') router.replace('/workspaces');
+      if (meResult.status === 'fulfilled') router.replace('/chat');
       setCheckingSession(false);
     });
   }, [router]);
@@ -56,7 +56,7 @@ export default function Home() {
       } else {
         await api.signIn(email, password, remember);
       }
-      router.push('/workspaces');
+      router.push('/chat');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Không thể đăng nhập.');
     } finally {

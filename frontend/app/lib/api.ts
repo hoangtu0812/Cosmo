@@ -2,7 +2,7 @@
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8080';
 
-export type User = {id: string; email: string; name: string; role: 'admin' | 'user'};
+export type User = {id: string; email: string; name: string; role: 'admin' | 'user'; last_workspace_id?: string};
 export type Workspace = {id: string; name: string; slug: string; type: 'personal' | 'team' | 'project'; role: string};
 export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
 export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; created_at: string};
@@ -40,6 +40,7 @@ export const api = {
   signUp: (name: string, email: string, password: string) => request<{user: User}>('/api/auth/signup', {method: 'POST', body: JSON.stringify({name, email, password})}),
   signOut: () => request<void>('/api/auth/signout', {method: 'POST'}),
   workspaces: () => request<{workspaces: Workspace[]}>('/api/workspaces'),
+  selectWorkspace: (workspaceID: string) => request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/select`, {method: 'POST'}),
   conversations: (workspaceID: string) => request<{conversations: Conversation[]}>(`/api/conversations?workspace_id=${encodeURIComponent(workspaceID)}`),
   createConversation: (workspaceID: string, title = 'Cuộc trò chuyện mới') => request<{conversation: Conversation}>('/api/conversations', {method: 'POST', body: JSON.stringify({workspace_id: workspaceID, title})}),
   messages: (conversationID: string) => request<{messages: Message[]}>(`/api/conversations/${encodeURIComponent(conversationID)}/messages`),

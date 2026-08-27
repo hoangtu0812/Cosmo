@@ -36,11 +36,14 @@ export default function ChatPage() {
   const activeConversation = useMemo(() => conversations.find((item) => item.id === conversationID), [conversations, conversationID]);
 
   useEffect(() => {
-    const workspaceID = new URLSearchParams(window.location.search).get('workspace');
-    if (!workspaceID) { router.replace('/workspaces'); return; }
-    Promise.all([api.me(), api.workspaces(), api.authConfig(), api.conversations(workspaceID)]).then(([me, workspaceResult, authConfig, conversationResult]) => {
+    const requestedWorkspaceID = new URLSearchParams(window.location.search).get('workspace');
+    Promise.all([api.me(), api.workspaces(), api.authConfig()]).then(async ([me, workspaceResult, authConfig]) => {
+      const workspaceID = requestedWorkspaceID ?? me.user.last_workspace_id ?? workspaceResult.workspaces[0]?.id;
       const selected = workspaceResult.workspaces.find((item) => item.id === workspaceID);
       if (!selected) { router.replace('/workspaces'); return; }
+      if (!requestedWorkspaceID) router.replace(`/chat?workspace=${encodeURIComponent(selected.id)}`);
+      await api.selectWorkspace(selected.id);
+      const conversationResult = await api.conversations(selected.id);
       setUser(me.user);
       setWorkspace(selected);
       setConfig(authConfig);

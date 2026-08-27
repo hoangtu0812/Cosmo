@@ -975,90 +975,79 @@
   .messages-area { flex: 1; min-height: 0; overflow-y: auto; }
 
   .chat-welcome {
-    width: min(100% - var(--spacing-8), 700px);
+    width: min(100% - var(--spacing-8), 720px);
     min-height: 100%;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     margin: 0 auto;
-    padding: var(--spacing-12) 0;
+    padding: var(--spacing-10) 0 var(--spacing-8);
     text-align: center;
   }
-  .welcome-orb {
-    width: 72px;
-    height: 72px;
-    display: grid;
-    place-items: center;
-    margin-bottom: var(--spacing-4);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-page);
-    background: var(--color-background-card);
-    box-shadow: var(--shadow-low);
-  }
-  .chat-welcome h1 {
-    margin: var(--spacing-2) 0 0;
-    color: var(--color-text-primary);
-    font-size: var(--text-display-2-size);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: -.03em;
-  }
-  .chat-welcome > p:not(.section-kicker) {
-    margin: var(--spacing-2) 0 var(--spacing-8);
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-lg);
-  }
-
-  .suggestion-grid {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--spacing-3);
-  }
-  .suggestion-card {
-    min-height: 148px;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    text-align: left;
-  }
-  .suggestion-card > span {
-    width: 32px;
-    height: 32px;
+  .welcome-mark {
+    width: 42px;
+    height: 42px;
     display: grid;
     place-items: center;
     margin-bottom: var(--spacing-3);
     border: 1px solid var(--color-border-blue);
-    border-radius: var(--radius-inner);
+    border-radius: var(--radius-element);
     color: var(--color-icon-blue);
     background: var(--color-background-blue);
   }
-  .suggestion-card strong {
+  .chat-welcome h1 {
+    margin: var(--spacing-2) 0 0;
     color: var(--color-text-primary);
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-3xl);
     font-weight: var(--font-weight-semibold);
+    letter-spacing: -.025em;
   }
-  .suggestion-card p {
-    margin: var(--spacing-1) 0 0;
+  .chat-welcome > p:not(.section-kicker) {
+    max-width: 54ch;
+    margin: var(--spacing-2) 0 var(--spacing-6);
     color: var(--color-text-secondary);
-    font-size: var(--font-size-sm);
-    line-height: 1.5;
+    font-size: var(--font-size-base);
+    line-height: 1.6;
   }
-  .suggestion-card > svg { position: absolute; right: var(--spacing-4); bottom: var(--spacing-4); color: var(--color-icon-disabled); }
+  .chat-welcome > p strong { color: var(--color-text-primary); font-weight: var(--font-weight-medium); }
+
+  .suggestion-grid {
+    display: flex;
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--spacing-2);
+  }
+  .suggestion-card {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    padding: 0 var(--spacing-3);
+    color: var(--color-text-secondary);
+    background: var(--color-background-card);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    transition: background var(--duration-fast) ease, border-color var(--duration-fast) ease, color var(--duration-fast) ease;
+  }
+  .suggestion-card:hover { border-color: var(--color-border-blue); color: var(--color-text-blue); background: var(--color-background-blue); }
+  .suggestion-card span { display: grid; place-items: center; color: var(--color-icon-blue); }
 
   .message-thread {
     width: min(100% - var(--spacing-8), var(--cosmo-reading-width));
     margin: 0 auto;
-    padding: var(--spacing-8) 0 var(--spacing-5);
+    padding: var(--spacing-7) 0 var(--spacing-5);
   }
   .message {
     display: grid;
     grid-template-columns: 32px minmax(0, 1fr);
     gap: var(--spacing-3);
-    padding: var(--spacing-5) 0;
+    padding: var(--spacing-4) 0;
   }
-  .message + .message { border-top: 1px solid var(--color-border); }
+  .message + .message { margin-top: var(--spacing-2); }
   .message-avatar {
     width: 32px;
     height: 32px;
@@ -1071,9 +1060,17 @@
     font-weight: var(--font-weight-semibold);
   }
   .message.user .message-avatar {
-    border-radius: var(--radius-full);
-    color: var(--color-text-primary);
-    background: var(--color-background-gray);
+    display: none;
+  }
+  .message.user {
+    display: block;
+  }
+  .message.user .message-body {
+    width: min(100%, 640px);
+    margin-left: auto;
+  }
+  .message.user .message-author {
+    justify-content: flex-end;
   }
   .message-author {
     display: flex;
@@ -1092,8 +1089,9 @@
     white-space: pre-wrap;
   }
   .message.user .message-content {
-    border-radius: var(--radius-element);
-    padding: var(--spacing-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-container);
+    padding: var(--spacing-3) var(--spacing-4);
     background: var(--color-background-muted);
   }
   .thinking-inline {
@@ -1103,9 +1101,23 @@
     color: var(--color-text-secondary);
     font-size: var(--font-size-sm);
   }
+  .message-actions { display: flex; gap: var(--spacing-1); margin-top: var(--spacing-2); }
+  .message-actions button {
+    min-height: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    border: 0;
+    border-radius: var(--radius-inner);
+    padding: 0 var(--spacing-2);
+    color: var(--color-text-secondary);
+    background: transparent;
+    font-size: var(--font-size-xs);
+  }
+  .message-actions button:hover { color: var(--color-text-primary); background: var(--color-overlay-hover); }
 
   .composer-wrap {
-    width: min(100% - var(--spacing-8), 700px);
+    width: min(100% - var(--spacing-8), 720px);
     flex: 0 0 auto;
     margin: 0 auto;
     padding: var(--spacing-3) 0 var(--spacing-4);
@@ -1113,21 +1125,21 @@
   .composer {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--spacing-1);
+    gap: var(--spacing-2);
     border: 1px solid var(--color-border-emphasized);
     border-radius: var(--radius-page);
-    padding: var(--spacing-3);
-    background: var(--color-background-card);
+    padding: var(--spacing-2) var(--spacing-2) var(--spacing-2) var(--spacing-3);
+    background: color-mix(in oklab, var(--color-background-muted) 45%, var(--color-background-card));
     box-shadow: var(--shadow-low);
   }
-  .composer:focus-within { border-color: var(--color-accent); }
+  .composer:focus-within { border-color: var(--color-border-blue); background: var(--color-background-card); box-shadow: var(--shadow-medium); }
   .composer textarea {
     max-height: 160px;
-    min-height: 58px;
+    min-height: 52px;
     resize: none;
     border: 0;
     outline: 0;
-    padding: var(--spacing-2);
+    padding: var(--spacing-2) var(--spacing-1);
     color: var(--color-text-primary);
     background: transparent;
     font-size: var(--font-size-base);
@@ -1138,7 +1150,7 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-2);
-    padding: 0 var(--spacing-1);
+    padding: 0 var(--spacing-1) 0 var(--spacing-1);
   }
   .composer-context {
     display: inline-flex;
@@ -1148,11 +1160,36 @@
     font-size: var(--font-size-sm);
   }
   .composer-context svg { color: var(--color-icon-secondary); }
+  .composer-model {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-1);
+    min-height: 24px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    padding: 0 var(--spacing-2);
+    color: var(--color-text-secondary);
+    background: var(--color-background-card);
+    font-size: var(--font-size-xs);
+  }
   .composer-hint {
     margin-left: auto;
     color: var(--color-text-disabled);
     font-size: var(--font-size-xs);
   }
+  .composer-send {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: var(--radius-full);
+    color: var(--color-text-inverse);
+    background: var(--color-icon-primary);
+  }
+  .composer-send:hover:not(:disabled) { background: var(--color-icon-blue); }
+  .composer-send:disabled { opacity: .35; }
   .composer-wrap > p {
     margin: var(--spacing-2) 0 0;
     color: var(--color-text-secondary);

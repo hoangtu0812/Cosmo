@@ -4,11 +4,10 @@ import {FormEvent, useEffect, useMemo, useRef, useState} from 'react';
 import Image from 'next/image';
 import {useRouter} from 'next/navigation';
 import {ThinkingOrb} from 'thinking-orbs';
-import {AlertTriangle, Bot, Check, ChevronDown, FileText, Inbox, LogOut, Menu, MessageSquare, Paperclip, Plus, Send, ShieldCheck, Sparkles, X} from 'lucide-react';
+import {AlertTriangle, ArrowUp, Bot, Check, ChevronDown, Copy, FileText, Inbox, LogOut, Menu, MessageSquare, Paperclip, Plus, ShieldCheck, Sparkles, X} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Button} from '@astryxdesign/core/Button';
-import {ClickableCard} from '@astryxdesign/core/ClickableCard';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {api, APIError, AuthConfig, Conversation, Message, streamChat, User, Workspace} from '../lib/api';
 
@@ -31,6 +30,7 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [copiedMessageID, setCopiedMessageID] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -124,6 +124,16 @@ export default function ChatPage() {
 
   async function signOut() { await api.signOut(); router.replace('/'); }
 
+  async function copyMessage(message: Message) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageID(message.id);
+      window.setTimeout(() => setCopiedMessageID((current) => current === message.id ? '' : current), 1800);
+    } catch {
+      setError('Không thể sao chép nội dung vào clipboard.');
+    }
+  }
+
   async function selectWorkspace(nextWorkspace: Workspace) {
     if (nextWorkspace.id === workspace?.id) {
       setWorkspaceMenuOpen(false);
@@ -198,12 +208,12 @@ export default function ChatPage() {
         <div className="messages-area">
           {messages.length === 0 ? (
             <div className="chat-welcome">
-              <div className="welcome-orb"><ThinkingOrb state="breathing" size={64} aria-label="Cosmo sẵn sàng" /></div>
+              <div className="welcome-mark"><Sparkles size={19} /></div>
               <p className="section-kicker">Cosmo Assistant</p>
-              <h1>Xin chào{user ? `, ${user.name.split(' ').slice(-1)[0]}` : ''}.</h1>
-              <p>Bạn muốn khám phá điều gì trong workspace này?</p>
+              <h1>Bạn muốn làm gì hôm nay?</h1>
+              <p>Hỏi về công việc, tài liệu và tri thức trong <strong>{workspace?.name ?? 'workspace này'}</strong>.</p>
               <div className="suggestion-grid">
-                {suggestions.map((suggestion, index) => <ClickableCard className="suggestion-card" key={suggestion} label={suggestion} onClick={() => submit(undefined, suggestion)} padding={4}><span>{index === 0 ? <FileText size={17} /> : index === 1 ? <Sparkles size={17} /> : <Bot size={17} />}</span><strong>{index === 0 ? 'Tóm tắt tài liệu' : index === 1 ? 'Khám phá khả năng' : 'Prompt guide'}</strong><p>{suggestion}</p><Send size={14} /></ClickableCard>)}
+                {suggestions.map((suggestion, index) => <button className="suggestion-card" key={suggestion} onClick={() => submit(undefined, suggestion)} type="button"><span>{index === 0 ? <FileText size={15} /> : index === 1 ? <Sparkles size={15} /> : <Bot size={15} />}</span>{index === 0 ? 'Tóm tắt tài liệu' : index === 1 ? 'Khám phá khả năng' : 'Prompt guide'}</button>)}
               </div>
             </div>
           ) : (
@@ -211,7 +221,7 @@ export default function ChatPage() {
               {messages.map((message) => (
                 <article className={`message ${message.role}`} key={message.id}>
                   <div className="message-avatar">{message.role === 'assistant' ? <Bot size={18} /> : user?.name.charAt(0).toUpperCase()}</div>
-                  <div><div className="message-author">{message.role === 'assistant' ? 'Cosmo' : user?.name}<span>{new Date(message.created_at).toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})}</span></div><div className="message-content">{message.content || (streaming && message.role === 'assistant' ? <span className="thinking-inline"><ThinkingOrb state="composing" size={20} /> {status}</span> : '')}</div></div>
+                  <div className="message-body"><div className="message-author">{message.role === 'assistant' ? 'Cosmo' : user?.name}<span>{new Date(message.created_at).toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})}</span></div><div className="message-content">{message.content || (streaming && message.role === 'assistant' ? <span className="thinking-inline"><ThinkingOrb state="composing" size={20} /> {status}</span> : '')}</div>{message.role === 'assistant' && message.content && <div className="message-actions"><button aria-label="Sao chép câu trả lời" onClick={() => copyMessage(message)} type="button"><Copy size={13} /> {copiedMessageID === message.id ? 'Đã sao chép' : 'Sao chép'}</button></div>}</div>
                 </article>
               ))}
               <div ref={endRef} />
@@ -222,7 +232,7 @@ export default function ChatPage() {
         <div className="composer-wrap">
           <form className="composer" onSubmit={submit}>
             <textarea aria-label="Câu hỏi" disabled={streaming} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submit(); } }} placeholder="Hỏi Cosmo bất cứ điều gì…" rows={1} value={draft} />
-            <div className="composer-actions"><span className="composer-context"><Paperclip size={14} /> Thêm ngữ cảnh</span><span className="composer-hint">Enter để gửi</span><IconButton icon={streaming ? <ThinkingOrb state="composing" size={20} /> : <Send size={16} />} isDisabled={!draft.trim() || streaming} label="Gửi câu hỏi" size="lg" type="submit" variant="primary" /></div>
+            <div className="composer-actions"><span className="composer-context"><Paperclip size={14} /> Thêm ngữ cảnh</span><span className="composer-model"><span className={`model-dot ${config?.model_configured ? 'ready' : ''}`} />{config?.model_alias ?? 'company-general'}</span><span className="composer-hint">Enter để gửi</span><button aria-label="Gửi câu hỏi" className="composer-send" disabled={!draft.trim() || streaming} type="submit">{streaming ? <ThinkingOrb state="composing" size={18} /> : <ArrowUp size={17} />}</button></div>
           </form>
           <p>Cosmo có thể mắc lỗi. Hãy kiểm tra nguồn trước khi đưa ra quyết định quan trọng.</p>
         </div>

@@ -8,6 +8,7 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
+import {Card} from '@astryxdesign/core/Card';
 import {
   ChatComposer,
   ChatLayout,
@@ -351,6 +352,19 @@ export default function ChatPage() {
       sideNav={
         <SideNav
           collapsible={collapsible}
+          footer={
+            user ? (
+              <Card padding={3} width="100%">
+                <HStack gap={2} vAlign="center">
+                  <Avatar name={user.name} size="md" src={user.has_avatar ? api.userAvatarURL() : undefined} />
+                  <VStack gap={0} minWidth={0}>
+                    <Text truncate type="label" weight="semibold">{user.name}</Text>
+                    <Text color="secondary" truncate type="supporting">{user.email}</Text>
+                  </VStack>
+                </HStack>
+              </Card>
+            ) : undefined
+          }
           header={
             <SideNavHeading
               heading={workspace?.name ?? t('chat.loading')}

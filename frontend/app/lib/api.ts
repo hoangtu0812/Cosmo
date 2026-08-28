@@ -215,6 +215,8 @@ export async function streamChat(
   options: ChatOptions,
   handlers: {
     onMeta?: (data: {assistant_message_id: string; model: string; citations: Citation[]}) => void;
+    onSources?: (data: {citations: Citation[]}) => void;
+    onStatus?: (data: {stage: string; message: string}) => void;
     onDelta: (content: string) => void;
     onDone?: (data: {message: Message}) => void;
   },
@@ -247,7 +249,9 @@ export async function streamChat(
       const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
       if (!event || !rawData) continue;
       const data = JSON.parse(rawData) as Record<string, unknown>;
-      if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string});
+      if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; citations: Citation[]});
+      if (event === 'sources') handlers.onSources?.(data as {citations: Citation[]});
+      if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string});
       if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
       if (event === 'done') handlers.onDone?.(data as {message: Message});
       if (event === 'error') throw new APIError(String(data.message ?? 'Model Gateway không phản hồi.'), 502);

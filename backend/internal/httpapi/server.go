@@ -737,16 +737,31 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	historyRows.Close()
 
-	// Retrieval runs against the knowledge bases installed in this workspace
-	// that the user is also allowed to see. It is best effort: if the
-	// knowledge plane is down the question is still answered, just without
-	// grounding, which is better than refusing to talk at all.
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "Streaming không được hỗ trợ.")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	assistantID := "msg_" + randomID(18)
+
+	// Retrieval happens before model generation, but it must not look like the
+	// reply is stuck. Announce it over the same SSE stream and send the found
+	// sources as soon as they exist, ahead of the first generated token.
+	writeSSE(w, "status", map[string]string{"stage": "retrieving", "message": "Đang tìm trong Knowledge Base…"})
+	flusher.Flush()
+
 	var citations []Citation
 	retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
 	passages, retrievalErr := s.retrievalContext(retrievalCtx, user.ID, conversationWorkspaceID, input.Content)
 	cancelRetrieval()
 	if retrievalErr != nil {
 		s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
+		writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
+		flusher.Flush()
 	}
 	if len(passages) > 0 {
 		// Grounding goes in front of the conversation so the passages frame
@@ -763,18 +778,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 				Page:       passage.Page,
 			})
 		}
+		writeSSE(w, "sources", map[string]any{"citations": citations})
+		flusher.Flush()
 	}
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "Streaming không được hỗ trợ.")
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-transform")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	assistantID := "msg_" + randomID(18)
+	writeSSE(w, "status", map[string]string{"stage": "writing", "message": "Đang soạn câu trả lời…"})
+	flusher.Flush()
 	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options), "citations": citations})
 	flusher.Flush()
 

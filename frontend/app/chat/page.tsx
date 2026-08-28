@@ -256,6 +256,8 @@ export default function ChatPage() {
           setStatus(t('chat.writing'));
           setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, citations} : item));
         },
+        onSources: ({citations}) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, citations} : item)),
+        onStatus: ({message}) => setStatus(message),
         onDelta: (delta) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, content: item.content + delta} : item)),
         onDone: ({message}) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? message : item)),
       });
@@ -454,7 +456,10 @@ export default function ChatPage() {
                               <Markdown isStreaming={streaming} headingLevelStart={3}>{message.content}</Markdown>
                               <CitationList citations={message.citations ?? []} />
                             </VStack>
-                            : (streaming ? <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state="composing" /><Text color="secondary" type="supporting">{status}</Text></HStack> : '')}
+                            : (streaming ? <VStack gap={3}>
+                              <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state="composing" /><Text color="secondary" type="supporting">{status}</Text></HStack>
+                              <CitationList citations={message.citations ?? []} />
+                            </VStack> : '')}
                         </ChatMessageBubble>
                       </ChatMessage>
                     ))}

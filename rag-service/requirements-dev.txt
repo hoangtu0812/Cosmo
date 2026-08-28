@@ -1,3 +1,3 @@
 # Test-only dependencies, installed in their own layer so touching them never
-# invalidates the cached layer that carries torch and the model libraries.
+# invalidates the runtime dependency layer.
 pytest==8.3.4

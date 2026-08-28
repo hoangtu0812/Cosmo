@@ -1,16 +1,13 @@
-# CPU-only torch. The GPU wheels are several gigabytes larger and this service
-# does retrieval, not training; inference itself lives behind the LLM gateway.
+# Document parsing and vector storage; inference is delegated to System Model Gateway.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    HF_HOME=/models \
-    MODEL_CACHE=/models
+    PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /srv
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements-dev.txt

@@ -13,7 +13,7 @@ import json
 import logging
 import os
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -75,14 +75,18 @@ def ready() -> dict:
 
 
 @app.post("/ingest")
-def ingest_document(request: IngestRequest = Body(...)):
+def ingest_document(
+    request: IngestRequest = Body(...),
+    gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
+    gateway_api_key: str | None = Header(default=None, alias="X-Cosmo-Gateway-API-Key"),
+):
     """Ingest a document, streaming one JSON event per line as it progresses.
 
     NDJSON rather than a single response: the caller needs to show what is
     happening during the minutes this takes, and a stream lets it forward each
     stage without holding the whole pipeline in memory.
     """
-    ml.configure(request.embedding_model, request.reranker_model)
+    ml.configure(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
     try:
         content = base64.b64decode(request.content_base64)
     except Exception as error:  # noqa: BLE001
@@ -108,8 +112,12 @@ def ingest_document(request: IngestRequest = Body(...)):
 
 
 @app.post("/search", response_model=SearchResponse)
-def search(request: SearchRequest = Body(...)) -> SearchResponse:
-    ml.configure(request.embedding_model, request.reranker_model)
+def search(
+    request: SearchRequest = Body(...),
+    gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
+    gateway_api_key: str | None = Header(default=None, alias="X-Cosmo-Gateway-API-Key"),
+) -> SearchResponse:
+    ml.configure(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
     return SearchResponse(results=retrieve.search(request.query, request.kb_ids, request.limit))
 
 

@@ -15,10 +15,6 @@ class Settings:
     minio_bucket: str
     minio_secure: bool
 
-    embedding_model: str
-    reranker_model: str
-    model_cache: str
-
     # Retrieval shape. The doc asks for a wide first pass narrowed by a
     # reranker, not a narrow vector search fed straight to the model.
     candidates_per_kb: int
@@ -39,11 +35,6 @@ def load() -> Settings:
         minio_secret_key=os.environ.get("MINIO_SECRET_KEY", "cosmo-secret"),
         minio_bucket=os.environ.get("MINIO_BUCKET", "cosmo-documents"),
         minio_secure=os.environ.get("MINIO_SECURE", "false").lower() == "true",
-        # These defaults are only used until the control plane supplies the
-        # administrator's saved configuration with an ingest or search job.
-        embedding_model="BAAI/bge-m3",
-        reranker_model="BAAI/bge-reranker-v2-m3",
-        model_cache=os.environ.get("MODEL_CACHE", "/models"),
         candidates_per_kb=int(os.environ.get("CANDIDATES_PER_KB", "60")),
         rerank_input=int(os.environ.get("RERANK_INPUT", "100")),
         rerank_output=int(os.environ.get("RERANK_OUTPUT", "12")),

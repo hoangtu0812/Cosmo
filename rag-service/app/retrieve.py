@@ -150,10 +150,7 @@ def search(query: str, kb_ids: Sequence[str], limit: int | None = None) -> list[
     # Each KB is searched on its own so no single large KB can crowd the
     # others out before fusion has a chance to weigh them.
     def retrieve(kb_id: str) -> list[tuple[str, list]]:
-        return [
-            (f"dense:{kb_id}", store.search_dense([kb_id], encoded.dense, settings.candidates_per_kb)),
-            (f"sparse:{kb_id}", store.search_sparse([kb_id], encoded.sparse, settings.candidates_per_kb)),
-        ]
+        return [(f"dense:{kb_id}", store.search_dense([kb_id], encoded.dense, settings.candidates_per_kb))]
 
     ranked_lists: list[tuple[str, list]] = []
     with ThreadPoolExecutor(max_workers=min(8, len(kb_ids))) as pool:

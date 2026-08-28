@@ -1,128 +1,159 @@
-"""BGE-M3 embeddings and the BGE reranker, loaded lazily.
+"""Gateway-backed embeddings and reranking.
 
-Both models are large. Loading them at import time would make the container
-fail its healthcheck while the weights download, so each is loaded on first
-use and then held for the process lifetime.
+The knowledge plane never loads or stores model weights. The control plane
+passes the administrator's System Model Gateway configuration with each job,
+and this adapter speaks the OpenAI embeddings API plus vLLM's compatible
+rerank endpoint.
 """
 
 from __future__ import annotations
 
-import logging
+import json
 import threading
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 from typing import Sequence
 
-from .config import settings
 
-logger = logging.getLogger(__name__)
+@dataclass(frozen=True)
+class GatewaySettings:
+    base_url: str
+    api_key: str
+    embedding_model: str
+    reranker_model: str
 
-_embedder = None
-_reranker = None
-_embedder_lock = threading.Lock()
-_reranker_lock = threading.Lock()
+
+_settings = GatewaySettings("", "", "", "")
 _settings_lock = threading.Lock()
-_embedding_model = settings.embedding_model
-_reranker_model = settings.reranker_model
 
 
-def configure(embedding_model: str | None, reranker_model: str | None) -> None:
-    """Apply the control plane's model selection to the next operation.
-
-    Model instances are discarded only when their identifier changes. This
-    makes a saved Admin setting effective immediately while retaining a warm
-    model when normal jobs use the same configuration.
-    """
-    global _embedder, _reranker, _embedding_model, _reranker_model
+def configure(
+    embedding_model: str | None,
+    reranker_model: str | None,
+    gateway_base_url: str | None,
+    gateway_api_key: str | None,
+) -> None:
+    """Receive one trusted System Model Gateway configuration from Cosmo."""
+    global _settings
     with _settings_lock:
-        if embedding_model and embedding_model != _embedding_model:
-            logger.info("switching embedding model from %s to %s", _embedding_model, embedding_model)
-            _embedding_model = embedding_model
-            _embedder = None
-        if reranker_model and reranker_model != _reranker_model:
-            logger.info("switching reranker from %s to %s", _reranker_model, reranker_model)
-            _reranker_model = reranker_model
-            _reranker = None
+        _settings = GatewaySettings(
+            base_url=(gateway_base_url or "").rstrip("/"),
+            api_key=gateway_api_key or "",
+            embedding_model=embedding_model or "",
+            reranker_model=reranker_model or "",
+        )
 
 
-def embedder():
-    global _embedder
-    if _embedder is None:
-        with _embedder_lock:
-            if _embedder is None:
-                from FlagEmbedding import BGEM3FlagModel
-
-                logger.info("loading embedding model %s", _embedding_model)
-                _embedder = BGEM3FlagModel(
-                    _embedding_model,
-                    cache_dir=settings.model_cache,
-                    use_fp16=False,
-                )
-    return _embedder
+def _gateway() -> GatewaySettings:
+    if not _settings.base_url:
+        raise RuntimeError("System Model Gateway is not configured")
+    if not _settings.embedding_model or not _settings.reranker_model:
+        raise RuntimeError("Embedding and reranker models must be configured")
+    return _settings
 
 
-def reranker():
-    global _reranker
-    if _reranker is None:
-        with _reranker_lock:
-            if _reranker is None:
-                from FlagEmbedding import FlagReranker
+def _post(path: str, payload: dict) -> dict:
+    gateway = _gateway()
+    request = urllib.request.Request(
+        gateway.base_url + path,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            **({"Authorization": f"Bearer {gateway.api_key}"} if gateway.api_key else {}),
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            body = response.read()
+    except urllib.error.HTTPError as error:
+        detail = error.read(2048).decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"System Model Gateway returned {error.code}: {detail}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"System Model Gateway is unreachable: {error.reason}") from error
 
-                logger.info("loading reranker %s", _reranker_model)
-                _reranker = FlagReranker(
-                    _reranker_model,
-                    cache_dir=settings.model_cache,
-                    use_fp16=False,
-                )
-    return _reranker
+    try:
+        decoded = json.loads(body)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("System Model Gateway returned invalid JSON") from error
+    if not isinstance(decoded, dict):
+        raise RuntimeError("System Model Gateway returned an invalid response")
+    return decoded
 
 
 def is_cold() -> bool:
-    """Whether the embedding model still has to be loaded.
-
-    Used only to phrase progress honestly: the first ingestion after a restart
-    spends minutes downloading weights, and saying so beats a silent pause.
-    """
-    return _embedder is None
+    """The data plane no longer has a local model to warm up."""
+    return False
 
 
 class Encoded:
-    """One text's dense vector plus its sparse lexical weights."""
+    """One gateway-provided dense vector.
+
+    Generic OpenAI-compatible embedding APIs do not provide BGE-M3's sparse
+    lexical weights, so sparse retrieval is deliberately omitted instead of
+    fabricating a local model call outside the gateway.
+    """
 
     __slots__ = ("dense", "sparse")
 
-    def __init__(self, dense: list[float], sparse: dict[int, float]):
+    def __init__(self, dense: list[float]):
         self.dense = dense
-        self.sparse = sparse
+        self.sparse: dict[int, float] = {}
 
 
 def encode(texts: Sequence[str]) -> list[Encoded]:
-    """Encode texts into dense and sparse representations in a single pass.
-
-    BGE-M3 produces both from one forward pass, which is why it is worth the
-    weight: the sparse side carries the exact tokens (equipment tags, work
-    order numbers) that dense embeddings blur away.
-    """
     if not texts:
         return []
+    gateway = _gateway()
+    response = _post("/embeddings", {"model": gateway.embedding_model, "input": list(texts)})
+    data = response.get("data")
+    if not isinstance(data, list) or len(data) != len(texts):
+        raise RuntimeError("System Model Gateway returned incomplete embeddings")
 
-    output = embedder().encode(
-        list(texts),
-        return_dense=True,
-        return_sparse=True,
-        return_colbert_vecs=False,
-    )
-
-    result: list[Encoded] = []
-    for dense, sparse in zip(output["dense_vecs"], output["lexical_weights"]):
-        weights = {int(token): float(weight) for token, weight in sparse.items() if float(weight) > 0}
-        result.append(Encoded(dense=[float(value) for value in dense], sparse=weights))
-    return result
+    vectors: list[Encoded | None] = [None] * len(texts)
+    for position, item in enumerate(data):
+        if not isinstance(item, dict):
+            raise RuntimeError("System Model Gateway returned an invalid embedding")
+        index = item.get("index", position)
+        embedding = item.get("embedding")
+        if not isinstance(index, int) or index < 0 or index >= len(vectors) or not isinstance(embedding, list) or not embedding:
+            raise RuntimeError("System Model Gateway returned an invalid embedding")
+        try:
+            vectors[index] = Encoded([float(value) for value in embedding])
+        except (TypeError, ValueError) as error:
+            raise RuntimeError("System Model Gateway returned a non-numeric embedding") from error
+    if any(vector is None for vector in vectors):
+        raise RuntimeError("System Model Gateway returned incomplete embeddings")
+    return [vector for vector in vectors if vector is not None]
 
 
 def rerank(query: str, passages: Sequence[str]) -> list[float]:
-    """Score each passage against the query with the cross-encoder."""
     if not passages:
         return []
-    scores = reranker().compute_score([[query, passage] for passage in passages], normalize=True)
-    if isinstance(scores, float):
-        return [scores]
-    return [float(score) for score in scores]
+    gateway = _gateway()
+    response = _post(
+        "/rerank",
+        {"model": gateway.reranker_model, "query": query, "documents": list(passages), "top_n": len(passages)},
+    )
+    results = response.get("results")
+    if not isinstance(results, list):
+        raise RuntimeError("System Model Gateway returned invalid rerank results")
+
+    scores = [0.0] * len(passages)
+    found = set()
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        score = item.get("relevance_score", item.get("score"))
+        if not isinstance(index, int) or index < 0 or index >= len(scores):
+            continue
+        try:
+            scores[index] = float(score)
+            found.add(index)
+        except (TypeError, ValueError):
+            continue
+    if not found:
+        raise RuntimeError("System Model Gateway returned invalid rerank results")
+    return scores

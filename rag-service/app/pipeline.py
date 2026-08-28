@@ -66,9 +66,7 @@ def run(
             return
         yield _event("chunked", f"Split into {len(chunks)} chunks", chunks=len(chunks))
 
-        # Loading the models the first time pulls several gigabytes of weights,
-        # which is worth saying out loud rather than looking like a hang.
-        yield _event("embedding", "Loading the embedding model" if ml.is_cold() else "Embedding chunks")
+        yield _event("embedding", "Embedding chunks through the system model gateway")
 
         encoded = []
         for start in range(0, len(chunks), EMBED_BATCH):

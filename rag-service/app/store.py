@@ -1,11 +1,4 @@
-"""Qdrant access.
-
-Qdrant holds one collection with two named vectors per chunk — a dense vector
-for meaning and a sparse vector for exact tokens. It is a retrieval backend
-only: every access decision arrives from the control plane as an explicit list
-of knowledge base ids, and is pushed into the query filter so unauthorised
-chunks are never read, never scored and never logged.
-"""
+"""Qdrant access for gateway-generated dense vectors."""
 
 from __future__ import annotations
 
@@ -22,8 +15,6 @@ logger = logging.getLogger(__name__)
 
 DENSE = "dense"
 SPARSE = "sparse"
-DENSE_SIZE = 1024  # BGE-M3
-
 _client: QdrantClient | None = None
 
 
@@ -31,19 +22,25 @@ def client() -> QdrantClient:
     global _client
     if _client is None:
         _client = QdrantClient(url=settings.qdrant_url, timeout=60)
-        ensure_collection(_client)
     return _client
 
 
-def ensure_collection(qdrant: QdrantClient) -> None:
+def ensure_collection(qdrant: QdrantClient, vector_size: int) -> None:
     if qdrant.collection_exists(settings.collection):
+        collection = qdrant.get_collection(settings.collection)
+        vectors = collection.config.params.vectors
+        current = vectors.get(DENSE) if isinstance(vectors, dict) else None
+        current_size = getattr(current, "size", None)
+        if current_size != vector_size:
+            raise RuntimeError(
+                f"embedding dimension {vector_size} does not match the existing index dimension {current_size}; reindex documents after changing embedding model"
+            )
         return
 
     logger.info("creating collection %s", settings.collection)
     qdrant.create_collection(
         collection_name=settings.collection,
-        vectors_config={DENSE: models.VectorParams(size=DENSE_SIZE, distance=models.Distance.COSINE)},
-        sparse_vectors_config={SPARSE: models.SparseVectorParams()},
+        vectors_config={DENSE: models.VectorParams(size=vector_size, distance=models.Distance.COSINE)},
     )
 
     # kb_id carries every access decision, so it is the one field that must be
@@ -67,18 +64,21 @@ def point_id(document_id: str, chunk_index: int) -> str:
 
 
 def upsert(chunks: Sequence[dict], encoded: Sequence[Encoded]) -> None:
+    if not encoded:
+        return
+    ensure_collection(client(), len(encoded[0].dense))
     points = []
     for chunk, vector in zip(chunks, encoded):
+        vectors = {DENSE: vector.dense}
+        if vector.sparse:
+            vectors[SPARSE] = models.SparseVector(
+                indices=list(vector.sparse.keys()),
+                values=list(vector.sparse.values()),
+            )
         points.append(
             models.PointStruct(
                 id=point_id(chunk["document_id"], chunk["chunk_index"]),
-                vector={
-                    DENSE: vector.dense,
-                    SPARSE: models.SparseVector(
-                        indices=list(vector.sparse.keys()),
-                        values=list(vector.sparse.values()),
-                    ),
-                },
+                vector=vectors,
                 payload=chunk,
             )
         )
@@ -151,6 +151,8 @@ def _authorized_filter(kb_ids: Iterable[str]) -> models.Filter:
 
 
 def search_dense(kb_ids: Sequence[str], vector: list[float], limit: int) -> list[models.ScoredPoint]:
+    if not client().collection_exists(settings.collection):
+        return []
     return client().query_points(
         collection_name=settings.collection,
         query=vector,

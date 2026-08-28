@@ -58,6 +58,15 @@ type IngestRequest struct {
 type ModelSettings struct {
 	EmbeddingModel string
 	RerankerModel  string
+	GatewayBaseURL string
+	GatewayAPIKey  string
+}
+
+func (m ModelSettings) applyGatewayHeaders(request *http.Request) {
+	request.Header.Set("X-Cosmo-Gateway-Base-URL", m.GatewayBaseURL)
+	if m.GatewayAPIKey != "" {
+		request.Header.Set("X-Cosmo-Gateway-API-Key", m.GatewayAPIKey)
+	}
 }
 
 type IngestResult struct {
@@ -140,6 +149,7 @@ func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, content
 		return IngestResult{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
+	models.applyGatewayHeaders(request)
 
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -201,7 +211,7 @@ func (c *Client) Search(ctx context.Context, query string, kbIDs []string, limit
 	var result struct {
 		Results []Passage `json:"results"`
 	}
-	if err := c.call(ctx, http.MethodPost, "/search", body, &result); err != nil {
+	if err := c.call(ctx, http.MethodPost, "/search", body, &result, &models); err != nil {
 		return nil, err
 	}
 	return result.Results, nil
@@ -212,12 +222,12 @@ func (c *Client) DeleteDocument(ctx context.Context, documentID, storageKey stri
 	if storageKey != "" {
 		path += "?storage_key=" + url.QueryEscape(storageKey)
 	}
-	return c.call(ctx, http.MethodDelete, path, nil, nil)
+	return c.call(ctx, http.MethodDelete, path, nil, nil, nil)
 }
 
 func (c *Client) InspectDocument(ctx context.Context, documentID string) (DocumentInspection, error) {
 	var inspection DocumentInspection
-	if err := c.call(ctx, http.MethodGet, "/documents/"+url.PathEscape(documentID)+"/inspection", nil, &inspection); err != nil {
+	if err := c.call(ctx, http.MethodGet, "/documents/"+url.PathEscape(documentID)+"/inspection", nil, &inspection, nil); err != nil {
 		return DocumentInspection{}, err
 	}
 	return inspection, nil
@@ -242,10 +252,10 @@ func (c *Client) OriginalDocument(ctx context.Context, documentID, storageKey st
 }
 
 func (c *Client) DeleteKnowledgeBase(ctx context.Context, kbID string) error {
-	return c.call(ctx, http.MethodDelete, "/knowledge-bases/"+url.PathEscape(kbID), nil, nil)
+	return c.call(ctx, http.MethodDelete, "/knowledge-bases/"+url.PathEscape(kbID), nil, nil, nil)
 }
 
-func (c *Client) call(ctx context.Context, method, path string, body any, out any) error {
+func (c *Client) call(ctx context.Context, method, path string, body any, out any, models *ModelSettings) error {
 	var reader io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)
@@ -261,6 +271,9 @@ func (c *Client) call(ctx context.Context, method, path string, body any, out an
 	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if models != nil {
+		models.applyGatewayHeaders(request)
 	}
 
 	response, err := c.http.Do(request)

@@ -264,7 +264,19 @@ func (s *Server) knowledgeModelSettings(ctx context.Context) (knowledge.ModelSet
 	if err := rows.Err(); err != nil {
 		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
 	}
-	return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, nil
+	baseURL, apiKey, _, err := s.systemGateway(ctx)
+	if err != nil {
+		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
+	}
+	if baseURL == "" {
+		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, errors.New("system model gateway is not configured")
+	}
+	return knowledge.ModelSettings{
+		EmbeddingModel: values["embedding_model"],
+		RerankerModel:  values["reranker_model"],
+		GatewayBaseURL: baseURL,
+		GatewayAPIKey:  apiKey,
+	}, nil
 }
 
 func (s *Server) updateSystemSettings(w http.ResponseWriter, r *http.Request) {

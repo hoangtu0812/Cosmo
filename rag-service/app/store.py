@@ -93,6 +93,11 @@ def upsert(chunks: Sequence[dict], encoded: Sequence[Encoded]) -> None:
 
 
 def delete_document(document_id: str) -> None:
+    # A full re-index drops the collection before it starts rebuilding. There
+    # are no prior chunks to remove on the first document, so this is a normal
+    # no-op rather than a failed ingestion.
+    if not client().collection_exists(settings.collection):
+        return
     client().delete(
         collection_name=settings.collection,
         points_selector=models.FilterSelector(
@@ -105,6 +110,8 @@ def delete_document(document_id: str) -> None:
 
 
 def delete_knowledge_base(kb_id: str) -> None:
+    if not client().collection_exists(settings.collection):
+        return
     client().delete(
         collection_name=settings.collection,
         points_selector=models.FilterSelector(

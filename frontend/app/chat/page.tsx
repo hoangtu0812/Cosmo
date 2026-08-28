@@ -1,10 +1,9 @@
 'use client';
 
 import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {useRouter} from 'next/navigation';
+import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb} from 'thinking-orbs';
-import {Bot, Building2, Check, Library, MessageSquare, Plus, Settings, SquarePen, UserPlus, UserRound} from 'lucide-react';
-import {AppShell} from '@astryxdesign/core/AppShell';
+import {Bot, Building2, Check, MessageSquare, Plus, Settings, UserPlus, UserRound} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -22,7 +21,6 @@ import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
-import {SideNav, SideNavCollapseButton, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
@@ -48,6 +46,9 @@ function subscribeMobile(onChange: () => void) {
 export default function ChatPage() {
   const t = useTranslation();
   const router = useRouter();
+  const search = useSearchParams();
+  const requestedWorkspaceID = search.get('workspace');
+  const requestedConversationID = search.get('conversation');
   const suggestions = [t('chat.suggestion1'), t('chat.suggestion2'), t('chat.suggestion3'), t('chat.suggestion4')];
   const [user, setUser] = useState<User | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -90,7 +91,6 @@ export default function ChatPage() {
   const activeConversation = useMemo(() => conversations.find((item) => item.id === conversationID), [conversations, conversationID]);
 
   useEffect(() => {
-    const requestedWorkspaceID = new URLSearchParams(window.location.search).get('workspace');
     Promise.all([api.me(), api.workspaces()]).then(async ([me, workspaceResult]) => {
       const workspaceID = requestedWorkspaceID ?? me.user.last_workspace_id ?? workspaceResult.workspaces[0]?.id;
       const selected = workspaceResult.workspaces.find((item) => item.id === workspaceID);
@@ -105,12 +105,13 @@ export default function ChatPage() {
       const conversationResult = await api.conversations(selected.id);
       setWorkspace(selected);
       setConversations(conversationResult.conversations);
-      if (conversationResult.conversations[0]) setConversationID(conversationResult.conversations[0].id);
+      const selectedConversation = requestedConversationID === 'new' ? undefined : conversationResult.conversations.find((item) => item.id === requestedConversationID) ?? conversationResult.conversations[0];
+      if (selectedConversation) setConversationID(selectedConversation.id);
     }).catch((caught) => {
       if (caught instanceof APIError && caught.status === 401) router.replace('/');
       else setError(caught instanceof Error ? caught.message : t('chat.loadFailed'));
     });
-  }, [router, t]);
+  }, [requestedConversationID, requestedWorkspaceID, router, t]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -373,61 +374,7 @@ export default function ChatPage() {
   );
 
   return (
-    <AppShell
-      contentPadding={0}
-      variant="elevated"
-      sideNav={
-        <SideNav
-          collapsible={collapsible}
-          footer={user ? <UserProfileCard user={user} /> : undefined}
-          header={
-            <SideNavHeading
-              heading={workspace?.name ?? t('chat.loading')}
-              icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />}
-              menu={workspaceMenu}
-              subheading={user?.email}
-            />
-          }
-        >
-          <SideNavSection isHeaderHidden title={t('chat.actions')}>
-            <SideNavItem
-              icon={<Icon icon={SquarePen} size="sm" />}
-              isSelected={conversationID === ''}
-              label={t('chat.newChat')}
-              onClick={startNewChat}
-            />
-            <SideNavItem
-              icon={<Icon icon={Library} size="sm" />}
-              label={t('kb.title')}
-              onClick={() => router.push('/knowledge')}
-            />
-          </SideNavSection>
-
-          <SideNavSection title={t('chat.recent')}>
-            {conversations.map((item) => (
-              <SideNavItem
-                endContent={
-                  <MoreMenu
-                    items={[
-                      {label: t('conv.rename'), onClick: () => { setRenaming(item); setRenameTitle(item.title); }},
-                      {label: t('conv.delete'), variant: 'destructive', onClick: () => setDeleting(item)},
-                    ]}
-                    label={t('conv.options')}
-                    size="sm"
-                  />
-                }
-                icon={<Icon icon={MessageSquare} size="sm" />}
-                isSelected={item.id === conversationID}
-                key={item.id}
-                label={item.title}
-                onClick={() => openConversation(item.id)}
-              />
-            ))}
-          </SideNavSection>
-          {conversations.length === 0 && <EmptyState description={t('chat.empty')} isCompact title="—" />}
-        </SideNav>
-      }
-    >
+    <>
       <Layout
         height="fill"
         header={
@@ -436,7 +383,6 @@ export default function ChatPage() {
               label={t('chat.toolbar')}
               startContent={
                 <>
-                  <SideNavCollapseButton collapsible={collapsible} label={t('chat.sidebar')} size="sm" />
                   <DropdownMenu
                     alignment="start"
                     button={{label: activeConversation?.title ?? t('chat.newChat'), size: 'sm', variant: 'ghost'}}
@@ -579,7 +525,7 @@ export default function ChatPage() {
         />
       </Dialog>
 
-    </AppShell>
+    </>
   );
 }
 

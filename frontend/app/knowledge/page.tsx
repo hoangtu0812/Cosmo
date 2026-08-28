@@ -1,10 +1,9 @@
 'use client';
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {useRouter} from 'next/navigation';
-import {ArrowLeft, Library, Trash2} from 'lucide-react';
+import {useRouter, useSearchParams} from 'next/navigation';
+import {Trash2} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
-import {AppShell} from '@astryxdesign/core/AppShell';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -12,26 +11,24 @@ import {Card} from '@astryxdesign/core/Card';
 import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Grid} from '@astryxdesign/core/Grid';
-import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {Link} from '@astryxdesign/core/Link';
 import {Section} from '@astryxdesign/core/Section';
 import {Selector} from '@astryxdesign/core/Selector';
-import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {api, APIError, KnowledgeBase, User, Workspace, WorkspaceRef} from '../lib/api';
+import {api, APIError, KnowledgeBase, Workspace, WorkspaceRef} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
-import {UserProfileCard} from '../components/UserProfileCard';
 
 type Translate = ReturnType<typeof useTranslation>;
 
 export default function KnowledgePage() {
   const t = useTranslation();
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const search = useSearchParams();
+  const requestedWorkspaceID = search.get('workspace') ?? '';
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [directory, setDirectory] = useState<WorkspaceRef[]>([]);
   const [workspaceID, setWorkspaceID] = useState('');
@@ -65,15 +62,14 @@ export default function KnowledgePage() {
   useEffect(() => {
     Promise.all([api.me(), api.workspaces(), api.workspaceDirectory()])
       .then(([me, mine, all]) => {
-        setUser(me.user);
         setWorkspaces(mine.workspaces);
         setDirectory(all.workspaces);
-        setWorkspaceID(me.user.last_workspace_id || mine.workspaces[0]?.id || '');
+        setWorkspaceID(requestedWorkspaceID || me.user.last_workspace_id || mine.workspaces[0]?.id || '');
       })
       .catch((caught) => {
         if (caught instanceof APIError && caught.status === 401) router.replace('/');
       });
-  }, [router]);
+  }, [requestedWorkspaceID, router]);
 
   useEffect(() => { load(workspaceID); }, [load, workspaceID]);
 
@@ -160,23 +156,7 @@ export default function KnowledgePage() {
   }
 
   return (
-    <AppShell
-      contentPadding={0}
-      sideNav={
-        <SideNav
-          footer={user ? <UserProfileCard user={user} /> : undefined}
-          header={<SideNavHeading heading={t('kb.title')} icon={<Icon icon={Library} size="sm" />} subheading={workspace?.name ?? user?.email} />}
-        >
-          <SideNavSection isHeaderHidden title={t('kb.title')}>
-            <SideNavItem
-              icon={<Icon icon={ArrowLeft} size="sm" />}
-              label={t('settings.back')}
-              onClick={() => router.push(workspaceID ? `/chat?workspace=${encodeURIComponent(workspaceID)}` : '/chat')}
-            />
-          </SideNavSection>
-        </SideNav>
-      }
-    >
+    <>
       <Layout
         contentWidth={1120}
         height="fill"
@@ -282,7 +262,7 @@ export default function KnowledgePage() {
         onOpenChange={(open) => { if (!open) setDeleting(null); }}
         title={t('kb.deleteTitle')}
       />
-    </AppShell>
+    </>
   );
 }
 

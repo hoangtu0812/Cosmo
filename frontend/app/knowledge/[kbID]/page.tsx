@@ -1,10 +1,9 @@
 'use client';
 
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {useParams, useRouter} from 'next/navigation';
-import {ArrowLeft, ChevronDown, ChevronRight, FileText, Library, Trash2, Upload} from 'lucide-react';
+import {useParams, useRouter, useSearchParams} from 'next/navigation';
+import {ChevronDown, ChevronRight, FileText, Trash2, Upload} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
-import {AppShell} from '@astryxdesign/core/AppShell';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -16,13 +15,11 @@ import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
 import {Section} from '@astryxdesign/core/Section';
-import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
-import {api, APIError, DocumentEvent, KnowledgeBase, KnowledgeDocument, User} from '../../lib/api';
+import {api, APIError, DocumentEvent, KnowledgeBase, KnowledgeDocument} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
-import {UserProfileCard} from '../../components/UserProfileCard';
 
 // Ingestion is asynchronous, so a document that is still being parsed is
 // re-checked until it settles. The poll stops as soon as nothing is in flight,
@@ -32,11 +29,12 @@ const POLL_INTERVAL = 4000;
 export default function KnowledgeDetailPage() {
   const t = useTranslation();
   const router = useRouter();
+  const search = useSearchParams();
   const params = useParams<{kbID: string}>();
   const kbID = params.kbID;
+  const workspaceID = search.get('workspace') ?? '';
 
   const [base, setBase] = useState<KnowledgeBase | null>(null);
-  const [user, setUser] = useState<User | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -73,17 +71,16 @@ export default function KnowledgeDetailPage() {
   const handleSettled = useCallback(() => { void loadDocuments(); }, [loadDocuments]);
 
   useEffect(() => {
-    Promise.all([api.me(), api.knowledgeBases()])
-      .then(([me, result]) => {
-        setUser(me.user);
+    api.knowledgeBases(workspaceID || undefined)
+      .then((result) => {
         const found = result.knowledge_bases.find((item) => item.id === kbID);
-        if (!found) router.replace('/knowledge');
+        if (!found) router.replace(workspaceID ? `/knowledge?workspace=${encodeURIComponent(workspaceID)}` : '/knowledge');
         else setBase(found);
       })
       .catch((caught) => {
         if (caught instanceof APIError && caught.status === 401) router.replace('/');
       });
-  }, [kbID, router]);
+  }, [kbID, router, workspaceID]);
 
   useEffect(() => {
     loadDocuments().catch(() => setError(t('kb.docsFailed')));
@@ -147,23 +144,7 @@ export default function KnowledgeDetailPage() {
   }
 
   return (
-    <AppShell
-      contentPadding={0}
-      sideNav={
-        <SideNav
-          footer={user ? <UserProfileCard user={user} /> : undefined}
-          header={<SideNavHeading heading={base?.name ?? ''} icon={<Icon icon={Library} size="sm" />} subheading={base?.description} />}
-        >
-          <SideNavSection isHeaderHidden title={t('kb.title')}>
-            <SideNavItem
-              icon={<Icon icon={ArrowLeft} size="sm" />}
-              label={t('kb.title')}
-              onClick={() => router.push('/knowledge')}
-            />
-          </SideNavSection>
-        </SideNav>
-      }
-    >
+    <>
       <Layout
         contentWidth={880}
         height="fill"
@@ -269,7 +250,7 @@ export default function KnowledgeDetailPage() {
         onOpenChange={(open) => { if (!open) setDeleting(null); }}
         title={t('kb.docDeleteTitle')}
       />
-    </AppShell>
+    </>
   );
 }
 

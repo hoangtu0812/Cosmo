@@ -5,6 +5,7 @@ import '@fontsource/be-vietnam-pro/600.css';
 import '@fontsource/be-vietnam-pro/700.css';
 import './globals.css';
 import {Providers} from './providers';
+import {WorkspaceFrame} from './components/WorkspaceFrame';
 
 export const metadata: Metadata = {
   title: 'Cosmo · Enterprise AI Platform',
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 export default function RootLayout({children}: Readonly<{children: React.ReactNode}>) {
   return (
     <html data-astryx-theme="cosmo" data-theme="light" lang="vi">
-      <body><Providers>{children}</Providers></body>
+      <body><Providers><WorkspaceFrame>{children}</WorkspaceFrame></Providers></body>
     </html>
   );
 }

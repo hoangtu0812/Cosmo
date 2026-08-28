@@ -8,7 +8,6 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
 import {
   ChatComposer,
   ChatLayout,
@@ -37,7 +36,7 @@ import {MoreMenu} from '@astryxdesign/core/MoreMenu';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Selector} from '@astryxdesign/core/Selector';
 import {useTranslation} from '../lib/i18n';
-import {usePreferences} from '../lib/preferences';
+import {UserProfileCard} from '../components/UserProfileCard';
 
 const MOBILE_QUERY = '(max-width: 768px)';
 
@@ -49,7 +48,6 @@ function subscribeMobile(onChange: () => void) {
 
 export default function ChatPage() {
   const t = useTranslation();
-  const {preferences, setLocale, setTheme} = usePreferences();
   const router = useRouter();
   const suggestions = [t('chat.suggestion1'), t('chat.suggestion2'), t('chat.suggestion3'), t('chat.suggestion4')];
   const [user, setUser] = useState<User | null>(null);
@@ -82,7 +80,6 @@ export default function ChatPage() {
   const [workspaceDescription, setWorkspaceDescription] = useState('');
   const [workspaceLogo, setWorkspaceLogo] = useState<File | null>(null);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
-  const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false);
   const workspaceLogoInput = useRef<HTMLInputElement>(null);
 
   // Below 768px the rail must start collapsed. Tracked as a subscription
@@ -189,8 +186,6 @@ export default function ChatPage() {
       setBusy(false);
     }
   }
-
-  async function signOut() { await api.signOut(); router.replace('/'); }
 
   function closeCreateWorkspace(force = false) {
     if (isCreatingWorkspace && !force) return;
@@ -385,27 +380,7 @@ export default function ChatPage() {
       sideNav={
         <SideNav
           collapsible={collapsible}
-          footer={
-            user ? (
-              <Card padding={3} width="100%">
-                <HStack gap={2} hAlign="between" vAlign="center">
-                  <Avatar name={user.name} size="md" src={user.has_avatar ? api.userAvatarURL() : undefined} />
-                  <VStack gap={0} minWidth={0}>
-                    <Text truncate type="label" weight="semibold">{user.name}</Text>
-                    <Text color="secondary" truncate type="supporting">{user.email}</Text>
-                  </VStack>
-                  <MoreMenu
-                    items={[
-                      {label: t('settings.preferences'), onClick: () => setIsProfileSettingsOpen(true)},
-                      {label: t('menu.signOut'), onClick: () => void signOut(), variant: 'destructive'},
-                    ]}
-                    label={t('profile.options')}
-                    size="sm"
-                  />
-                </HStack>
-              </Card>
-            ) : undefined
-          }
+          footer={user ? <UserProfileCard user={user} /> : undefined}
           header={
             <SideNavHeading
               heading={workspace?.name ?? t('chat.loading')}
@@ -601,48 +576,6 @@ export default function ChatPage() {
         />
       </Dialog>
 
-      <Dialog
-        isOpen={isProfileSettingsOpen}
-        onOpenChange={setIsProfileSettingsOpen}
-        purpose="form"
-      >
-        <Layout
-          content={
-            <LayoutContent>
-              <VStack gap={4}>
-                <HStack hAlign="between" vAlign="center">
-                  <Text type="label">{t('prefs.theme')}</Text>
-                  <Selector
-                    isLabelHidden
-                    label={t('prefs.theme')}
-                    onChange={(value) => setTheme(value as 'light' | 'dark' | 'system')}
-                    options={[
-                      {value: 'light', label: t('prefs.themeLight')},
-                      {value: 'dark', label: t('prefs.themeDark')},
-                      {value: 'system', label: t('prefs.themeSystem')},
-                    ]}
-                    value={preferences.theme}
-                  />
-                </HStack>
-                <HStack hAlign="between" vAlign="center">
-                  <Text type="label">{t('prefs.language')}</Text>
-                  <Selector
-                    isLabelHidden
-                    label={t('prefs.language')}
-                    onChange={(value) => setLocale(value as 'en' | 'vi')}
-                    options={[
-                      {value: 'en', label: t('prefs.languageEn')},
-                      {value: 'vi', label: t('prefs.languageVi')},
-                    ]}
-                    value={preferences.locale}
-                  />
-                </HStack>
-              </VStack>
-            </LayoutContent>
-          }
-          header={<DialogHeader onOpenChange={setIsProfileSettingsOpen} title={t('settings.preferences')} />}
-        />
-      </Dialog>
     </AppShell>
   );
 }

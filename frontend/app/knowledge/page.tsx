@@ -17,13 +17,13 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {Link} from '@astryxdesign/core/Link';
 import {Section} from '@astryxdesign/core/Section';
-import {Selector} from '@astryxdesign/core/Selector';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {api, APIError, KnowledgeBase, User, Workspace, WorkspaceRef} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
+import {UserProfileCard} from '../components/UserProfileCard';
 
 type Translate = ReturnType<typeof useTranslation>;
 
@@ -123,30 +123,19 @@ export default function KnowledgePage() {
     }
   }
 
-  async function selectWorkspace(id: string) {
-    setWorkspaceID(id);
-    setError('');
-    try {
-      // The detail page is addressed by KB id, so keep the server-side
-      // workspace context in sync before navigating into one.
-      await api.selectWorkspace(id);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('kb.loadFailed'));
-    }
-  }
-
   return (
     <AppShell
       contentPadding={0}
       sideNav={
         <SideNav
-          header={<SideNavHeading heading={t('kb.title')} icon={<Icon icon={Library} size="sm" />} subheading={user?.email} />}
+          footer={user ? <UserProfileCard user={user} /> : undefined}
+          header={<SideNavHeading heading={t('kb.title')} icon={<Icon icon={Library} size="sm" />} subheading={workspace?.name ?? user?.email} />}
         >
           <SideNavSection isHeaderHidden title={t('kb.title')}>
             <SideNavItem
               icon={<Icon icon={ArrowLeft} size="sm" />}
               label={t('settings.back')}
-              onClick={() => router.push('/chat')}
+              onClick={() => router.push(workspaceID ? `/chat?workspace=${encodeURIComponent(workspaceID)}` : '/chat')}
             />
           </SideNavSection>
         </SideNav>
@@ -171,18 +160,10 @@ export default function KnowledgePage() {
 
               <VStack gap={3}>
                 <HStack gap={3} hAlign="between" vAlign="center">
-                  <Text type="label" weight="semibold">{t('kb.available')}</Text>
-                  {workspaces.length > 1 ? (
-                    <Selector
-                      isLabelHidden
-                      label={t('kb.installTarget')}
-                      onChange={(id) => void selectWorkspace(id)}
-                      options={workspaces.map((item) => ({value: item.id, label: item.name}))}
-                      size="sm"
-                      value={workspaceID}
-                      width={240}
-                    />
-                  ) : null}
+                  <VStack gap={0}>
+                    <Text type="label" weight="semibold">{t('kb.available')}</Text>
+                    <Text color="secondary" type="supporting">{t('kb.workspaceScope', {name: workspace?.name ?? ''})}</Text>
+                  </VStack>
                 </HStack>
                 {available.length === 0 ? (
                   <Text color="secondary" type="supporting">{t('kb.availableEmpty')}</Text>

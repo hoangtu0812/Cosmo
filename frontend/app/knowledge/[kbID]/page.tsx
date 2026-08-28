@@ -20,8 +20,9 @@ import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesig
 import {Text} from '@astryxdesign/core/Text';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
-import {api, APIError, DocumentEvent, KnowledgeBase, KnowledgeDocument} from '../../lib/api';
+import {api, APIError, DocumentEvent, KnowledgeBase, KnowledgeDocument, User} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
+import {UserProfileCard} from '../../components/UserProfileCard';
 
 // Ingestion is asynchronous, so a document that is still being parsed is
 // re-checked until it settles. The poll stops as soon as nothing is in flight,
@@ -35,6 +36,7 @@ export default function KnowledgeDetailPage() {
   const kbID = params.kbID;
 
   const [base, setBase] = useState<KnowledgeBase | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -71,8 +73,9 @@ export default function KnowledgeDetailPage() {
   const handleSettled = useCallback(() => { void loadDocuments(); }, [loadDocuments]);
 
   useEffect(() => {
-    api.knowledgeBases()
-      .then((result) => {
+    Promise.all([api.me(), api.knowledgeBases()])
+      .then(([me, result]) => {
+        setUser(me.user);
         const found = result.knowledge_bases.find((item) => item.id === kbID);
         if (!found) router.replace('/knowledge');
         else setBase(found);
@@ -140,6 +143,7 @@ export default function KnowledgeDetailPage() {
       contentPadding={0}
       sideNav={
         <SideNav
+          footer={user ? <UserProfileCard user={user} /> : undefined}
           header={<SideNavHeading heading={base?.name ?? ''} icon={<Icon icon={Library} size="sm" />} subheading={base?.description} />}
         >
           <SideNavSection isHeaderHidden title={t('kb.title')}>

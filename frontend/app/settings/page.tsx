@@ -4,7 +4,6 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {ArrowLeft, Building2, Copy, KeyRound, Trash2, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
-import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -24,6 +23,7 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {api, APIError, Invitation, LLMSettings, Member, User, Workspace} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
+import {UserProfileCard} from '../components/UserProfileCard';
 
 type SectionKey = 'model' | 'members' | 'workspace';
 
@@ -76,19 +76,7 @@ export default function SettingsPage() {
       contentPadding={0}
       sideNav={
         <SideNav
-          footer={
-            user ? (
-              <Card padding={3} width="100%">
-                <HStack gap={2} vAlign="center">
-                  <Avatar name={user.name} size="md" src={user.has_avatar ? api.userAvatarURL() : undefined} />
-                  <VStack gap={0} minWidth={0}>
-                    <Text truncate type="label" weight="semibold">{user.name}</Text>
-                    <Text color="secondary" truncate type="supporting">{user.email}</Text>
-                  </VStack>
-                </HStack>
-              </Card>
-            ) : undefined
-          }
+          footer={user ? <UserProfileCard user={user} /> : undefined}
           header={
             <SideNavHeading
               heading={t('settings.title')}

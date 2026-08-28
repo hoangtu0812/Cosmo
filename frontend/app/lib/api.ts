@@ -63,6 +63,9 @@ export type Invitation = {id: string; email: string; role: string; expires_at: s
 export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
 export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; created_at: string};
 export type AuthConfig = {local_signup_enabled: boolean; local_auth_enabled: boolean; entra_enabled: boolean; model_configured: boolean; model_alias: string};
+export type AdminUser = {id: string; email: string; name: string; role: 'admin' | 'user'; provider: 'entra' | 'local'; workspace_count: number; created_at: string; has_avatar: boolean};
+export type AuditEvent = {id: number; actor_name: string; actor_email: string; action: string; target_type: string; target_id: string; metadata: Record<string, unknown>; created_at: string};
+export type SystemStatus = {entra_enabled: boolean; entra_tenant_id?: string; model_gateway_enabled: boolean; knowledge_enabled: boolean; cookie_secure: boolean; session_ttl: string; admin_email_count: number; configuration_source: string};
 
 type APIErrorShape = {error?: {message?: string}};
 
@@ -109,6 +112,10 @@ export const api = {
   authConfig: () => request<AuthConfig>('/api/auth/config'),
   me: () => request<{user: User}>('/api/auth/me'),
   userAvatarURL: () => `${API_BASE}/api/auth/me/avatar`,
+  adminUsers: () => request<{users: AdminUser[]}>('/api/admin/users'),
+  updateAdminUser: (userID: string, role: 'admin' | 'user') => request<{id: string; role: 'admin' | 'user'}>(`/api/admin/users/${encodeURIComponent(userID)}`, {method: 'PATCH', body: JSON.stringify({role})}),
+  auditEvents: () => request<{events: AuditEvent[]}>('/api/admin/audit-logs'),
+  systemStatus: () => request<SystemStatus>('/api/admin/system'),
   signIn: (email: string, password: string, remember: boolean) => request<{user: User}>('/api/auth/signin', {method: 'POST', body: JSON.stringify({email, password, remember})}),
   signUp: (name: string, email: string, password: string) => request<{user: User}>('/api/auth/signup', {method: 'POST', body: JSON.stringify({name, email, password})}),
   signOut: () => request<void>('/api/auth/signout', {method: 'POST'}),

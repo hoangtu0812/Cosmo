@@ -208,6 +208,19 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_memberships_user ON workspace_memberships(user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_conversations_user_workspace_updated ON conversations(user_id, workspace_id, updated_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages(conversation_id, created_at ASC)`,
+	// Platform-level, append-only audit records. Metadata is deliberately JSON
+	// rather than a free-form message so the admin console can render it safely
+	// and no credentials need ever be stored in a log row.
+	`CREATE TABLE IF NOT EXISTS audit_logs (
+		id BIGSERIAL PRIMARY KEY,
+		actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+		action TEXT NOT NULL,
+		target_type TEXT NOT NULL DEFAULT '',
+		target_id TEXT NOT NULL DEFAULT '',
+		metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at DESC)`,
 }
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

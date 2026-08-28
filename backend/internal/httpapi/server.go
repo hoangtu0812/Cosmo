@@ -142,6 +142,10 @@ func (s *Server) Router() http.Handler {
 		protected.Use(s.requireUser)
 		protected.Get("/api/auth/me", s.me)
 		protected.Get("/api/auth/me/avatar", s.userAvatar)
+		protected.Get("/api/admin/users", s.listAdminUsers)
+		protected.Patch("/api/admin/users/{userID}", s.updateAdminUser)
+		protected.Get("/api/admin/audit-logs", s.listAuditLogs)
+		protected.Get("/api/admin/system", s.systemStatus)
 		protected.Get("/api/workspaces", s.workspaces)
 		protected.Post("/api/workspaces/{workspaceID}/select", s.selectWorkspace)
 		protected.Get("/api/conversations", s.listConversations)
@@ -302,6 +306,7 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := User{ID: userID, Email: input.Email, Name: input.Name, Role: "user"}
+	s.writeAudit(r.Context(), user.ID, "auth.local.signed_up", "user", user.ID, map[string]string{"provider": "local"})
 	s.setSession(w, user, true)
 	writeJSON(w, http.StatusCreated, map[string]any{"user": user})
 }
@@ -327,6 +332,7 @@ func (s *Server) signin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Email hoặc mật khẩu không đúng.")
 		return
 	}
+	s.writeAudit(r.Context(), user.ID, "auth.local.signed_in", "user", user.ID, map[string]string{"provider": "local"})
 	s.setSession(w, user, input.Remember)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
@@ -402,6 +408,7 @@ func (s *Server) entraCallback(w http.ResponseWriter, r *http.Request) {
 			user.HasAvatar = true
 		}
 	}
+	s.writeAudit(r.Context(), user.ID, "auth.entra.signed_in", "user", user.ID, map[string]string{"provider": "entra"})
 	s.setSession(w, user, true)
 	http.Redirect(w, r, s.cfg.FrontendURL+"/chat", http.StatusFound)
 }
@@ -457,13 +464,19 @@ func (s *Server) upsertEntraUser(ctx context.Context, subject, email, name strin
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		user = User{ID: "usr_" + randomID(18), Email: email, Name: name, Role: "user"}
-		if email == s.cfg.AdminEmail {
+		if s.cfg.IsPlatformAdmin(email) {
 			user.Role = "admin"
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO users(id, email, name, role) VALUES($1, $2, $3, $4)`, user.ID, user.Email, user.Name, user.Role)
 	}
 	if err != nil {
 		return User{}, err
+	}
+	if s.cfg.IsPlatformAdmin(user.Email) && user.Role != "admin" {
+		if _, err := tx.Exec(ctx, `UPDATE users SET role = 'admin', updated_at = NOW() WHERE id = $1`, user.ID); err != nil {
+			return User{}, err
+		}
+		user.Role = "admin"
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO oauth_identities(id, user_id, provider, subject) VALUES($1, $2, 'entra', $3) ON CONFLICT(provider, subject) DO UPDATE SET user_id = EXCLUDED.user_id`, "oid_"+randomID(18), user.ID, subject)
 	if err != nil {
@@ -794,6 +807,11 @@ func (s *Server) requireUser(next http.Handler) http.Handler {
 		if s.db.QueryRow(r.Context(), `SELECT id, email, name, role, COALESCE(last_workspace_id, ''), (avatar_image IS NOT NULL) FROM users WHERE id = $1`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Role, &user.LastWorkspaceID, &user.HasAvatar) != nil {
 			writeError(w, http.StatusUnauthorized, "Tài khoản không còn hoạt động.")
 			return
+		}
+		if s.cfg.IsPlatformAdmin(user.Email) && user.Role != "admin" {
+			if _, err := s.db.Exec(r.Context(), `UPDATE users SET role = 'admin', updated_at = NOW() WHERE id = $1`, user.ID); err == nil {
+				user.Role = "admin"
+			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey, user)))
 	})

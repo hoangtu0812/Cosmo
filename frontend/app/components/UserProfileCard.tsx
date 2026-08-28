@@ -38,6 +38,7 @@ export function UserProfileCard({user}: {user: User}) {
           </VStack>
           <MoreMenu
             items={[
+              ...(user.role === 'admin' ? [{label: t('profile.admin'), onClick: () => router.push('/admin')}] : []),
               {label: t('settings.preferences'), onClick: () => setIsPreferencesOpen(true)},
               {label: t('menu.signOut'), onClick: () => void signOut(), variant: 'destructive'},
             ]}

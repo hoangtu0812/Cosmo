@@ -102,6 +102,11 @@ Dữ liệu PostgreSQL được giữ trong Docker volume `cosmo-postgres` sau k
    Graph permission `User.Read` (và cấp consent theo chính sách tenant) để
    Cosmo hiển thị ảnh đại diện của người dùng.
 
+   Để cấp quyền quản trị hệ thống cho tài khoản Entra, thêm email vào
+   `ADMIN_EMAILS` (nhiều email cách nhau bằng dấu phẩy), sau đó khởi động lại
+   backend. Tài khoản sẽ có mục **Trang quản trị** trong card hồ sơ sau khi
+   đăng nhập.
+
 4. Build và khởi động lại backend. Nút “Tiếp tục với Microsoft” sẽ được bật khi cấu hình hợp lệ.
 
 ## Cấu hình Model Gateway

@@ -68,6 +68,15 @@ Dừng các container bằng:
 .\scripts\stop-local.ps1
 ```
 
+Để xoá toàn bộ dữ liệu local (PostgreSQL, Qdrant và MinIO) trước khi khởi
+động lại, chạy:
+
+```powershell
+.\scripts\start-local.ps1 -ResetData
+```
+
+Lệnh này không thể khôi phục dữ liệu đã xoá.
+
 Dữ liệu PostgreSQL được giữ trong Docker volume `cosmo-postgres` sau khi dừng ứng dụng.
 
 ## Cấu hình Microsoft Entra ID

@@ -73,15 +73,20 @@ export default function Home() {
   }
 
   return (
-    <Layout
-      contentWidth={448}
-      height="fill"
-      padding={4}
-      content={
-        <LayoutContent>
-          <VStack height="100%" vAlign="center">
-            <Card padding={6} width="100%">
-              <VStack gap={5}>
+    <main className="auth-shell">
+      <div aria-hidden="true" className="auth-grid" />
+      <div aria-hidden="true" className="auth-orb auth-orb-one" />
+      <div aria-hidden="true" className="auth-orb auth-orb-two" />
+      <Layout
+        className="auth-layout"
+        contentWidth={448}
+        height="fill"
+        padding={4}
+        content={
+          <LayoutContent>
+            <VStack height="100%" vAlign="center">
+              <Card className="auth-card" padding={6} width="100%">
+                <VStack gap={5}>
                 <VStack gap={3}>
                   <HStack gap={2} vAlign="center">
                     <span className="brand-symbol" aria-hidden="true">
@@ -183,11 +188,12 @@ export default function Home() {
                 ) : config?.entra_enabled ? (
                   <Text color="secondary" display="block" type="supporting">{t('auth.entraOnly')}</Text>
                 ) : null}
-              </VStack>
-            </Card>
-          </VStack>
-        </LayoutContent>
-      }
-    />
+                </VStack>
+              </Card>
+            </VStack>
+          </LayoutContent>
+        }
+      />
+    </main>
   );
 }

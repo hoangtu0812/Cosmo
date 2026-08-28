@@ -1,3 +1,9 @@
+param(
+    # Removes the Docker volumes used by Cosmo before starting. This is
+    # intentionally opt-in: a normal start must never discard user data.
+    [switch]$ResetData
+)
+
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -7,6 +13,14 @@ if (-not (Test-Path -LiteralPath '.env')) {
     Copy-Item -LiteralPath '.env.example' -Destination '.env'
     Write-Host 'Đã tạo .env từ .env.example. Hãy cấu hình secret trước khi tiếp tục.'
     exit 1
+}
+
+if ($ResetData) {
+    Write-Host 'Đang xoá dữ liệu Docker của Cosmo (PostgreSQL, Qdrant và MinIO)...' -ForegroundColor Yellow
+    docker compose down -v
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
 }
 
 docker compose up -d --build

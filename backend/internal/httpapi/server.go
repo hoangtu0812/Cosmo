@@ -756,7 +756,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 	var citations []Citation
 	retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
-	passages, retrievalErr := s.retrievalContext(retrievalCtx, user.ID, conversationWorkspaceID, input.Content)
+	passages, retrievalErr := s.retrievalContext(retrievalCtx, conversationWorkspaceID, input.Content)
 	cancelRetrieval()
 	if retrievalErr != nil {
 		s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)

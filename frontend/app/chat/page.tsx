@@ -271,6 +271,7 @@ export default function ChatPage() {
         onStatus: ({stage, message}) => {
           setStatus(message);
           setOrbState(activityOrb(stage));
+          if (stage === 'retrieval_failed') setError(message);
         },
         onDelta: (delta) => {
           setOrbState('composing');
@@ -472,7 +473,7 @@ export default function ChatPage() {
                           {message.content
                             ? <VStack gap={3}>
                               <Markdown isStreaming={streaming} headingLevelStart={3}>{message.content}</Markdown>
-                              <CitationList citations={message.citations ?? []} />
+                              <CitationList citations={message.citations ?? []} showEmpty={Boolean(message.content)} />
                             </VStack>
                             : (streaming ? <VStack gap={3}>
                               <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state={orbState} /><Text color="secondary" type="supporting">{status}</Text></HStack>
@@ -570,11 +571,13 @@ export default function ChatPage() {
   );
 }
 
-function CitationList({citations}: {citations: Citation[]}) {
-  if (citations.length === 0) return null;
+function CitationList({citations, showEmpty = false}: {citations: Citation[]; showEmpty?: boolean}) {
+  if (citations.length === 0) {
+    return showEmpty ? <Text color="secondary" type="supporting">Không tìm thấy tài liệu Knowledge Base liên quan.</Text> : null;
+  }
   return (
     <VStack gap={2}>
-      <Text type="label" weight="semibold">Nguồn</Text>
+      <Text type="label" weight="semibold">Nguồn Knowledge Base</Text>
       <List>
         {citations.map((citation) => (
           <Item

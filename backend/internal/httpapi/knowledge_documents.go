@@ -457,7 +457,7 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 // The allow-list is computed here, from mounts intersected with visibility, and
 // passed explicitly. Retrieval never starts from "everything" and narrows
 // afterwards: unauthorised chunks are not read, not scored and not logged.
-func (s *Server) retrievalContext(ctx context.Context, userID, workspaceID, query string) ([]knowledgePassage, error) {
+func (s *Server) retrievalContext(ctx context.Context, workspaceID, query string) ([]knowledgePassage, error) {
 	if s.knowledge == nil || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
@@ -468,8 +468,8 @@ func (s *Server) retrievalContext(ctx context.Context, userID, workspaceID, quer
 	// make its KB available in this one.
 	rows, err := s.db.Query(ctx, `
 		SELECT kb.id FROM knowledge_bases kb
-		JOIN knowledge_mounts m ON m.kb_id = kb.id AND m.target_type = 'workspace' AND m.target_id = $2
-		WHERE (`+workspaceInScopeSQL+`)`, userID, workspaceID)
+		JOIN knowledge_mounts m ON m.kb_id = kb.id AND m.target_type = 'workspace' AND m.target_id = $1
+		WHERE (`+workspaceRetrievableKnowledgeSQL+`)`, workspaceID)
 	if err != nil {
 		return nil, err
 	}

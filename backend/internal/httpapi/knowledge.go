@@ -86,6 +86,19 @@ const workspaceInScopeSQL = `
 		))
 	)`
 
+// workspaceRetrievableKnowledgeSQL is scoped directly to the workspace passed
+// to retrievalContext. It intentionally starts at $1 because retrieval does
+// not need a user parameter; passing an unused $1 makes PostgreSQL reject the
+// query before the RAG service can be called.
+const workspaceRetrievableKnowledgeSQL = `
+	kb.version > 0 AND (
+		kb.visibility = 'everyone'
+		OR kb.owner_workspace_id = $1
+		OR (kb.visibility = 'selected' AND EXISTS (
+			SELECT 1 FROM knowledge_shares sh WHERE sh.kb_id = kb.id AND sh.workspace_id = $1
+		))
+	)`
+
 // accessSQL resolves what the caller may do in the workspace framing the
 // request. Workspace admins manage the KB only while looking through its
 // owning workspace; a shared card in workspace B stays an installer card even

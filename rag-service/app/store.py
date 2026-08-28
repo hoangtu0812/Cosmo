@@ -109,6 +109,32 @@ def delete_knowledge_base(kb_id: str) -> None:
     )
 
 
+def inspect_document(document_id: str, limit: int = 25) -> dict:
+    """Return a bounded view of a document's Qdrant payloads for inspection."""
+    points, next_page = client().scroll(
+        collection_name=settings.collection,
+        scroll_filter=models.Filter(
+            must=[models.FieldCondition(key="document_id", match=models.MatchValue(value=document_id))]
+        ),
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+    chunks = []
+    for point in points:
+        payload = point.payload or {}
+        chunks.append(
+            {
+                "chunk_index": payload.get("chunk_index", 0),
+                "section": payload.get("section") or "",
+                "page": str(payload.get("page") or ""),
+                "text": payload.get("text") or "",
+            }
+        )
+    chunks.sort(key=lambda item: item["chunk_index"])
+    return {"indexed": bool(chunks), "chunks": chunks, "total": len(chunks), "truncated": next_page is not None}
+
+
 def _authorized_filter(kb_ids: Iterable[str]) -> models.Filter:
     """Build the pre-retrieval ACL filter.
 

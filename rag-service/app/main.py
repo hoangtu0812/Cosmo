@@ -14,7 +14,7 @@ import logging
 import os
 
 from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import ingest, objects, pipeline, retrieve, store
@@ -122,6 +122,21 @@ def delete_document(document_id: str, storage_key: str | None = None) -> dict:
         except Exception:  # noqa: BLE001 - the chunks are gone either way
             logger.warning("could not remove object %s", storage_key)
     return {"deleted": document_id}
+
+
+@app.get("/documents/{document_id}/inspection")
+def inspect_document(document_id: str) -> dict:
+    return store.inspect_document(document_id)
+
+
+@app.get("/documents/{document_id}/original")
+def open_original_document(document_id: str, storage_key: str | None = None) -> Response:
+    if not storage_key:
+        raise HTTPException(status_code=400, detail="storage_key is required")
+    try:
+        return Response(content=objects.get(storage_key), media_type="application/octet-stream")
+    except Exception as error:  # noqa: BLE001 - preserve a useful upstream failure
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 @app.delete("/knowledge-bases/{kb_id}")

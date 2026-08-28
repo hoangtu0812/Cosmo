@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,15 @@ type KnowledgeDocument struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// KnowledgeDocumentDetail joins the control-plane metadata and processing log
+// with the bounded Qdrant inspection returned by the knowledge service.
+type KnowledgeDocumentDetail struct {
+	Document   KnowledgeDocument            `json:"document"`
+	Events     []DocumentEvent              `json:"events"`
+	Inspection knowledge.DocumentInspection `json:"inspection"`
+	IndexError string                       `json:"index_error,omitempty"`
+}
+
 func (s *Server) listKnowledgeDocuments(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	kbID := chi.URLParam(r, "kbID")
@@ -74,6 +84,81 @@ func (s *Server) listKnowledgeDocuments(w http.ResponseWriter, r *http.Request) 
 		documents = append(documents, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"documents": documents})
+}
+
+func (s *Server) getKnowledgeDocumentDetail(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	kbID := chi.URLParam(r, "kbID")
+	documentID := chi.URLParam(r, "documentID")
+	if s.knowledgeAccess(r.Context(), user.ID, kbID) == "" {
+		writeError(w, http.StatusNotFound, "Không tìm thấy knowledge base.")
+		return
+	}
+
+	document, _, err := s.knowledgeDocument(r.Context(), kbID, documentID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Không tìm thấy tài liệu.")
+		return
+	}
+	events, err := s.documentEvents(r.Context(), documentID, 0)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể tải nhật ký xử lý.")
+		return
+	}
+	detail := KnowledgeDocumentDetail{Document: document, Events: events}
+	if s.knowledge != nil && document.Status == "ready" {
+		inspection, inspectionErr := s.knowledge.InspectDocument(r.Context(), documentID)
+		if inspectionErr != nil {
+			slog.Error("could not inspect knowledge document", "document", documentID, "error", inspectionErr)
+			detail.IndexError = "Không thể đọc dữ liệu Qdrant của tài liệu."
+		} else {
+			detail.Inspection = inspection
+		}
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) openKnowledgeDocumentOriginal(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	kbID := chi.URLParam(r, "kbID")
+	documentID := chi.URLParam(r, "documentID")
+	if s.knowledgeAccess(r.Context(), user.ID, kbID) == "" {
+		writeError(w, http.StatusNotFound, "Không tìm thấy knowledge base.")
+		return
+	}
+	if s.knowledge == nil {
+		writeError(w, http.StatusServiceUnavailable, "Dịch vụ tri thức chưa được cấu hình.")
+		return
+	}
+
+	document, storageKey, err := s.knowledgeDocument(r.Context(), kbID, documentID)
+	if err != nil || storageKey == "" {
+		writeError(w, http.StatusNotFound, "Không tìm thấy bản gốc của tài liệu.")
+		return
+	}
+	content, err := s.knowledge.OriginalDocument(r.Context(), documentID, storageKey)
+	if err != nil {
+		slog.Error("could not open knowledge document original", "document", documentID, "error", err)
+		writeError(w, http.StatusBadGateway, "Không thể mở bản gốc của tài liệu.")
+		return
+	}
+	w.Header().Set("Content-Type", document.ContentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": document.Filename}))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+	_, _ = w.Write(content)
+}
+
+func (s *Server) knowledgeDocument(ctx context.Context, kbID, documentID string) (KnowledgeDocument, string, error) {
+	var document KnowledgeDocument
+	var storageKey string
+	err := s.db.QueryRow(ctx, `
+		SELECT id, kb_id, title, filename, content_type, size_bytes, version, status, chunk_count, error, created_at, updated_at, storage_key
+		FROM knowledge_documents WHERE id = $1 AND kb_id = $2`, documentID, kbID).Scan(
+		&document.ID, &document.KBID, &document.Title, &document.Filename, &document.ContentType,
+		&document.SizeBytes, &document.Version, &document.Status, &document.ChunkCount, &document.Error,
+		&document.CreatedAt, &document.UpdatedAt, &storageKey,
+	)
+	return document, storageKey, err
 }
 
 func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request) {

@@ -1,30 +1,44 @@
 'use client';
 
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ChevronDown, ChevronRight, FileText, Trash2, Upload} from 'lucide-react';
+import {ExternalLink, FileText, Trash2, Upload, X} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
-import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
-import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
+import {PowerSearch, PowerSearchFilter, usePowerSearchConfig} from '@astryxdesign/core/PowerSearch';
 import {Section} from '@astryxdesign/core/Section';
+import {proportional, Table, TableColumn, toSearchFilters, useTableFiltering, useTableFilterState} from '@astryxdesign/core/Table';
 import {Text} from '@astryxdesign/core/Text';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
-import {api, APIError, DocumentEvent, KnowledgeBase, KnowledgeDocument} from '../../lib/api';
+import {api, APIError, DocumentEvent, KnowledgeBase, KnowledgeDocument, KnowledgeDocumentDetail} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 // Ingestion is asynchronous, so a document that is still being parsed is
 // re-checked until it settles. The poll stops as soon as nothing is in flight,
 // rather than running for as long as the page is open.
 const POLL_INTERVAL = 4000;
+
+const documentSearchFields = [
+  {key: 'name', type: 'string', label: 'Tên tài liệu'},
+  {
+    key: 'status', type: 'enum', label: 'Trạng thái', enumValues: [
+      {value: 'pending', label: 'Đang chờ'},
+      {value: 'processing', label: 'Đang xử lý'},
+      {value: 'ready', label: 'Sẵn sàng'},
+      {value: 'failed', label: 'Lỗi'},
+    ],
+  },
+] as const;
+
+type DocumentRow = KnowledgeDocument & Record<string, unknown> & {name: string};
 
 export default function KnowledgeDetailPage() {
   const t = useTranslation();
@@ -39,20 +53,16 @@ export default function KnowledgeDetailPage() {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
-  const [openLog, setOpenLog] = useState('');
   const [publishing, setPublishing] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
+  const [detail, setDetail] = useState<KnowledgeDocumentDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [searchFilters, setSearchFilters] = useState<ReadonlyArray<PowerSearchFilter>>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const {config: searchConfig, applyFilters} = usePowerSearchConfig(documentSearchFields, 'KnowledgeDocuments');
+  const {filters: tableFilters, onFilterChange} = useTableFilterState();
 
   const canEdit = base?.access === 'owner';
-
-  // Both read the translator, so they live here rather than as free functions
-  // that would have to restate its key type.
-  const describe = (document: KnowledgeDocument) => {
-    const parts = [document.filename, formatSize(document.size_bytes)];
-    if (document.status === 'ready') parts.push(t('kb.chunks', {count: document.chunk_count}));
-    if (document.status === 'failed' && document.error) parts.push(document.error);
-    return parts.join(' · ');
-  };
 
   const statusLabel = (status: KnowledgeDocument['status']) => {
     if (status === 'ready') return t('kb.statusReady');
@@ -60,6 +70,11 @@ export default function KnowledgeDetailPage() {
     return t('kb.statusProcessing');
   };
   const isSettling = documents.some((item) => item.status === 'processing' || item.status === 'pending');
+
+  const rows = useMemo<DocumentRow[]>(
+    () => documents.map((document) => ({...document, name: document.title || document.filename})),
+    [documents],
+  );
 
   const loadDocuments = useCallback(
     () => api.knowledgeDocuments(kbID).then((result) => setDocuments(result.documents)),
@@ -69,6 +84,74 @@ export default function KnowledgeDetailPage() {
   // Stable across renders: the log subscribes on this callback, and a fresh
   // function each render would tear the stream down and reopen it every time.
   const handleSettled = useCallback(() => { void loadDocuments(); }, [loadDocuments]);
+
+  const openDocument = useCallback(async (document: KnowledgeDocument) => {
+    setSelectedDocument(document);
+    setDetail(null);
+    setDetailLoading(true);
+    try {
+      setDetail(await api.knowledgeDocumentDetail(kbID, document.id));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('kb.docsFailed'));
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [kbID, t]);
+
+  const columns = useMemo<TableColumn<DocumentRow>[]>(
+    () => [
+      {
+        key: 'name', header: 'Tên tài liệu', width: proportional(3), filter: 'name',
+        renderCell: (document) => (
+          <Button label={document.name} onClick={() => void openDocument(document)} size="sm" variant="ghost" />
+        ),
+      },
+      {key: 'size_bytes', header: 'Dung lượng', width: proportional(1), renderCell: (document) => <Text>{formatSize(document.size_bytes)}</Text>},
+      {key: 'chunk_count', header: 'Chunks', align: 'end', width: proportional(1), renderCell: (document) => <Text>{document.chunk_count}</Text>},
+      {
+        key: 'log', header: 'Nhật ký', width: proportional(1),
+        renderCell: (document) => <Button label={t('kb.log')} onClick={() => void openDocument(document)} size="sm" variant="secondary" />,
+      },
+      {
+        key: 'status', header: 'Trạng thái', width: proportional(1), filter: 'status',
+        renderCell: (document) => <Badge label={statusLabel(document.status)} variant={statusVariant(document.status)} />,
+      },
+      {
+        key: 'open', header: 'Bản gốc', align: 'end', width: proportional(1),
+        renderCell: (document) => (
+          <HStack gap={1} hAlign="end">
+            <Button
+              icon={<ExternalLink size={14} />}
+              label="Mở"
+              onClick={() => window.open(api.documentOriginalURL(kbID, document.id), '_blank', 'noopener,noreferrer')}
+              size="sm"
+              variant="secondary"
+            />
+            {canEdit ? (
+              <IconButton
+                icon={<Trash2 size={14} />}
+                label={t('kb.docDelete')}
+                onClick={() => setDeleting(document)}
+                size="sm"
+                variant="ghost"
+              />
+            ) : null}
+          </HStack>
+        ),
+      },
+    ],
+    [canEdit, kbID, openDocument, t],
+  );
+  const filterPlugin = useTableFiltering<DocumentRow>({
+    filters: tableFilters,
+    onFilterChange,
+    searchConfig,
+    variant: 'popover',
+  });
+  const filteredDocuments = applyFilters(
+    [...searchFilters, ...toSearchFilters(tableFilters, columns, searchConfig)],
+    rows,
+  );
 
   useEffect(() => {
     api.knowledgeBases(workspaceID || undefined)
@@ -105,7 +188,7 @@ export default function KnowledgeDetailPage() {
         try {
           const result = await api.uploadKnowledgeDocument(kbID, file);
           setDocuments((current) => [result.document, ...current]);
-          setOpenLog(result.document.id);
+          void openDocument(result.document);
         } catch (caught) {
           failures.push(`${file.name}: ${caught instanceof Error ? caught.message : t('kb.uploadFailed')}`);
         }
@@ -147,6 +230,18 @@ export default function KnowledgeDetailPage() {
     <>
       <Layout
         contentWidth={880}
+        end={selectedDocument ? (
+          <LayoutPanel hasDivider label="Chi tiết tài liệu" padding={4} role="complementary" width={420}>
+            <DocumentDetailPanel
+              detail={detail}
+              isLoading={detailLoading}
+              kbID={kbID}
+              onClose={() => { setSelectedDocument(null); setDetail(null); }}
+              onSettled={handleSettled}
+              selectedDocument={selectedDocument}
+            />
+          </LayoutPanel>
+        ) : undefined}
         height="fill"
         header={
           <LayoutHeader hasDivider>
@@ -204,37 +299,26 @@ export default function KnowledgeDetailPage() {
               {documents.length === 0 ? (
                 <EmptyState description={t('kb.noDocuments')} icon={<FileText size={64} strokeWidth={1} />} title={t('kb.documents')} />
               ) : (
-                <Card padding={0} width="100%">
-                  <List>
-                    {documents.map((document) => (
-                      <VStack as="li" gap={0} key={document.id}>
-                        <Item
-                          description={describe(document)}
-                          endContent={
-                            <HStack gap={2} vAlign="center">
-                              <Badge label={statusLabel(document.status)} variant={statusVariant(document.status)} />
-                              {canEdit ? (
-                                <IconButton
-                                  icon={<Trash2 size={14} />}
-                                  label={t('kb.docDelete')}
-                                  onClick={() => setDeleting(document)}
-                                  size="sm"
-                                  variant="ghost"
-                                />
-                              ) : null}
-                            </HStack>
-                          }
-                          label={document.title}
-                          onClick={() => setOpenLog((current) => current === document.id ? '' : document.id)}
-                          startContent={<Icon icon={openLog === document.id ? ChevronDown : ChevronRight} size="sm" />}
-                        />
-                        {openLog === document.id ? (
-                          <IngestionLog document={document} kbID={kbID} onSettled={handleSettled} />
-                        ) : null}
-                      </VStack>
-                    ))}
-                  </List>
-                </Card>
+                <VStack gap={4}>
+                  <PowerSearch
+                    config={searchConfig}
+                    filters={searchFilters}
+                    label="Tìm và lọc tài liệu"
+                    onChange={(nextFilters) => setSearchFilters(nextFilters)}
+                    placeholder="Tìm tài liệu hoặc lọc trạng thái"
+                    resultCount={filteredDocuments.length}
+                    size="sm"
+                  />
+                  <Table
+                    columns={columns}
+                    data={filteredDocuments}
+                    density="compact"
+                    dividers="rows"
+                    hasHover
+                    plugins={{filter: filterPlugin}}
+                    textOverflow="truncate"
+                  />
+                </VStack>
               )}
             </VStack>
           </LayoutContent>
@@ -251,6 +335,79 @@ export default function KnowledgeDetailPage() {
         title={t('kb.docDeleteTitle')}
       />
     </>
+  );
+}
+
+function DocumentDetailPanel({
+  detail,
+  isLoading,
+  kbID,
+  onClose,
+  onSettled,
+  selectedDocument,
+}: {
+  detail: KnowledgeDocumentDetail | null;
+  isLoading: boolean;
+  kbID: string;
+  onClose: () => void;
+  onSettled: () => void;
+  selectedDocument: KnowledgeDocument;
+}) {
+  const document = detail?.document ?? selectedDocument;
+  const inspection = detail?.inspection;
+  return (
+    <VStack gap={4}>
+      <HStack hAlign="between" vAlign="center">
+        <Text type="heading" weight="semibold">{document.title || document.filename}</Text>
+        <IconButton icon={<X size={16} />} label="Đóng chi tiết" onClick={onClose} size="sm" variant="ghost" />
+      </HStack>
+      <Button
+        icon={<ExternalLink size={14} />}
+        label="Mở tài liệu gốc"
+        onClick={() => window.open(api.documentOriginalURL(kbID, document.id), '_blank', 'noopener,noreferrer')}
+        variant="secondary"
+      />
+      {isLoading ? <Text color="secondary">Đang tải chi tiết…</Text> : null}
+      <Section dividers={['top', 'bottom']} padding={3}>
+        <VStack gap={2}>
+          <Text type="label" weight="semibold">Metadata</Text>
+          <List>
+            <Item label="Tệp" description={document.filename} />
+            <Item label="Loại" description={document.content_type || 'Không xác định'} />
+            <Item label="Dung lượng" description={formatSize(document.size_bytes)} />
+            <Item label="Phiên bản" description={`v${document.version}`} />
+          </List>
+        </VStack>
+      </Section>
+      <Section dividers={['bottom']} padding={3}>
+        <VStack gap={2}>
+          <Text type="label" weight="semibold">Qdrant</Text>
+          <List>
+            <Item label="Trạng thái" description={inspection?.indexed ? 'Đã lập chỉ mục' : 'Chưa có dữ liệu chỉ mục'} />
+            <Item label="Chunks đã đọc" description={String(inspection?.total ?? 0)} />
+          </List>
+          {detail?.index_error ? <Banner status="error" title={detail.index_error} /> : null}
+        </VStack>
+      </Section>
+      <Section dividers={['bottom']} padding={3}>
+        <VStack gap={2}>
+          <Text type="label" weight="semibold">Dữ liệu đã xử lý</Text>
+          {inspection?.chunks.length ? (
+            <List>
+              {inspection.chunks.map((chunk) => (
+                <Item
+                  description={chunk.text}
+                  key={chunk.chunk_index}
+                  label={`Chunk ${chunk.chunk_index + 1}${chunk.section ? ` · ${chunk.section}` : ''}${chunk.page ? ` · Trang ${chunk.page}` : ''}`}
+                />
+              ))}
+            </List>
+          ) : <Text color="secondary" type="supporting">Chưa có dữ liệu xử lý.</Text>}
+          {inspection?.truncated ? <Text color="secondary" type="supporting">Chỉ hiển thị 25 chunks đầu tiên.</Text> : null}
+        </VStack>
+      </Section>
+      <IngestionLog document={document} kbID={kbID} onSettled={onSettled} />
+    </VStack>
   );
 }
 

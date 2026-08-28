@@ -58,6 +58,13 @@ export type KnowledgeDocument = {
 export type KnowledgeShare = {workspace_id: string; name: string};
 export type WorkspaceRef = {id: string; name: string};
 export type DocumentEvent = {id: number; stage: string; message: string; done: number; total: number; created_at: string};
+export type ProcessedDocumentChunk = {chunk_index: number; section: string; page: string; text: string};
+export type KnowledgeDocumentDetail = {
+  document: KnowledgeDocument;
+  events: DocumentEvent[];
+  inspection: {indexed: boolean; chunks: ProcessedDocumentChunk[]; total: number; truncated: boolean};
+  index_error?: string;
+};
 export type Member = {user_id: string; email: string; name: string; role: string; joined_at: string};
 export type Invitation = {id: string; email: string; role: string; expires_at: string; created_at: string; invite_url?: string};
 export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
@@ -161,6 +168,10 @@ export const api = {
   },
   knowledgeDocuments: (kbID: string) =>
     request<{documents: KnowledgeDocument[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/documents`),
+  knowledgeDocumentDetail: (kbID: string, documentID: string) =>
+    request<KnowledgeDocumentDetail>(`/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}/detail`),
+  documentOriginalURL: (kbID: string, documentID: string) =>
+    `${API_BASE}/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}/original`,
   deleteKnowledgeDocument: (kbID: string, documentID: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}`, {method: 'DELETE'}),
   documentEvents: (kbID: string, documentID: string) =>

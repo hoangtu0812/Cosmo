@@ -93,6 +93,25 @@ type Passage struct {
 	Score         float64 `json:"score"`
 }
 
+// DocumentChunk is one processed payload retained in Qdrant. Inspection is
+// intentionally bounded by the service so opening an admin detail view cannot
+// return an unbounded document through the control plane.
+type DocumentChunk struct {
+	ChunkIndex int    `json:"chunk_index"`
+	Section    string `json:"section"`
+	Page       string `json:"page"`
+	Text       string `json:"text"`
+}
+
+// DocumentInspection describes the copy of a document currently indexed in
+// Qdrant. The original bytes are retrieved separately from object storage.
+type DocumentInspection struct {
+	Indexed   bool            `json:"indexed"`
+	Chunks    []DocumentChunk `json:"chunks"`
+	Total     int             `json:"total"`
+	Truncated bool            `json:"truncated"`
+}
+
 // Ingest sends one document through the pipeline, calling onEvent for each
 // stage as it is reported.
 //
@@ -194,6 +213,32 @@ func (c *Client) DeleteDocument(ctx context.Context, documentID, storageKey stri
 		path += "?storage_key=" + url.QueryEscape(storageKey)
 	}
 	return c.call(ctx, http.MethodDelete, path, nil, nil)
+}
+
+func (c *Client) InspectDocument(ctx context.Context, documentID string) (DocumentInspection, error) {
+	var inspection DocumentInspection
+	if err := c.call(ctx, http.MethodGet, "/documents/"+url.PathEscape(documentID)+"/inspection", nil, &inspection); err != nil {
+		return DocumentInspection{}, err
+	}
+	return inspection, nil
+}
+
+func (c *Client) OriginalDocument(ctx context.Context, documentID, storageKey string) ([]byte, error) {
+	path := "/documents/" + url.PathEscape(documentID) + "/original?storage_key=" + url.QueryEscape(storageKey)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 300 {
+		payload, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		return nil, fmt.Errorf("knowledge service returned %d: %s", response.StatusCode, strings.TrimSpace(string(payload)))
+	}
+	return io.ReadAll(response.Body)
 }
 
 func (c *Client) DeleteKnowledgeBase(ctx context.Context, kbID string) error {

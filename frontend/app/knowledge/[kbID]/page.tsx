@@ -229,7 +229,6 @@ export default function KnowledgeDetailPage() {
   return (
     <>
       <Layout
-        contentWidth={880}
         end={selectedDocument ? (
           <LayoutPanel hasDivider label="Chi tiết tài liệu" padding={4} role="complementary" width={420}>
             <DocumentDetailPanel

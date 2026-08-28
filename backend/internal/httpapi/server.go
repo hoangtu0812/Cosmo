@@ -16,6 +16,7 @@ import (
 
 	"cosmo/backend/internal/config"
 	"cosmo/backend/internal/modelgateway"
+	"cosmo/backend/internal/secrets"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
@@ -34,6 +35,7 @@ type Server struct {
 	cfg          config.Config
 	db           *pgxpool.Pool
 	models       *modelgateway.Client
+	secrets      *secrets.Box
 	logger       *slog.Logger
 	oauthConfig  *oauth2.Config
 	oidcVerifier *oidc.IDTokenVerifier
@@ -52,7 +54,15 @@ type Workspace struct {
 	Name string `json:"name"`
 	Slug string `json:"slug"`
 	Type string `json:"type"`
-	Role string `json:"role"`
+	Icon string `json:"icon,omitempty"`
+	// True when an uploaded image exists; the client fetches it from
+	// /api/workspaces/{id}/icon rather than receiving it inline.
+	HasIconImage bool   `json:"has_icon_image"`
+	Role         string `json:"role"`
+	// Model status is per workspace now, so the chat surface can tell the user
+	// which workspace still needs a gateway without a second request.
+	ModelConfigured bool   `json:"model_configured"`
+	ModelAlias      string `json:"model_alias,omitempty"`
 }
 
 type Conversation struct {
@@ -68,6 +78,7 @@ type Message struct {
 	ConversationID string    `json:"conversation_id"`
 	Role           string    `json:"role"`
 	Content        string    `json:"content"`
+	Model          string    `json:"model,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
@@ -76,7 +87,11 @@ type contextKey string
 const userContextKey contextKey = "user"
 
 func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *modelgateway.Client, logger *slog.Logger) (*Server, error) {
-	s := &Server{cfg: cfg, db: db, models: models, logger: logger}
+	box, err := secrets.New(cfg.SessionSecret)
+	if err != nil {
+		return nil, fmt.Errorf("initialize secret box: %w", err)
+	}
+	s := &Server{cfg: cfg, db: db, models: models, secrets: box, logger: logger}
 	if cfg.EntraEnabled() {
 		provider, err := oidc.NewProvider(ctx, fmt.Sprintf("https://login.microsoftonline.com/%s/v2.0", cfg.EntraTenantID))
 		if err != nil {
@@ -115,8 +130,36 @@ func (s *Server) Router() http.Handler {
 		protected.Post("/api/workspaces/{workspaceID}/select", s.selectWorkspace)
 		protected.Get("/api/conversations", s.listConversations)
 		protected.Post("/api/conversations", s.createConversation)
+		protected.Patch("/api/conversations/{conversationID}", s.renameConversation)
+		protected.Delete("/api/conversations/{conversationID}", s.deleteConversation)
 		protected.Get("/api/conversations/{conversationID}/messages", s.listMessages)
 		protected.Post("/api/conversations/{conversationID}/messages", s.chat)
+
+		protected.Post("/api/workspaces", s.createWorkspace)
+		protected.Patch("/api/workspaces/{workspaceID}", s.updateWorkspace)
+		protected.Get("/api/workspaces/{workspaceID}/icon", s.workspaceIcon)
+		protected.Put("/api/workspaces/{workspaceID}/icon", s.uploadWorkspaceIcon)
+		protected.Delete("/api/workspaces/{workspaceID}/icon", s.deleteWorkspaceIcon)
+		protected.Get("/api/workspaces/{workspaceID}/members", s.listMembers)
+		protected.Get("/api/workspaces/{workspaceID}/models", s.listWorkspaceModels)
+		protected.Get("/api/workspaces/{workspaceID}/settings/llm", s.getLLMSettings)
+		protected.Put("/api/workspaces/{workspaceID}/settings/llm", s.putLLMSettings)
+		protected.Post("/api/workspaces/{workspaceID}/settings/llm/models", s.listGatewayModels)
+		protected.Get("/api/workspaces/{workspaceID}/invitations", s.listInvitations)
+		protected.Post("/api/workspaces/{workspaceID}/invitations", s.createInvitation)
+		protected.Delete("/api/workspaces/{workspaceID}/invitations/{invitationID}", s.revokeInvitation)
+		protected.Post("/api/invitations/accept", s.acceptInvitation)
+
+		protected.Get("/api/knowledge", s.listKnowledgeBases)
+		protected.Post("/api/knowledge", s.createKnowledgeBase)
+		protected.Patch("/api/knowledge/{kbID}", s.updateKnowledgeBase)
+		protected.Delete("/api/knowledge/{kbID}", s.deleteKnowledgeBase)
+		protected.Get("/api/knowledge/{kbID}/grants", s.listKnowledgeGrants)
+		protected.Post("/api/knowledge/{kbID}/grants", s.createKnowledgeGrant)
+		protected.Delete("/api/knowledge/{kbID}/grants/{subjectType}/{subjectID}", s.deleteKnowledgeGrant)
+		protected.Get("/api/workspaces/{workspaceID}/knowledge", s.listWorkspaceKnowledge)
+		protected.Put("/api/workspaces/{workspaceID}/knowledge/{kbID}", s.mountKnowledge)
+		protected.Delete("/api/workspaces/{workspaceID}/knowledge/{kbID}", s.unmountKnowledge)
 	})
 	return r
 }
@@ -221,7 +264,7 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug := "personal-" + userID
-	_, err = tx.Exec(r.Context(), `INSERT INTO workspaces(id, name, slug, type) VALUES($1, $2, $3, 'personal')`, workspaceID, "Không gian của "+input.Name, slug)
+	_, err = tx.Exec(r.Context(), `INSERT INTO workspaces(id, name, slug, type) VALUES($1, $2, $3, 'personal')`, workspaceID, input.Name+"'s workspace", slug)
 	if err == nil {
 		_, err = tx.Exec(r.Context(), `INSERT INTO workspace_memberships(user_id, workspace_id, role) VALUES($1, $2, 'owner')`, userID, workspaceID)
 	}
@@ -356,7 +399,7 @@ func (s *Server) upsertEntraUser(ctx context.Context, subject, email, name strin
 	}
 	personalSlug := "personal-" + user.ID
 	workspaceID := "ws_" + randomID(18)
-	_, err = tx.Exec(ctx, `INSERT INTO workspaces(id, name, slug, type) VALUES($1, $2, $3, 'personal') ON CONFLICT(slug) DO NOTHING`, workspaceID, "Không gian của "+user.Name, personalSlug)
+	_, err = tx.Exec(ctx, `INSERT INTO workspaces(id, name, slug, type) VALUES($1, $2, $3, 'personal') ON CONFLICT(slug) DO NOTHING`, workspaceID, user.Name+"'s workspace", personalSlug)
 	if err != nil {
 		return User{}, err
 	}
@@ -381,7 +424,14 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
-	rows, err := s.db.Query(r.Context(), `SELECT w.id, w.name, w.slug, w.type, m.role FROM workspace_memberships m JOIN workspaces w ON w.id = m.workspace_id WHERE m.user_id = $1 ORDER BY CASE w.type WHEN 'team' THEN 0 ELSE 1 END, w.name`, user.ID)
+	rows, err := s.db.Query(r.Context(), `
+		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.icon, ''), (w.icon_image IS NOT NULL), m.role,
+		       COALESCE(c.base_url, ''), COALESCE(c.model, '')
+		FROM workspace_memberships m
+		JOIN workspaces w ON w.id = m.workspace_id
+		LEFT JOIN workspace_llm_configs c ON c.workspace_id = w.id
+		WHERE m.user_id = $1
+		ORDER BY CASE w.type WHEN 'team' THEN 0 ELSE 1 END, w.name`, user.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải workspace.")
 		return
@@ -390,7 +440,16 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	items := []Workspace{}
 	for rows.Next() {
 		var item Workspace
-		if rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Type, &item.Role) == nil {
+		var baseURL, model string
+		if rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Type, &item.Icon, &item.HasIconImage, &item.Role, &baseURL, &model) == nil {
+			if baseURL != "" && model != "" {
+				item.ModelConfigured = true
+				item.ModelAlias = model
+			} else if s.models.Configured() {
+				// Fall back to the process-wide gateway from .env.
+				item.ModelConfigured = true
+				item.ModelAlias = s.models.Model()
+			}
 			items = append(items, item)
 		}
 	}
@@ -470,7 +529,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id, conversation_id, role, content, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`, conversationID)
+	rows, err := s.db.Query(r.Context(), `SELECT id, conversation_id, role, content, COALESCE(model, ''), created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`, conversationID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải nội dung hội thoại.")
 		return
@@ -479,7 +538,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	items := []Message{}
 	for rows.Next() {
 		var item Message
-		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.CreatedAt) == nil {
+		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model, &item.CreatedAt) == nil {
 			items = append(items, item)
 		}
 	}
@@ -487,18 +546,26 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
-	if !s.models.Configured() {
-		writeError(w, http.StatusServiceUnavailable, "Model Gateway chưa được cấu hình. Hãy đặt LLM_BASE_URL, LLM_MODEL và LLM_API_KEY trong .env.")
-		return
-	}
 	user := currentUser(r.Context())
 	conversationID := chi.URLParam(r, "conversationID")
 	if !s.ownsConversation(r.Context(), user.ID, conversationID) {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
+	var conversationWorkspaceID string
+	if err := s.db.QueryRow(r.Context(), `SELECT workspace_id FROM conversations WHERE id = $1`, conversationID).Scan(&conversationWorkspaceID); err != nil {
+		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
+		return
+	}
+	models := s.modelsFor(r.Context(), conversationWorkspaceID)
+	if !models.Configured() {
+		writeError(w, http.StatusServiceUnavailable, "Workspace này chưa cấu hình Model Gateway. Vào Cài đặt để thêm Base URL, API key và model.")
+		return
+	}
 	var input struct {
-		Content string `json:"content"`
+		Content         string `json:"content"`
+		Model           string `json:"model"`
+		ReasoningEffort string `json:"reasoning_effort"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -508,6 +575,20 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Nội dung câu hỏi không hợp lệ.")
 		return
 	}
+	input.Model = strings.TrimSpace(input.Model)
+	if len(input.Model) > 200 {
+		writeError(w, http.StatusBadRequest, "Tên model không hợp lệ.")
+		return
+	}
+	// Only the levels the OpenAI-compatible API defines; anything else is
+	// dropped rather than forwarded to the gateway.
+	switch input.ReasoningEffort {
+	case "", "minimal", "low", "medium", "high":
+	default:
+		writeError(w, http.StatusBadRequest, "Mức suy luận không hợp lệ.")
+		return
+	}
+	options := modelgateway.Options{Model: input.Model, ReasoningEffort: input.ReasoningEffort}
 	userMessage := Message{ID: "msg_" + randomID(18), ConversationID: conversationID, Role: "user", Content: input.Content, CreatedAt: time.Now()}
 	_, err := s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, created_at) VALUES($1, $2, $3, $4, $5)`, userMessage.ID, conversationID, userMessage.Role, userMessage.Content, userMessage.CreatedAt)
 	if err != nil {
@@ -540,11 +621,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	assistantID := "msg_" + randomID(18)
-	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": s.models.Model()})
+	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options)})
 	flusher.Flush()
 
 	var assistant strings.Builder
-	err = s.models.Stream(r.Context(), history, func(delta string) error {
+	err = models.Stream(r.Context(), history, options, func(delta string) error {
 		assistant.WriteString(delta)
 		writeSSE(w, "delta", map[string]string{"content": delta})
 		flusher.Flush()
@@ -556,8 +637,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		return
 	}
-	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now()}
-	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, created_at) VALUES($1, $2, $3, $4, $5)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.CreatedAt)
+	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options)}
+	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, created_at) VALUES($1, $2, $3, $4, $5, $6)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, assistantMessage.CreatedAt)
 	if err != nil {
 		writeSSE(w, "error", map[string]string{"message": "Câu trả lời đã hoàn tất nhưng chưa thể lưu lịch sử."})
 		flusher.Flush()
@@ -621,7 +702,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
 			if origin != s.cfg.FrontendURL {

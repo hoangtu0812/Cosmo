@@ -3,9 +3,41 @@
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8080';
 
 export type User = {id: string; email: string; name: string; role: 'admin' | 'user'; last_workspace_id?: string};
-export type Workspace = {id: string; name: string; slug: string; type: 'personal' | 'team' | 'project'; role: string};
+export type Workspace = {
+  id: string;
+  name: string;
+  slug: string;
+  type: 'personal' | 'team' | 'project';
+  role: string;
+  icon?: string;
+  has_icon_image?: boolean;
+  model_configured?: boolean;
+  model_alias?: string;
+};
+export type LLMSettings = {
+  base_url: string;
+  model: string;
+  has_api_key: boolean;
+  api_key_hint?: string;
+  updated_at?: string;
+  configured: boolean;
+};
+export type KnowledgeBase = {
+  id: string;
+  name: string;
+  description: string;
+  owner_user_id: string;
+  owner_name?: string;
+  visibility: 'private' | 'organization';
+  created_at: string;
+  access: 'owner' | 'editor' | 'viewer';
+  is_mounted: boolean;
+};
+export type KnowledgeGrant = {subject_type: 'user' | 'workspace'; subject_id: string; subject_name?: string; role: 'viewer' | 'editor'; created_at: string};
+export type Member = {user_id: string; email: string; name: string; role: string; joined_at: string};
+export type Invitation = {id: string; email: string; role: string; expires_at: string; created_at: string; invite_url?: string};
 export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
-export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; created_at: string};
+export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; created_at: string};
 export type AuthConfig = {local_signup_enabled: boolean; entra_enabled: boolean; model_configured: boolean; model_alias: string};
 
 type APIErrorShape = {error?: {message?: string}};
@@ -44,11 +76,66 @@ export const api = {
   conversations: (workspaceID: string) => request<{conversations: Conversation[]}>(`/api/conversations?workspace_id=${encodeURIComponent(workspaceID)}`),
   createConversation: (workspaceID: string, title = 'Cuộc trò chuyện mới') => request<{conversation: Conversation}>('/api/conversations', {method: 'POST', body: JSON.stringify({workspace_id: workspaceID, title})}),
   messages: (conversationID: string) => request<{messages: Message[]}>(`/api/conversations/${encodeURIComponent(conversationID)}/messages`),
+
+  renameConversation: (conversationID: string, title: string) =>
+    request<{conversation: {id: string; title: string}}>(`/api/conversations/${encodeURIComponent(conversationID)}`, {method: 'PATCH', body: JSON.stringify({title})}),
+  deleteConversation: (conversationID: string) =>
+    request<void>(`/api/conversations/${encodeURIComponent(conversationID)}`, {method: 'DELETE'}),
+  updateWorkspace: (workspaceID: string, body: {name?: string; icon?: string}) =>
+    request<{workspace: Workspace}>(`/api/workspaces/${encodeURIComponent(workspaceID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
+  uploadWorkspaceIcon: (workspaceID: string, mime: string, data: string) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'PUT', body: JSON.stringify({mime, data})}),
+  deleteWorkspaceIcon: (workspaceID: string) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'DELETE'}),
+  workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
+  knowledgeBases: (workspaceID?: string) =>
+    request<{knowledge_bases: KnowledgeBase[]}>(`/api/knowledge${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  createKnowledgeBase: (name: string, description: string) =>
+    request<{knowledge_base: KnowledgeBase}>('/api/knowledge', {method: 'POST', body: JSON.stringify({name, description})}),
+  updateKnowledgeBase: (kbID: string, body: {name?: string; description?: string; visibility?: string}) =>
+    request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
+  deleteKnowledgeBase: (kbID: string) =>
+    request<void>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
+  knowledgeGrants: (kbID: string) =>
+    request<{grants: KnowledgeGrant[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/grants`),
+  createKnowledgeGrant: (kbID: string, body: {subject_type: string; email?: string; workspace_id?: string; role: string}) =>
+    request<{grants: KnowledgeGrant[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/grants`, {method: 'POST', body: JSON.stringify(body)}),
+  deleteKnowledgeGrant: (kbID: string, subjectType: string, subjectID: string) =>
+    request<void>(`/api/knowledge/${encodeURIComponent(kbID)}/grants/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectID)}`, {method: 'DELETE'}),
+  workspaceKnowledge: (workspaceID: string) =>
+    request<{knowledge_bases: KnowledgeBase[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge`),
+  mountKnowledge: (workspaceID: string, kbID: string) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'PUT'}),
+  unmountKnowledge: (workspaceID: string, kbID: string) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
+  createWorkspace: (name: string) => request<{workspace: Workspace}>('/api/workspaces', {method: 'POST', body: JSON.stringify({name})}),
+  workspaceModels: (workspaceID: string) => request<{models: string[]; default: string}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/models`),
+  members: (workspaceID: string) => request<{members: Member[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/members`),
+
+  llmSettings: (workspaceID: string) => request<LLMSettings>(`/api/workspaces/${encodeURIComponent(workspaceID)}/settings/llm`),
+  saveLLMSettings: (workspaceID: string, body: {base_url: string; model: string; api_key?: string | null}) =>
+    request<LLMSettings>(`/api/workspaces/${encodeURIComponent(workspaceID)}/settings/llm`, {method: 'PUT', body: JSON.stringify(body)}),
+  // POSTed so a key the operator has typed but not saved never lands in a URL.
+  gatewayModels: (workspaceID: string, body: {base_url?: string; api_key?: string}) =>
+    request<{ok: boolean; message?: string; models: string[]}>(
+      `/api/workspaces/${encodeURIComponent(workspaceID)}/settings/llm/models`,
+      {method: 'POST', body: JSON.stringify(body)},
+    ),
+
+  invitations: (workspaceID: string) => request<{invitations: Invitation[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/invitations`),
+  createInvitation: (workspaceID: string, email: string, role: string) =>
+    request<{invitation: Invitation}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/invitations`, {method: 'POST', body: JSON.stringify({email, role})}),
+  revokeInvitation: (workspaceID: string, invitationID: string) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/invitations/${encodeURIComponent(invitationID)}`, {method: 'DELETE'}),
+  acceptInvitation: (token: string) => request<{workspace: Workspace}>('/api/invitations/accept', {method: 'POST', body: JSON.stringify({token})}),
 };
+
+export type ChatOptions = {model?: string; reasoningEffort?: string};
 
 export async function streamChat(
   conversationID: string,
   content: string,
+  options: ChatOptions,
   handlers: {
     onMeta?: (data: {assistant_message_id: string; model: string}) => void;
     onDelta: (content: string) => void;
@@ -59,7 +146,7 @@ export async function streamChat(
     method: 'POST',
     credentials: 'include',
     headers: {'Content-Type': 'application/json', Accept: 'text/event-stream'},
-    body: JSON.stringify({content}),
+    body: JSON.stringify({content, model: options.model ?? '', reasoning_effort: options.reasoningEffort ?? ''}),
   });
   if (!response.ok) {
     let body: APIErrorShape = {};

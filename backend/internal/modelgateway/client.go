@@ -46,7 +46,24 @@ func (c *Client) Model() string {
 	return c.model
 }
 
-func (c *Client) Stream(ctx context.Context, history []Message, onDelta func(string) error) error {
+// Options tune a single request. Both fields are optional: an empty Model uses
+// the workspace default, and an empty ReasoningEffort omits the parameter
+// entirely rather than guessing a level, because models that do not reason
+// reject the field on some providers.
+type Options struct {
+	Model           string
+	ReasoningEffort string
+}
+
+// ResolveModel reports the model a request will actually use.
+func (c *Client) ResolveModel(options Options) string {
+	if options.Model != "" {
+		return options.Model
+	}
+	return c.model
+}
+
+func (c *Client) Stream(ctx context.Context, history []Message, options Options, onDelta func(string) error) error {
 	if !c.Configured() {
 		return ErrNotConfigured
 	}
@@ -55,12 +72,17 @@ func (c *Client) Stream(ctx context.Context, history []Message, onDelta func(str
 		messages = append(messages, Message{Role: "system", Content: c.systemPrompt})
 	}
 	messages = append(messages, history...)
-	payload, err := json.Marshal(map[string]any{
-		"model":       c.model,
+	body := map[string]any{
+		"model":       c.ResolveModel(options),
 		"messages":    messages,
 		"stream":      true,
 		"temperature": 0.2,
-	})
+	}
+	if options.ReasoningEffort != "" {
+		// The OpenAI-compatible spelling; LiteLLM maps it per provider.
+		body["reasoning_effort"] = options.ReasoningEffort
+	}
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("encode model request: %w", err)
 	}

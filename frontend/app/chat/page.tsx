@@ -108,7 +108,16 @@ export default function ChatPage() {
       const conversationResult = await api.conversations(selected.id);
       setWorkspace(selected);
       setConversations(conversationResult.conversations);
-      const selectedConversation = requestedConversationID === 'new' ? undefined : conversationResult.conversations.find((item) => item.id === requestedConversationID) ?? conversationResult.conversations[0];
+      if (requestedConversationID === 'new') {
+        // New chat is a real route state. Clear the former transcript before
+        // rendering the composer so navigation from the shared sidebar cannot
+        // leave the previous conversation visible behind the active action.
+        hydratedRef.current = '';
+        setConversationID('');
+        setMessages([]);
+        return;
+      }
+      const selectedConversation = conversationResult.conversations.find((item) => item.id === requestedConversationID) ?? conversationResult.conversations[0];
       if (selectedConversation) setConversationID(selectedConversation.id);
     }).catch((caught) => {
       if (caught instanceof APIError && caught.status === 401) router.replace('/');

@@ -255,6 +255,13 @@ func (c *Client) DeleteKnowledgeBase(ctx context.Context, kbID string) error {
 	return c.call(ctx, http.MethodDelete, "/knowledge-bases/"+url.PathEscape(kbID), nil, nil, nil)
 }
 
+// ResetIndex removes only the derived Qdrant collection. Original documents
+// remain in object storage so the control plane can ingest them again with the
+// currently configured embedding model.
+func (c *Client) ResetIndex(ctx context.Context) error {
+	return c.call(ctx, http.MethodPost, "/collections/reset", nil, nil, nil)
+}
+
 func (c *Client) call(ctx context.Context, method, path string, body any, out any, models *ModelSettings) error {
 	var reader io.Reader
 	if body != nil {

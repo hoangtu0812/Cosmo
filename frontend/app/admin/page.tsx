@@ -4,6 +4,7 @@ import {useEffect, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {ArrowLeft, ClipboardList, ServerCog, ShieldCheck, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
+import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -38,6 +39,8 @@ export default function AdminPage() {
   const [error, setError] = useState('');
   const [pendingUserID, setPendingUserID] = useState('');
   const [isSavingSystem, setIsSavingSystem] = useState(false);
+  const [isReindexing, setIsReindexing] = useState(false);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     api.me().then((result) => {
@@ -93,6 +96,22 @@ export default function AdminPage() {
     }
   }
 
+  async function reindexKnowledge() {
+    setIsReindexing(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await api.reindexKnowledge();
+      setNotice(t('admin.reindexQueued', {count: result.queued}));
+      const audit = await api.auditEvents();
+      setEvents(audit.events);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('admin.loadFailed'));
+    } finally {
+      setIsReindexing(false);
+    }
+  }
+
   function selectSection(next: AdminSection) {
     setSection(next);
     setError('');
@@ -126,9 +145,10 @@ export default function AdminPage() {
           <LayoutContent padding={6}>
             <VStack gap={5}>
               {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
+              {notice && <Banner isDismissable onDismiss={() => setNotice('')} status="success" title={notice} />}
               {section === 'users' && <UsersPanel pendingUserID={pendingUserID} t={t} users={users} onUpdateRole={updateRole} />}
               {section === 'audit' && <AuditPanel events={events} t={t} />}
-              {section === 'system' && <SystemPanel isSaving={isSavingSystem} system={system} t={t} onSave={updateSystemModels} />}
+              {section === 'system' && <SystemPanel isReindexing={isReindexing} isSaving={isSavingSystem} system={system} t={t} onReindex={reindexKnowledge} onSave={updateSystemModels} />}
             </VStack>
           </LayoutContent>
         }
@@ -197,13 +217,14 @@ function AuditPanel({events, t}: {events: AuditEvent[]; t: ReturnType<typeof use
   );
 }
 
-function SystemPanel({system, isSaving, onSave, t}: {system: SystemStatus | null; isSaving: boolean; onSave: (settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) => void; t: ReturnType<typeof useTranslation>}) {
+function SystemPanel({system, isSaving, isReindexing, onSave, onReindex, t}: {system: SystemStatus | null; isSaving: boolean; isReindexing: boolean; onSave: (settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) => void; onReindex: () => void; t: ReturnType<typeof useTranslation>}) {
   const [embeddingModel, setEmbeddingModel] = useState('');
   const [rerankerModel, setRerankerModel] = useState('');
   const [gatewayBaseURL, setGatewayBaseURL] = useState('');
   const [gatewayAPIKey, setGatewayAPIKey] = useState('');
   const [gatewayModels, setGatewayModels] = useState<string[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [isReindexDialogOpen, setIsReindexDialogOpen] = useState(false);
   useEffect(() => {
     setEmbeddingModel(system?.embedding_model ?? '');
     setRerankerModel(system?.reranker_model ?? '');
@@ -262,6 +283,22 @@ function SystemPanel({system, isSaving, onSave, t}: {system: SystemStatus | null
           </HStack>
         </VStack>
       </Card>}
+      {system && <Card width="100%">
+        <HStack hAlign="between" vAlign="center">
+          <Text type="label" weight="semibold">{t('admin.reindex')}</Text>
+          <Button isDisabled={isReindexing || !system.system_gateway.configured} isLoading={isReindexing} label={t('admin.reindexAction')} onClick={() => setIsReindexDialogOpen(true)} variant="secondary" />
+        </HStack>
+      </Card>}
+      <AlertDialog
+        actionLabel={t('admin.reindexConfirm')}
+        cancelLabel={t('common.cancel')}
+        description={t('admin.reindexBody')}
+        isActionLoading={isReindexing}
+        isOpen={isReindexDialogOpen}
+        onAction={() => { setIsReindexDialogOpen(false); void onReindex(); }}
+        onOpenChange={setIsReindexDialogOpen}
+        title={t('admin.reindexTitle')}
+      />
     </VStack>
   );
 }

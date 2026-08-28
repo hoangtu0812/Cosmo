@@ -121,6 +121,13 @@ def search(
     return SearchResponse(results=retrieve.search(request.query, request.kb_ids, request.limit))
 
 
+@app.post("/collections/reset")
+def reset_collection() -> dict:
+    """Drop the derived vector collection before a control-plane re-index."""
+    store.reset_collection()
+    return {"reset": True}
+
+
 @app.delete("/documents/{document_id}")
 def delete_document(document_id: str, storage_key: str | None = None) -> dict:
     store.delete_document(document_id)

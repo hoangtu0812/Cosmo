@@ -58,6 +58,13 @@ def ensure_collection(qdrant: QdrantClient, vector_size: int) -> None:
         )
 
 
+def reset_collection() -> None:
+    """Remove derived vectors while preserving originals in object storage."""
+    qdrant = client()
+    if qdrant.collection_exists(settings.collection):
+        qdrant.delete_collection(collection_name=settings.collection)
+
+
 def point_id(document_id: str, chunk_index: int) -> str:
     """A stable id, so re-ingesting a document replaces its chunks."""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{document_id}#{chunk_index}"))

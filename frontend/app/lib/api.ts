@@ -127,6 +127,7 @@ export const api = {
   systemStatus: () => request<SystemStatus>('/api/admin/system'),
   updateSystemSettings: (body: {embedding_model: string; reranker_model: string; gateway_base_url: string; gateway_api_key?: string}) => request<SystemStatus>('/api/admin/system', {method: 'PUT', body: JSON.stringify(body)}),
   systemGatewayModels: (body: {base_url?: string; api_key?: string}) => request<{ok: boolean; message?: string; models: string[]}>('/api/admin/system/models', {method: 'POST', body: JSON.stringify(body)}),
+  reindexKnowledge: () => request<{queued: number}>('/api/admin/system/knowledge/reindex', {method: 'POST'}),
   signIn: (email: string, password: string, remember: boolean) => request<{user: User}>('/api/auth/signin', {method: 'POST', body: JSON.stringify({email, password, remember})}),
   signUp: (name: string, email: string, password: string) => request<{user: User}>('/api/auth/signup', {method: 'POST', body: JSON.stringify({name, email, password})}),
   signOut: () => request<void>('/api/auth/signout', {method: 'POST'}),

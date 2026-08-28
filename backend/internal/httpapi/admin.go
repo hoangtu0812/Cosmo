@@ -422,6 +422,118 @@ func (s *Server) listSystemGatewayModels(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": models})
 }
 
+type reindexDocument struct {
+	ID          string
+	KBID        string
+	Title       string
+	Filename    string
+	ContentType string
+	Version     int
+	StorageKey  string
+}
+
+// reindexKnowledgeDocuments rebuilds Qdrant from the original files. It is a
+// platform-admin operation because the collection is shared across every
+// workspace. The original document objects and database metadata are kept.
+func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requirePlatformAdmin(w, r)
+	if !ok {
+		return
+	}
+	if s.knowledge == nil {
+		writeError(w, http.StatusServiceUnavailable, "Dịch vụ tri thức chưa được cấu hình.")
+		return
+	}
+	if _, err := s.knowledgeModelSettings(r.Context()); err != nil {
+		writeError(w, http.StatusBadRequest, "Cần cấu hình system model gateway trước khi re-index.")
+		return
+	}
+
+	var activeCount int
+	if err := s.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM knowledge_documents WHERE status IN ('pending', 'processing')`).Scan(&activeCount); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể kiểm tra trạng thái tài liệu.")
+		return
+	}
+	if activeCount > 0 {
+		writeError(w, http.StatusConflict, "Đang có tài liệu được xử lý. Hãy đợi hoàn tất trước khi re-index.")
+		return
+	}
+
+	rows, err := s.db.Query(r.Context(), `
+		SELECT id, kb_id, title, filename, content_type, version, storage_key
+		FROM knowledge_documents
+		WHERE storage_key <> ''
+		ORDER BY created_at ASC`)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể tải danh sách tài liệu để re-index.")
+		return
+	}
+	defer rows.Close()
+	documents := make([]reindexDocument, 0)
+	for rows.Next() {
+		var document reindexDocument
+		if err := rows.Scan(&document.ID, &document.KBID, &document.Title, &document.Filename, &document.ContentType, &document.Version, &document.StorageKey); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể đọc danh sách tài liệu để re-index.")
+			return
+		}
+		documents = append(documents, document)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể đọc danh sách tài liệu để re-index.")
+		return
+	}
+	if len(documents) == 0 {
+		writeJSON(w, http.StatusOK, map[string]int{"queued": 0})
+		return
+	}
+
+	if err := s.knowledge.ResetIndex(r.Context()); err != nil {
+		s.logger.Error("could not reset knowledge index", "error", err)
+		writeError(w, http.StatusBadGateway, "Không thể làm mới knowledge index.")
+		return
+	}
+	for _, document := range documents {
+		if _, err := s.db.Exec(r.Context(), `
+			UPDATE knowledge_documents
+			SET status = 'processing', chunk_count = 0, error = '', updated_at = NOW()
+			WHERE id = $1`, document.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể chuẩn bị tài liệu để re-index.")
+			return
+		}
+		if _, err := s.db.Exec(r.Context(), `
+			INSERT INTO knowledge_document_events(document_id, stage, message, done, total)
+			VALUES($1, 'reindex', 'Queued for re-index', 0, 0)`, document.ID); err != nil {
+			s.logger.Warn("could not record re-index event", "document", document.ID, "error", err)
+		}
+	}
+	s.writeAudit(r.Context(), actor.ID, "admin.system.knowledge_reindex_started", "system", "knowledge_index", map[string]int{"documents": len(documents)})
+	go s.runKnowledgeReindex(documents)
+	writeJSON(w, http.StatusAccepted, map[string]int{"queued": len(documents)})
+}
+
+func (s *Server) runKnowledgeReindex(documents []reindexDocument) {
+	for _, document := range documents {
+		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.RAGTimeout)
+		content, err := s.knowledge.OriginalDocument(ctx, document.ID, document.StorageKey)
+		cancel()
+		if err != nil {
+			message := ingestionErrorMessage(err)
+			s.logger.Error("could not load original document for re-index", "document", document.ID, "error", err)
+			if _, dbErr := s.db.Exec(context.Background(), `
+				UPDATE knowledge_documents SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`, document.ID, message); dbErr != nil {
+				s.logger.Error("could not record re-index failure", "document", document.ID, "error", dbErr)
+			}
+			if _, dbErr := s.db.Exec(context.Background(), `
+				INSERT INTO knowledge_document_events(document_id, stage, message, done, total)
+				VALUES($1, 'error', $2, 0, 0)`, document.ID, message); dbErr != nil {
+				s.logger.Error("could not record re-index error", "document", document.ID, "error", dbErr)
+			}
+			continue
+		}
+		s.ingestDocument(document.ID, document.KBID, document.Title, document.Filename, document.ContentType, document.Version, content)
+	}
+}
+
 func (s *Server) writeAudit(ctx context.Context, actorID, action, targetType, targetID string, metadata any) {
 	payload, err := json.Marshal(metadata)
 	if err != nil {

@@ -227,7 +227,7 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 	// Parsing and embedding a large manual takes minutes, far longer than a
 	// browser will wait. The row is returned immediately as "processing" and
 	// the ingestion runs on its own context so it survives the response.
-	go s.ingestDocument(documentID, kbID, title, header.Filename, header.Header.Get("Content-Type"), content)
+	go s.ingestDocument(documentID, kbID, title, header.Filename, header.Header.Get("Content-Type"), 1, content)
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"document": KnowledgeDocument{
 		ID:          documentID,
@@ -250,7 +250,7 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 // survives a page reload and is readable by someone who was not watching while
 // it ran. A failure is recorded on the row too, not merely logged, so the
 // person who uploaded the file can see what became of it.
-func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType string, content []byte) {
+func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType string, version int, content []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.RAGTimeout)
 	defer cancel()
 
@@ -269,7 +269,7 @@ func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType s
 	if settingsErr != nil {
 		slog.Error("could not load knowledge model settings", "document", documentID, "error", settingsErr)
 	}
-	result, err := s.knowledge.Ingest(ctx, kbID, documentID, filename, contentType, title, 1, content, models, record)
+	result, err := s.knowledge.Ingest(ctx, kbID, documentID, filename, contentType, title, version, content, models, record)
 	if err != nil {
 		slog.Error("document ingestion failed", "document", documentID, "error", err)
 		message := ingestionErrorMessage(err)

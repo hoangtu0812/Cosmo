@@ -183,10 +183,10 @@ func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType s
 	result, err := s.knowledge.Ingest(ctx, kbID, documentID, filename, contentType, title, 1, content, record)
 	if err != nil {
 		slog.Error("document ingestion failed", "document", documentID, "error", err)
-		message := err.Error()
-		if len(message) > 500 {
-			message = message[:500]
-		}
+		message := ingestionErrorMessage(err)
+		// The terminal event is as important as the row status: the browser's
+		// live log only knows an ingestion finished when this line arrives.
+		record(knowledge.Event{Stage: "error", Message: message})
 		if _, dbErr := s.db.Exec(context.Background(), `
 			UPDATE knowledge_documents SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`,
 			documentID, message); dbErr != nil {
@@ -201,6 +201,17 @@ func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType s
 		WHERE id = $1`, documentID, result.Chunks, result.StorageKey); err != nil {
 		slog.Error("could not record ingestion result", "document", documentID, "error", err)
 	}
+}
+
+// ingestionErrorMessage keeps a useful, displayable cause in the document log
+// without allowing an upstream stack trace or unbounded response body to take
+// over the UI.
+func ingestionErrorMessage(err error) string {
+	message := strings.Join(strings.Fields(err.Error()), " ")
+	if len(message) > 500 {
+		return message[:500]
+	}
+	return message
 }
 
 // DocumentEvent is one line of an ingestion log.

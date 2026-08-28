@@ -95,17 +95,25 @@ export default function KnowledgeDetailPage() {
     return () => clearInterval(timer);
   }, [isSettling, loadDocuments]);
 
-  async function upload(file: File) {
+  async function upload(files: File[]) {
+    if (files.length === 0) return;
     setUploading(true);
     setError('');
+    const failures: string[] = [];
     try {
-      const result = await api.uploadKnowledgeDocument(kbID, file);
-      setDocuments((current) => [result.document, ...current]);
-      // Open the log straight away: the upload is the moment the person most
-      // wants to see that something is happening.
-      setOpenLog(result.document.id);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('kb.uploadFailed'));
+      // Each request enters the backend queue immediately; submitting them in
+      // order avoids a large multi-file selection exhausting browser memory
+      // while all documents still process concurrently in the background.
+      for (const file of files) {
+        try {
+          const result = await api.uploadKnowledgeDocument(kbID, file);
+          setDocuments((current) => [result.document, ...current]);
+          setOpenLog(result.document.id);
+        } catch (caught) {
+          failures.push(`${file.name}: ${caught instanceof Error ? caught.message : t('kb.uploadFailed')}`);
+        }
+      }
+      if (failures.length > 0) setError(failures.join('\n'));
     } finally {
       setUploading(false);
     }
@@ -173,7 +181,7 @@ export default function KnowledgeDetailPage() {
                       icon={<Upload size={14} />}
                       isDisabled={uploading}
                       isLoading={uploading}
-                      label={t('kb.upload')}
+                      label={t('kb.uploadMany')}
                       onClick={() => fileRef.current?.click()}
                       size="sm"
                       variant="secondary"
@@ -202,9 +210,10 @@ export default function KnowledgeDetailPage() {
               <input
                 accept=".txt,.md,.markdown,.csv,.json,.pdf,.docx,.pptx,.html,.htm"
                 hidden
+                multiple
                 onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void upload(file);
+                  const files = Array.from(event.target.files ?? []);
+                  if (files.length > 0) void upload(files);
                   event.target.value = '';
                 }}
                 ref={fileRef}

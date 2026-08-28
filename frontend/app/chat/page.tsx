@@ -21,7 +21,6 @@ import {DropdownMenu, DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign
 import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
-import {IconButton} from '@astryxdesign/core/IconButton';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {SideNav, SideNavCollapseButton, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
@@ -430,12 +429,10 @@ export default function ChatPage() {
       }
     >
       <Layout
-        contentWidth={960}
         height="fill"
         header={
           <LayoutHeader hasDivider>
             <Toolbar
-              endContent={<IconButton icon={<Plus size={16} />} label={t('chat.newChatLong')} onClick={startNewChat} size="sm" variant="ghost" />}
               label={t('chat.toolbar')}
               startContent={
                 <>
@@ -453,8 +450,12 @@ export default function ChatPage() {
           </LayoutHeader>
         }
         content={
-          <LayoutContent padding={0}>
-            <VStack height="100%">
+          <Layout
+            contentWidth={960}
+            height="fill"
+            content={
+              <LayoutContent padding={0}>
+                <VStack height="100%">
               {workspace && !workspace.model_configured && (
                 <Banner
                   container="section"
@@ -496,8 +497,10 @@ export default function ChatPage() {
                   </ChatMessageList>
                 )}
               </ChatLayout>
-            </VStack>
-          </LayoutContent>
+                </VStack>
+              </LayoutContent>
+            }
+          />
         }
       />
 

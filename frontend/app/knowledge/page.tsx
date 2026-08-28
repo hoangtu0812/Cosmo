@@ -44,10 +44,11 @@ export default function KnowledgePage() {
   const [pending, setPending] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Every visible KB is available to install, including one owned by this
-  // workspace. Management and installation are separate actions: ownership
-  // must never cause a KB to be silently enabled for chat.
-  const available = useMemo(() => bases, [bases]);
+  // The owner sees its KBs in a dedicated management area. Only published
+  // bases shared from another workspace appear as something to install.
+  // A draft is never mountable, even in the workspace that owns it.
+  const managed = useMemo(() => bases.filter((base) => base.access === 'owner'), [bases]);
+  const available = useMemo(() => bases.filter((base) => base.access !== 'owner' && base.version > 0), [bases]);
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const canInstall = workspace?.role === 'owner' || workspace?.role === 'admin';
 
@@ -123,6 +124,40 @@ export default function KnowledgePage() {
     }
   }
 
+  function installationAction(base: KnowledgeBase) {
+    if (base.version === 0) return null;
+    if (!canInstall) return base.is_mounted ? <Badge label={t('kb.installed')} variant="neutral" /> : null;
+    return (
+      <Button
+        isDisabled={pending === base.id || !workspaceID}
+        isLoading={pending === base.id}
+        label={
+          base.update_available ? t('kb.update')
+            : base.is_mounted ? t('kb.uninstall')
+              : t('kb.install')
+        }
+        onClick={() => void setInstalled(base, !base.is_mounted || base.update_available)}
+        size="sm"
+        variant={base.is_mounted && !base.update_available ? 'ghost' : 'primary'}
+      />
+    );
+  }
+
+  function managementActions(base: KnowledgeBase) {
+    return (
+      <HStack gap={1} vAlign="center">
+        <Button label={t('kb.share')} onClick={() => setSharing(base)} size="sm" variant="secondary" />
+        <IconButton
+          icon={<Trash2 size={14} />}
+          label={t('kb.delete')}
+          onClick={() => setDeleting(base)}
+          size="sm"
+          variant="ghost"
+        />
+      </HStack>
+    );
+  }
+
   return (
     <AppShell
       contentPadding={0}
@@ -159,6 +194,25 @@ export default function KnowledgePage() {
               {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
 
               <VStack gap={3}>
+                <Text type="label" weight="semibold">{t('kb.managed')}</Text>
+                {managed.length === 0 ? (
+                  <Text color="secondary" type="supporting">{t('kb.managedEmpty')}</Text>
+                ) : (
+                  <Grid columns={{minWidth: 320, max: 3}} gap={4} width="100%">
+                    {managed.map((base) => (
+                      <KnowledgeCard
+                        base={base}
+                        key={base.id}
+                        primary={installationAction(base)}
+                        secondary={managementActions(base)}
+                        t={t}
+                      />
+                    ))}
+                  </Grid>
+                )}
+              </VStack>
+
+              <VStack gap={3}>
                 <HStack gap={3} hAlign="between" vAlign="center">
                   <VStack gap={0}>
                     <Text type="label" weight="semibold">{t('kb.available')}</Text>
@@ -173,43 +227,7 @@ export default function KnowledgePage() {
                       <KnowledgeCard
                         base={base}
                         key={base.id}
-                        primary={
-                          canInstall ? (
-                            <Button
-                              isDisabled={pending === base.id || !workspaceID}
-                              isLoading={pending === base.id}
-                              label={
-                                base.update_available ? t('kb.update')
-                                  : base.is_mounted ? t('kb.uninstall')
-                                    : t('kb.install')
-                              }
-                              onClick={() => void setInstalled(base, !base.is_mounted || base.update_available)}
-                              size="sm"
-                              variant={base.is_mounted && !base.update_available ? 'ghost' : 'primary'}
-                            />
-                          ) : base.is_mounted ? (
-                            <Badge label={t('kb.installed')} variant="neutral" />
-                          ) : null
-                        }
-                        secondary={
-                          base.access === 'owner' ? (
-                            <HStack gap={1} vAlign="center">
-                              <Button
-                                label={t('kb.share')}
-                                onClick={() => setSharing(base)}
-                                size="sm"
-                                variant="secondary"
-                              />
-                              <IconButton
-                                icon={<Trash2 size={14} />}
-                                label={t('kb.delete')}
-                                onClick={() => setDeleting(base)}
-                                size="sm"
-                                variant="ghost"
-                              />
-                            </HStack>
-                          ) : undefined
-                        }
+                        primary={installationAction(base)}
                         t={t}
                       />
                     ))}

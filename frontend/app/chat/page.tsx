@@ -2,7 +2,7 @@
 
 import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {ThinkingOrb} from 'thinking-orbs';
+import {ThinkingOrb, type OrbState} from 'thinking-orbs';
 import {Bot, Building2, Check, MessageSquare, Plus, Settings, UserPlus, UserRound} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -46,6 +46,14 @@ function subscribeMobile(onChange: () => void) {
   return () => query.removeEventListener('change', onChange);
 }
 
+function activityOrb(stage: string): OrbState {
+  switch (stage) {
+    case 'retrieving': return 'searching';
+    case 'writing': return 'composing';
+    default: return 'working';
+  }
+}
+
 export default function ChatPage() {
   const t = useTranslation();
   const router = useRouter();
@@ -62,6 +70,7 @@ export default function ChatPage() {
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState('');
+  const [orbState, setOrbState] = useState<OrbState>('working');
   const [error, setError] = useState('');
   // Per-conversation overrides for the composer pickers. Empty model means the
   // workspace default; empty effort omits the parameter, since models that do
@@ -250,15 +259,23 @@ export default function ChatPage() {
     setMessages((current) => [...current, optimisticUser, optimisticAssistant]);
     setStreaming(true);
     setStatus(t('chat.thinking'));
+    setOrbState('working');
     try {
       await streamChat(targetID, trimmed, {model, reasoningEffort}, {
         onMeta: ({citations}) => {
           setStatus(t('chat.writing'));
+          setOrbState('composing');
           setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, citations} : item));
         },
         onSources: ({citations}) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, citations} : item)),
-        onStatus: ({message}) => setStatus(message),
-        onDelta: (delta) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, content: item.content + delta} : item)),
+        onStatus: ({stage, message}) => {
+          setStatus(message);
+          setOrbState(activityOrb(stage));
+        },
+        onDelta: (delta) => {
+          setOrbState('composing');
+          setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, content: item.content + delta} : item));
+        },
         onDone: ({message}) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? message : item)),
       });
       const refreshed = await api.conversations(workspace.id);
@@ -269,6 +286,7 @@ export default function ChatPage() {
     } finally {
       setStreaming(false);
       setStatus('');
+      setOrbState('working');
     }
   }
 
@@ -457,7 +475,7 @@ export default function ChatPage() {
                               <CitationList citations={message.citations ?? []} />
                             </VStack>
                             : (streaming ? <VStack gap={3}>
-                              <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state="composing" /><Text color="secondary" type="supporting">{status}</Text></HStack>
+                              <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state={orbState} /><Text color="secondary" type="supporting">{status}</Text></HStack>
                               <CitationList citations={message.citations ?? []} />
                             </VStack> : '')}
                         </ChatMessageBubble>

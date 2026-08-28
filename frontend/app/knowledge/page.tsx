@@ -162,6 +162,7 @@ export default function KnowledgePage() {
                         }
                         key={base.id}
                         label={base.name}
+                        onClick={() => router.push(`/knowledge/${base.id}`)}
                         startContent={<Icon icon={Library} size="sm" />}
                       />
                     ))}

@@ -33,6 +33,20 @@ export type KnowledgeBase = {
   access: 'owner' | 'editor' | 'viewer';
   is_mounted: boolean;
 };
+export type KnowledgeDocument = {
+  id: string;
+  kb_id: string;
+  title: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  version: number;
+  status: 'pending' | 'processing' | 'ready' | 'failed';
+  chunk_count: number;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+};
 export type KnowledgeGrant = {subject_type: 'user' | 'workspace'; subject_id: string; subject_name?: string; role: 'viewer' | 'editor'; created_at: string};
 export type Member = {user_id: string; email: string; name: string; role: string; joined_at: string};
 export type Invitation = {id: string; email: string; role: string; expires_at: string; created_at: string; invite_url?: string};
@@ -56,6 +70,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'include',
     headers: {'Content-Type': 'application/json', ...init?.headers},
   });
+  if (!response.ok) {
+    let body: APIErrorShape = {};
+    try { body = await response.json() as APIErrorShape; } catch { /* ignore invalid error body */ }
+    throw new APIError(body.error?.message ?? 'Không thể kết nối tới Cosmo API.', response.status);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+/**
+ * Multipart upload. The JSON helper cannot be reused here: setting
+ * Content-Type by hand strips the boundary the browser generates, and the
+ * server then reads the body as one undelimited part.
+ */
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {method: 'POST', credentials: 'include', body: form});
   if (!response.ok) {
     let body: APIErrorShape = {};
     try { body = await response.json() as APIErrorShape; } catch { /* ignore invalid error body */ }
@@ -96,6 +126,16 @@ export const api = {
     request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
   deleteKnowledgeBase: (kbID: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
+  uploadKnowledgeDocument: (kbID: string, file: File, title?: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    if (title) form.append('title', title);
+    return upload<{document: KnowledgeDocument}>(`/api/knowledge/${encodeURIComponent(kbID)}/documents`, form);
+  },
+  knowledgeDocuments: (kbID: string) =>
+    request<{documents: KnowledgeDocument[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/documents`),
+  deleteKnowledgeDocument: (kbID: string, documentID: string) =>
+    request<void>(`/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}`, {method: 'DELETE'}),
   knowledgeGrants: (kbID: string) =>
     request<{grants: KnowledgeGrant[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/grants`),
   createKnowledgeGrant: (kbID: string, body: {subject_type: string; email?: string; workspace_id?: string; role: string}) =>

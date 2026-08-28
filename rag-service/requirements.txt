@@ -1,0 +1,17 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+
+# Knowledge engine: parsing, node construction, metadata.
+llama-index-core==0.12.11
+llama-index-readers-file==0.4.3
+pypdf==5.1.0
+docx2txt==0.8
+
+# Retrieval backend and object storage.
+qdrant-client==1.12.2
+minio==7.2.13
+
+# BGE-M3 (dense + sparse in one pass) and BGE-reranker-v2-m3.
+FlagEmbedding==1.3.3
+torch==2.5.1

@@ -27,6 +27,8 @@ type Config struct {
 	LLMModel          string
 	LLMSystemPrompt   string
 	LLMRequestTimeout time.Duration
+	RAGServiceURL     string
+	RAGTimeout        time.Duration
 }
 
 func Load() (Config, error) {
@@ -35,6 +37,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	timeout, err := durationEnv("LLM_REQUEST_TIMEOUT", 90*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+
+	ragTimeout, err := durationEnv("RAG_REQUEST_TIMEOUT", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
 	}
@@ -58,6 +65,8 @@ func Load() (Config, error) {
 		LLMModel:          env("LLM_MODEL", "company-general"),
 		LLMSystemPrompt:   env("LLM_SYSTEM_PROMPT", "Bạn là trợ lý AI nội bộ của doanh nghiệp. Trả lời rõ ràng, chính xác, ngắn gọn và không tự tạo dữ kiện khi thiếu thông tin."),
 		LLMRequestTimeout: timeout,
+		RAGServiceURL:     strings.TrimRight(strings.TrimSpace(os.Getenv("RAG_SERVICE_URL")), "/"),
+		RAGTimeout:        ragTimeout,
 	}
 
 	if len(cfg.SessionSecret) < 32 {
@@ -71,6 +80,12 @@ func Load() (Config, error) {
 
 func (c Config) EntraEnabled() bool {
 	return c.EntraTenantID != "" && c.EntraClientID != "" && c.EntraClientSecret != ""
+}
+
+// KnowledgeEnabled reports whether the knowledge plane is reachable. When it
+// is off the product still works; chat simply answers without retrieval.
+func (c Config) KnowledgeEnabled() bool {
+	return c.RAGServiceURL != ""
 }
 
 func (c Config) LLMEnabled() bool {

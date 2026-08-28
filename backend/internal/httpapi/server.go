@@ -10,11 +10,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
 
 	"cosmo/backend/internal/config"
+	"cosmo/backend/internal/knowledge"
 	"cosmo/backend/internal/modelgateway"
 	"cosmo/backend/internal/secrets"
 
@@ -35,6 +37,7 @@ type Server struct {
 	cfg          config.Config
 	db           *pgxpool.Pool
 	models       *modelgateway.Client
+	knowledge    *knowledge.Client
 	secrets      *secrets.Box
 	logger       *slog.Logger
 	oauthConfig  *oauth2.Config
@@ -91,7 +94,16 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 	if err != nil {
 		return nil, fmt.Errorf("initialize secret box: %w", err)
 	}
-	s := &Server{cfg: cfg, db: db, models: models, secrets: box, logger: logger}
+	// A nil client means the knowledge plane is switched off; chat then answers
+	// without retrieval rather than failing.
+	s := &Server{
+		cfg:       cfg,
+		db:        db,
+		models:    models,
+		knowledge: knowledge.New(cfg.RAGServiceURL, cfg.RAGTimeout),
+		secrets:   box,
+		logger:    logger,
+	}
 	if cfg.EntraEnabled() {
 		provider, err := oidc.NewProvider(ctx, fmt.Sprintf("https://login.microsoftonline.com/%s/v2.0", cfg.EntraTenantID))
 		if err != nil {
@@ -154,6 +166,9 @@ func (s *Server) Router() http.Handler {
 		protected.Post("/api/knowledge", s.createKnowledgeBase)
 		protected.Patch("/api/knowledge/{kbID}", s.updateKnowledgeBase)
 		protected.Delete("/api/knowledge/{kbID}", s.deleteKnowledgeBase)
+		protected.Get("/api/knowledge/{kbID}/documents", s.listKnowledgeDocuments)
+		protected.Post("/api/knowledge/{kbID}/documents", s.uploadKnowledgeDocument)
+		protected.Delete("/api/knowledge/{kbID}/documents/{documentID}", s.deleteKnowledgeDocument)
 		protected.Get("/api/knowledge/{kbID}/grants", s.listKnowledgeGrants)
 		protected.Post("/api/knowledge/{kbID}/grants", s.createKnowledgeGrant)
 		protected.Delete("/api/knowledge/{kbID}/grants/{subjectType}/{subjectID}", s.deleteKnowledgeGrant)
@@ -611,6 +626,30 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	historyRows.Close()
 
+	// Retrieval runs against the knowledge bases installed in this workspace
+	// that the user is also allowed to see. It is best effort: if the
+	// knowledge plane is down the question is still answered, just without
+	// grounding, which is better than refusing to talk at all.
+	var citations []map[string]string
+	retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
+	passages, retrievalErr := s.retrievalContext(retrievalCtx, user.ID, conversationWorkspaceID, input.Content)
+	cancelRetrieval()
+	if retrievalErr != nil {
+		s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
+	}
+	if len(passages) > 0 {
+		// Grounding goes in front of the conversation so the passages frame
+		// the whole exchange rather than arriving as the latest turn.
+		history = append([]modelgateway.Message{{Role: "system", Content: buildGroundingPrompt(passages)}}, history...)
+		for index, passage := range passages {
+			citations = append(citations, map[string]string{
+				"index":  strconv.Itoa(index + 1),
+				"title":  passage.label(),
+				"source": passage.Source,
+			})
+		}
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "Streaming không được hỗ trợ.")
@@ -621,7 +660,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	assistantID := "msg_" + randomID(18)
-	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options)})
+	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options), "citations": citations})
 	flusher.Flush()
 
 	var assistant strings.Builder

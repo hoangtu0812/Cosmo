@@ -100,6 +100,25 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_knowledge_owner ON knowledge_bases(owner_user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_knowledge_mounts_target ON knowledge_mounts(target_type, target_id)`,
+	// Documents keep only metadata and the object reference here; the bytes
+	// live in MinIO and the chunks in Qdrant.
+	`CREATE TABLE IF NOT EXISTS knowledge_documents (
+		id TEXT PRIMARY KEY,
+		kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+		title TEXT NOT NULL,
+		filename TEXT NOT NULL,
+		content_type TEXT NOT NULL DEFAULT '',
+		size_bytes BIGINT NOT NULL DEFAULT 0,
+		storage_key TEXT NOT NULL DEFAULT '',
+		version INTEGER NOT NULL DEFAULT 1,
+		status TEXT NOT NULL DEFAULT 'pending',
+		chunk_count INTEGER NOT NULL DEFAULT 0,
+		error TEXT NOT NULL DEFAULT '',
+		uploaded_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_knowledge_documents_kb ON knowledge_documents(kb_id, created_at DESC)`,
 	// Model gateway credentials live per workspace so each team can point at its
 	// own LiteLLM key; the API key is stored sealed, never in plaintext.
 	`CREATE TABLE IF NOT EXISTS workspace_llm_configs (

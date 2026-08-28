@@ -517,9 +517,17 @@ func (s *Server) mountKnowledge(w http.ResponseWriter, r *http.Request) {
 	var version int
 	err := s.db.QueryRow(r.Context(), `
 		SELECT kb.version FROM knowledge_bases kb
-		WHERE kb.id = $3 AND (`+workspaceInScopeSQL+`)`,
-		user.ID, workspaceID, kbID).Scan(&version)
+		WHERE kb.id = $1
+		  AND kb.version > 0
+		  AND (
+			kb.visibility = 'everyone'
+			OR kb.owner_workspace_id = $2
+			OR (kb.visibility = 'selected' AND EXISTS (
+				SELECT 1 FROM knowledge_shares sh WHERE sh.kb_id = kb.id AND sh.workspace_id = $2
+			))
+		  )`, kbID, workspaceID).Scan(&version)
 	if err != nil {
+		s.logger.Warn("knowledge base cannot be installed in workspace", "knowledge_base", kbID, "workspace", workspaceID, "error", err)
 		writeError(w, http.StatusNotFound, "Knowledge base này chưa được chia sẻ tới workspace của bạn.")
 		return
 	}

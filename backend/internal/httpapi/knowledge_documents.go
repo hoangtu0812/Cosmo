@@ -510,22 +510,26 @@ func (s *Server) retrievalContext(ctx context.Context, userID, workspaceID, quer
 			continue
 		}
 		result = append(result, knowledgePassage{
-			Title:   passage.DocumentTitle,
-			Source:  passage.Source,
-			Section: passage.Section,
-			Page:    passage.Page,
-			Text:    passage.Text,
+			KBID:       passage.KBID,
+			DocumentID: passage.DocumentID,
+			Title:      passage.DocumentTitle,
+			Source:     passage.Source,
+			Section:    passage.Section,
+			Page:       passage.Page,
+			Text:       passage.Text,
 		})
 	}
 	return result, nil
 }
 
 type knowledgePassage struct {
-	Title   string
-	Source  string
-	Section string
-	Page    string
-	Text    string
+	KBID       string
+	DocumentID string
+	Title      string
+	Source     string
+	Section    string
+	Page       string
+	Text       string
 }
 
 // label names a passage the way a citation would, so the model can point at a

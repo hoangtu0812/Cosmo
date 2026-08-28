@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/mail"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -80,12 +79,25 @@ type Conversation struct {
 }
 
 type Message struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Role           string    `json:"role"`
-	Content        string    `json:"content"`
-	Model          string    `json:"model,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID             string     `json:"id"`
+	ConversationID string     `json:"conversation_id"`
+	Role           string     `json:"role"`
+	Content        string     `json:"content"`
+	Model          string     `json:"model,omitempty"`
+	Citations      []Citation `json:"citations,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+}
+
+// Citation points to a source the answer actually retrieved. The frontend
+// opens it through a protected document route, never directly in MinIO.
+type Citation struct {
+	Index      int    `json:"index"`
+	KBID       string `json:"kb_id"`
+	DocumentID string `json:"document_id"`
+	Title      string `json:"title"`
+	Source     string `json:"source"`
+	Section    string `json:"section,omitempty"`
+	Page       string `json:"page,omitempty"`
 }
 
 type contextKey string
@@ -637,7 +649,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id, conversation_id, role, content, COALESCE(model, ''), created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`, conversationID)
+	rows, err := s.db.Query(r.Context(), `SELECT id, conversation_id, role, content, COALESCE(model, ''), citations, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`, conversationID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải nội dung hội thoại.")
 		return
@@ -646,7 +658,9 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	items := []Message{}
 	for rows.Next() {
 		var item Message
-		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model, &item.CreatedAt) == nil {
+		var citationsJSON []byte
+		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model, &citationsJSON, &item.CreatedAt) == nil {
+			_ = json.Unmarshal(citationsJSON, &item.Citations)
 			items = append(items, item)
 		}
 	}
@@ -727,7 +741,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// that the user is also allowed to see. It is best effort: if the
 	// knowledge plane is down the question is still answered, just without
 	// grounding, which is better than refusing to talk at all.
-	var citations []map[string]string
+	var citations []Citation
 	retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
 	passages, retrievalErr := s.retrievalContext(retrievalCtx, user.ID, conversationWorkspaceID, input.Content)
 	cancelRetrieval()
@@ -739,10 +753,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		// the whole exchange rather than arriving as the latest turn.
 		history = append([]modelgateway.Message{{Role: "system", Content: buildGroundingPrompt(passages)}}, history...)
 		for index, passage := range passages {
-			citations = append(citations, map[string]string{
-				"index":  strconv.Itoa(index + 1),
-				"title":  passage.label(),
-				"source": passage.Source,
+			citations = append(citations, Citation{
+				Index:      index + 1,
+				KBID:       passage.KBID,
+				DocumentID: passage.DocumentID,
+				Title:      passage.Title,
+				Source:     passage.Source,
+				Section:    passage.Section,
+				Page:       passage.Page,
 			})
 		}
 	}
@@ -773,8 +791,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		return
 	}
-	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options)}
-	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, created_at) VALUES($1, $2, $3, $4, $5, $6)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, assistantMessage.CreatedAt)
+	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options), Citations: citations}
+	citationsJSON, _ := json.Marshal(citations)
+	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, citations, created_at) VALUES($1, $2, $3, $4, $5, $6, $7)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, assistantMessage.CreatedAt)
 	if err != nil {
 		writeSSE(w, "error", map[string]string{"message": "Câu trả lời đã hoàn tất nhưng chưa thể lưu lịch sử."})
 		flusher.Flush()

@@ -64,6 +64,9 @@ var migrations = []string{
 	// Records which model produced each answer, so history stays accurate when
 	// the composer picker is used mid-conversation.
 	`ALTER TABLE messages ADD COLUMN IF NOT EXISTS model TEXT`,
+	// Retrieval sources stay with the answer because access and installations
+	// can legitimately change after the conversation is created.
+	`ALTER TABLE messages ADD COLUMN IF NOT EXISTS citations JSONB NOT NULL DEFAULT '[]'::jsonb`,
 	// Emoji mark shown next to the workspace name; stored as text so no file
 	// storage is needed for what is really a one-glyph label.
 	`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS icon TEXT`,

@@ -68,7 +68,8 @@ export type KnowledgeDocumentDetail = {
 export type Member = {user_id: string; email: string; name: string; role: string; joined_at: string};
 export type Invitation = {id: string; email: string; role: string; expires_at: string; created_at: string; invite_url?: string};
 export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
-export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; created_at: string};
+export type Citation = {index: number; kb_id: string; document_id: string; title: string; source: string; section?: string; page?: string};
+export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; created_at: string};
 export type AuthConfig = {local_signup_enabled: boolean; local_auth_enabled: boolean; entra_enabled: boolean; model_configured: boolean; model_alias: string};
 export type AdminUser = {id: string; email: string; name: string; role: 'admin' | 'user'; provider: 'entra' | 'local'; workspace_count: number; created_at: string; has_avatar: boolean};
 export type AuditEvent = {id: number; actor_name: string; actor_email: string; action: string; target_type: string; target_id: string; metadata: Record<string, unknown>; created_at: string};
@@ -213,7 +214,7 @@ export async function streamChat(
   content: string,
   options: ChatOptions,
   handlers: {
-    onMeta?: (data: {assistant_message_id: string; model: string}) => void;
+    onMeta?: (data: {assistant_message_id: string; model: string; citations: Citation[]}) => void;
     onDelta: (content: string) => void;
     onDone?: (data: {message: Message}) => void;
   },

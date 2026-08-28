@@ -20,12 +20,15 @@ import {DropdownMenu, DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign
 import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
+import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {Link} from '@astryxdesign/core/Link';
+import {List} from '@astryxdesign/core/List';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {api, APIError, Conversation, Message, streamChat, User, Workspace} from '../lib/api';
+import {api, APIError, Citation, Conversation, Message, streamChat, User, Workspace} from '../lib/api';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Markdown} from '@astryxdesign/core/Markdown';
@@ -240,7 +243,10 @@ export default function ChatPage() {
     setStatus(t('chat.thinking'));
     try {
       await streamChat(targetID, trimmed, {model, reasoningEffort}, {
-        onMeta: () => setStatus(t('chat.writing')),
+        onMeta: ({citations}) => {
+          setStatus(t('chat.writing'));
+          setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, citations} : item));
+        },
         onDelta: (delta) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, content: item.content + delta} : item)),
         onDone: ({message}) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? message : item)),
       });
@@ -435,7 +441,10 @@ export default function ChatPage() {
                           variant="ghost"
                         >
                           {message.content
-                            ? <Markdown isStreaming={streaming} headingLevelStart={3}>{message.content}</Markdown>
+                            ? <VStack gap={3}>
+                              <Markdown isStreaming={streaming} headingLevelStart={3}>{message.content}</Markdown>
+                              <CitationList citations={message.citations ?? []} />
+                            </VStack>
                             : (streaming ? <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state="composing" /><Text color="secondary" type="supporting">{status}</Text></HStack> : '')}
                         </ChatMessageBubble>
                       </ChatMessage>
@@ -526,6 +535,29 @@ export default function ChatPage() {
       </Dialog>
 
     </>
+  );
+}
+
+function CitationList({citations}: {citations: Citation[]}) {
+  if (citations.length === 0) return null;
+  return (
+    <VStack gap={2}>
+      <Text type="label" weight="semibold">Nguồn</Text>
+      <List>
+        {citations.map((citation) => (
+          <Item
+            description={citation.section ? `${citation.section}${citation.page ? ` · Trang ${citation.page}` : ''}` : citation.page ? `Trang ${citation.page}` : citation.source}
+            endContent={
+              <Link href={api.documentOriginalURL(citation.kb_id, citation.document_id)} isExternalLink>
+                Mở tài liệu
+              </Link>
+            }
+            key={`${citation.kb_id}:${citation.document_id}:${citation.index}`}
+            label={`[${citation.index}] ${citation.title || citation.source}`}
+          />
+        ))}
+      </List>
+    </VStack>
   );
 }
 

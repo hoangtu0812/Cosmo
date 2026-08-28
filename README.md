@@ -88,6 +88,11 @@ Dữ liệu PostgreSQL được giữ trong Docker volume `cosmo-postgres` sau k
    AZURE_AD_REDIRECT_URL=http://localhost:8080/api/auth/entra/callback
    ```
 
+   Khi bật Entra ID, Cosmo chỉ cho phép đăng nhập bằng Microsoft; đăng ký và
+   đăng nhập bằng email/mật khẩu cục bộ sẽ tự tắt. Thêm delegated Microsoft
+   Graph permission `User.Read` (và cấp consent theo chính sách tenant) để
+   Cosmo hiển thị ảnh đại diện của người dùng.
+
 4. Build và khởi động lại backend. Nút “Tiếp tục với Microsoft” sẽ được bật khi cấu hình hợp lệ.
 
 ## Cấu hình Model Gateway

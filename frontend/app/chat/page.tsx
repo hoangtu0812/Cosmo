@@ -242,12 +242,12 @@ export default function ChatPage() {
       <DropdownMenuItem
         icon={<Settings size={15} />}
         label={t('menu.settings')}
-        onClick={() => router.push(`/settings?workspace=${encodeURIComponent(workspace?.id ?? '')}`)}
+        onClick={() => router.push('/settings')}
       />
       <DropdownMenuItem
         icon={<UserPlus size={15} />}
         label={t('menu.invite')}
-        onClick={() => router.push(`/settings?workspace=${encodeURIComponent(workspace?.id ?? '')}&section=members`)}
+        onClick={() => router.push('/settings?section=members')}
       />
       <DropdownMenuItem
         icon={<Plus size={15} />}
@@ -432,7 +432,7 @@ export default function ChatPage() {
                   endContent={
                     <Button
                       label={t('chat.openSettings')}
-                      onClick={() => router.push(`/settings?workspace=${encodeURIComponent(workspace.id)}`)}
+                      onClick={() => router.push('/settings')}
                       size="sm"
                       variant="secondary"
                     />

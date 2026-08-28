@@ -55,11 +55,13 @@ export default function SettingsPage() {
   const canAdmin = user?.role === 'admin' || workspace?.role === 'owner' || workspace?.role === 'admin';
 
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('workspace');
     Promise.all([api.me(), api.workspaces()]).then(([me, result]) => {
       setUser(me.user);
       setWorkspaces(result.workspaces);
-      const target = requested ?? me.user.last_workspace_id ?? result.workspaces[0]?.id ?? '';
+      // Settings is always scoped to the workspace currently selected in the
+      // app. It deliberately ignores a workspace URL parameter, so opening
+      // settings cannot become an alternate workspace switcher.
+      const target = me.user.last_workspace_id ?? result.workspaces[0]?.id ?? '';
       setWorkspaceID(target);
     }).catch((caught) => {
       if (caught instanceof APIError && caught.status === 401) router.replace('/');
@@ -76,6 +78,19 @@ export default function SettingsPage() {
       contentPadding={0}
       sideNav={
         <SideNav
+          footer={
+            user ? (
+              <Card padding={3} width="100%">
+                <HStack gap={2} vAlign="center">
+                  <Avatar name={user.name} size="md" src={user.has_avatar ? api.userAvatarURL() : undefined} />
+                  <VStack gap={0} minWidth={0}>
+                    <Text truncate type="label" weight="semibold">{user.name}</Text>
+                    <Text color="secondary" truncate type="supporting">{user.email}</Text>
+                  </VStack>
+                </HStack>
+              </Card>
+            ) : undefined
+          }
           header={
             <SideNavHeading
               heading={t('settings.title')}
@@ -139,14 +154,13 @@ export default function SettingsPage() {
                   onCreated={(created) => {
                     setWorkspaces((current) => [...current, created]);
                     setWorkspaceID(created.id);
+                    void api.selectWorkspace(created.id).catch((caught) => setError(caught instanceof Error ? caught.message : t('settings.loadFailed')));
                     setNotice(t('workspace.created', {name: created.name}));
                   }}
                   onError={setError}
                   onNotice={setNotice}
                   onUpdated={(updated) => setWorkspaces((current) => current.map((item) => item.id === updated.id ? {...item, ...updated} : item))}
                   workspace={workspace}
-                  workspaces={workspaces}
-                  onSwitch={setWorkspaceID}
                 />
               )}
             </VStack>
@@ -432,14 +446,12 @@ async function resizeToSquare(file: File, size = 128): Promise<{mime: string; da
   return {mime: 'image/png', data: btoa(binary)};
 }
 
-function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, onSwitch, workspace, workspaces}: {
+function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, workspace}: {
   onCreated: (workspace: Workspace) => void;
   onError: (value: string) => void;
   onNotice: (value: string) => void;
   onUpdated: (workspace: Workspace) => void;
-  onSwitch: (id: string) => void;
   workspace?: Workspace;
-  workspaces: Workspace[];
 }) {
   const t = useTranslation();
   const [name, setName] = useState('');
@@ -545,25 +557,6 @@ function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, onSwitch, w
             <Button isDisabled={!name.trim() || creating} isLoading={creating} label={t('workspace.create')} onClick={() => void create()} variant="primary" />
           </HStack>
         </VStack>
-      </Card>
-
-      <Card padding={0} width="100%">
-        <Section dividers={['bottom']} padding={4}>
-          <Text type="label" weight="semibold">{t('workspace.yours', {count: workspaces.length})}</Text>
-        </Section>
-        <List>
-          {workspaces.map((item) => (
-            <Item
-              as="li"
-              description={item.model_configured ? t('workspace.modelSet', {model: item.model_alias ?? ''}) : t('workspace.modelUnset')}
-              endContent={item.id === workspace?.id ? <Badge label={t('workspace.viewing')} variant="neutral" /> : undefined}
-              key={item.id}
-              label={item.name}
-              onClick={() => onSwitch(item.id)}
-              startContent={<Avatar name={item.icon || item.name} size="sm" src={item.has_icon_image ? api.workspaceIconURL(item.id) : undefined} />}
-            />
-          ))}
-        </List>
       </Card>
     </VStack>
   );

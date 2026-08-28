@@ -44,10 +44,10 @@ export default function KnowledgePage() {
   const [pending, setPending] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Owning a knowledge base and using one are separate decisions, so the page
-  // keeps them apart: what you answer for, and what you may install here.
-  const managed = useMemo(() => bases.filter((item) => item.access === 'owner'), [bases]);
-  const available = useMemo(() => bases.filter((item) => item.access !== 'owner'), [bases]);
+  // Every visible KB is available to install, including one owned by this
+  // workspace. Management and installation are separate actions: ownership
+  // must never cause a KB to be silently enabled for chat.
+  const available = useMemo(() => bases, [bases]);
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const canInstall = workspace?.role === 'owner' || workspace?.role === 'admin';
 
@@ -123,6 +123,18 @@ export default function KnowledgePage() {
     }
   }
 
+  async function selectWorkspace(id: string) {
+    setWorkspaceID(id);
+    setError('');
+    try {
+      // The detail page is addressed by KB id, so keep the server-side
+      // workspace context in sync before navigating into one.
+      await api.selectWorkspace(id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('kb.loadFailed'));
+    }
+  }
+
   return (
     <AppShell
       contentPadding={0}
@@ -158,47 +170,13 @@ export default function KnowledgePage() {
               {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
 
               <VStack gap={3}>
-                <Text type="label" weight="semibold">{t('kb.managed')}</Text>
-                {managed.length === 0 ? (
-                  <Text color="secondary" type="supporting">{t('kb.managedEmpty')}</Text>
-                ) : (
-                  <Grid columns={{minWidth: 320, max: 3}} gap={4} width="100%">
-                    {managed.map((base) => (
-                      <KnowledgeCard
-                        base={base}
-                        key={base.id}
-                        primary={
-                          <Button
-                            label={t('kb.share')}
-                            onClick={() => setSharing(base)}
-                            size="sm"
-                            variant="secondary"
-                          />
-                        }
-                        secondary={
-                          <IconButton
-                            icon={<Trash2 size={14} />}
-                            label={t('kb.delete')}
-                            onClick={() => setDeleting(base)}
-                            size="sm"
-                            variant="ghost"
-                          />
-                        }
-                        t={t}
-                      />
-                    ))}
-                  </Grid>
-                )}
-              </VStack>
-
-              <VStack gap={3}>
                 <HStack gap={3} hAlign="between" vAlign="center">
                   <Text type="label" weight="semibold">{t('kb.available')}</Text>
                   {workspaces.length > 1 ? (
                     <Selector
                       isLabelHidden
                       label={t('kb.installTarget')}
-                      onChange={setWorkspaceID}
+                      onChange={(id) => void selectWorkspace(id)}
                       options={workspaces.map((item) => ({value: item.id, label: item.name}))}
                       size="sm"
                       value={workspaceID}
@@ -231,6 +209,25 @@ export default function KnowledgePage() {
                           ) : base.is_mounted ? (
                             <Badge label={t('kb.installed')} variant="neutral" />
                           ) : null
+                        }
+                        secondary={
+                          base.access === 'owner' ? (
+                            <HStack gap={1} vAlign="center">
+                              <Button
+                                label={t('kb.share')}
+                                onClick={() => setSharing(base)}
+                                size="sm"
+                                variant="secondary"
+                              />
+                              <IconButton
+                                icon={<Trash2 size={14} />}
+                                label={t('kb.delete')}
+                                onClick={() => setDeleting(base)}
+                                size="sm"
+                                variant="ghost"
+                              />
+                            </HStack>
+                          ) : undefined
                         }
                         t={t}
                       />

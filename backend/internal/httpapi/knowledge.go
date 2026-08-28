@@ -22,15 +22,15 @@ const (
 	visibilityEveryone = "everyone"
 )
 
-// KnowledgeBase is a document collection owned by the user who created it.
-// Ownership, reach and use are three separate questions, answered by
-// owner_user_id, visibility, and knowledge_mounts respectively.
+// KnowledgeBase is a document collection owned by its workspace. The person
+// who created it is retained solely as audit metadata; ownership, reach and
+// use are answered by owner_workspace_id, visibility, and knowledge_mounts.
 type KnowledgeBase struct {
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
 	Description      string    `json:"description"`
-	OwnerUserID      string    `json:"owner_user_id"`
-	OwnerName        string    `json:"owner_name,omitempty"`
+	CreatedByUserID  string    `json:"created_by_user_id,omitempty"`
+	CreatedByName    string    `json:"created_by_name,omitempty"`
 	OwnerWorkspaceID string    `json:"owner_workspace_id,omitempty"`
 	Visibility       string    `json:"visibility"`
 	CreatedAt        time.Time `json:"created_at"`
@@ -38,7 +38,7 @@ type KnowledgeBase struct {
 	Access string `json:"access"`
 
 	// Version is what has been published. Zero means the base is still a draft
-	// that only its owner can see.
+	// that only its owning workspace can see.
 	Version int `json:"version"`
 	// HasUnpublishedChanges is true when documents changed after the last
 	// publish, which is what turns the owner's Publish button back on.
@@ -56,24 +56,20 @@ type KnowledgeBase struct {
 	SharedCount   int `json:"shared_count"`
 }
 
-// visibleKnowledgeSQL is the single definition of "knowledge bases this user
-// may see", used by every read path so the rules cannot drift apart.
+// workspaceVisibleKnowledgeSQL is the single definition of what a workspace
+// may discover. A KB always appears to the workspace that owns it (including
+// drafts); after publishing it can also appear in explicitly shared
+// workspaces, or in every workspace when opened organisation-wide.
 //
-// A draft is visible only to its owner. Once published, the reach follows the
-// visibility: always the workspace it belongs to, plus the named workspaces
-// when selected, plus everyone when open.
-const visibleKnowledgeSQL = `
-	kb.owner_user_id = $1
+// $2 is deliberately the workspace, not the current person. A user who is a
+// member of both A and B must see A's KB in B only when A shared it with B.
+const workspaceVisibleKnowledgeSQL = `
+	kb.owner_workspace_id = $2
 	OR (kb.version > 0 AND (
 		kb.visibility = 'everyone'
-		OR EXISTS (
-			SELECT 1 FROM workspace_memberships m
-			WHERE m.workspace_id = kb.owner_workspace_id AND m.user_id = $1
-		)
 		OR (kb.visibility = 'selected' AND EXISTS (
 			SELECT 1 FROM knowledge_shares sh
-			JOIN workspace_memberships m ON m.workspace_id = sh.workspace_id AND m.user_id = $1
-			WHERE sh.kb_id = kb.id
+			WHERE sh.kb_id = kb.id AND sh.workspace_id = $2
 		))
 	))`
 
@@ -90,9 +86,18 @@ const workspaceInScopeSQL = `
 		))
 	)`
 
-// accessSQL resolves what the caller may do. Editing stays with the owner:
-// sharing hands out use, never authorship.
-const accessSQL = `CASE WHEN kb.owner_user_id = $1 THEN 'owner' ELSE 'viewer' END`
+// accessSQL resolves what the caller may do in the workspace framing the
+// request. Workspace admins manage the KB only while looking through its
+// owning workspace; a shared card in workspace B stays an installer card even
+// when the same person also administers workspace A.
+const accessSQL = `CASE WHEN kb.owner_workspace_id = $2 AND (
+	EXISTS (SELECT 1 FROM users actor WHERE actor.id = $1 AND actor.role = 'admin')
+	OR EXISTS (
+		SELECT 1 FROM workspace_memberships m
+		WHERE m.user_id = $1 AND m.workspace_id = kb.owner_workspace_id
+		  AND m.role IN ('owner', 'admin')
+	)
+) THEN 'owner' ELSE 'viewer' END`
 
 // unpublishedSQL reports whether documents changed since the last publish.
 // Derived rather than stored, so it cannot fall out of step with reality.
@@ -102,14 +107,18 @@ const unpublishedSQL = `
 		WHERE d.kb_id = kb.id AND d.updated_at > COALESCE(kb.published_at, TIMESTAMPTZ 'epoch')
 	)`
 
-// knowledgeAccess reports the caller's role, or an empty string when the
-// knowledge base is not visible to them at all.
+// knowledgeAccess reports the caller's role in their currently selected
+// workspace, or an empty string when that workspace cannot see the KB.
 func (s *Server) knowledgeAccess(ctx context.Context, userID, kbID string) string {
+	workspaceID := s.knowledgeWorkspace(ctx, userID, "")
+	if workspaceID == "" {
+		return ""
+	}
 	var access string
 	err := s.db.QueryRow(ctx, `
 		SELECT `+accessSQL+`
 		FROM knowledge_bases kb
-		WHERE kb.id = $2 AND (`+visibleKnowledgeSQL+`)`, userID, kbID).Scan(&access)
+		WHERE kb.id = $3 AND (`+workspaceVisibleKnowledgeSQL+`)`, userID, workspaceID, kbID).Scan(&access)
 	if err != nil {
 		return ""
 	}
@@ -119,7 +128,7 @@ func (s *Server) knowledgeAccess(ctx context.Context, userID, kbID string) strin
 // knowledgeColumns is the shared projection. $1 is the caller, $2 the
 // workspace the answer is framed against (empty string when none).
 const knowledgeColumns = `
-	kb.id, kb.name, kb.description, kb.owner_user_id, COALESCE(u.name, ''),
+	kb.id, kb.name, kb.description, COALESCE(kb.owner_user_id, ''), COALESCE(u.name, ''),
 	COALESCE(kb.owner_workspace_id, ''), kb.visibility, kb.created_at, kb.version,
 	` + accessSQL + `,
 	` + unpublishedSQL + `,
@@ -133,7 +142,7 @@ func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 	// A mount that does not exist comes back as -1, which is how the query
 	// distinguishes "not installed" from "installed at version 0".
 	installed := -1
-	err := scan(&item.ID, &item.Name, &item.Description, &item.OwnerUserID, &item.OwnerName,
+	err := scan(&item.ID, &item.Name, &item.Description, &item.CreatedByUserID, &item.CreatedByName,
 		&item.OwnerWorkspaceID, &item.Visibility, &item.CreatedAt, &item.Version,
 		&item.Access, &item.HasUnpublishedChanges, &installed,
 		&item.DocumentCount, &item.SharedCount)
@@ -152,13 +161,17 @@ func (s *Server) listKnowledgeBases(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	// An optional workspace frames the answer: what is installed there, and
 	// whether an update is waiting.
-	workspaceID := strings.TrimSpace(r.URL.Query().Get("workspace"))
+	workspaceID := s.knowledgeWorkspace(r.Context(), user.ID, r.URL.Query().Get("workspace"))
+	if workspaceID == "" {
+		writeError(w, http.StatusForbidden, "Bạn không có quyền truy cập workspace này.")
+		return
+	}
 
 	rows, err := s.db.Query(r.Context(), `
 		SELECT `+knowledgeColumns+`
 		FROM knowledge_bases kb
 		LEFT JOIN users u ON u.id = kb.owner_user_id
-		WHERE `+visibleKnowledgeSQL+`
+		WHERE `+workspaceVisibleKnowledgeSQL+`
 		ORDER BY kb.created_at DESC`, user.ID, workspaceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải danh sách knowledge base.")
@@ -195,15 +208,11 @@ func (s *Server) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A base belongs to the workspace it was made in, which is what the
-	// narrowest visibility means. Falling back to the last workspace keeps the
-	// call usable from anywhere in the app.
-	workspaceID := strings.TrimSpace(input.WorkspaceID)
-	if workspaceID == "" {
-		workspaceID = user.LastWorkspaceID
-	}
-	if !s.hasWorkspace(r.Context(), user.ID, workspaceID) {
-		writeError(w, http.StatusForbidden, "Bạn không thuộc workspace này.")
+	// A KB belongs to the workspace it is made in. Creating one changes shared
+	// workspace data, so only its administrators can do it.
+	workspaceID := s.knowledgeWorkspace(r.Context(), user.ID, input.WorkspaceID)
+	if workspaceID == "" || !s.isWorkspaceAdmin(r.Context(), user, workspaceID) {
+		writeError(w, http.StatusForbidden, "Bạn cần quyền quản trị workspace để tạo knowledge base.")
 		return
 	}
 
@@ -222,7 +231,7 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	kbID := chi.URLParam(r, "kbID")
 	if s.knowledgeAccess(r.Context(), user.ID, kbID) != "owner" {
-		writeError(w, http.StatusForbidden, "Chỉ chủ sở hữu mới sửa được knowledge base này.")
+		writeError(w, http.StatusForbidden, "Chỉ quản trị viên của workspace sở hữu mới sửa được knowledge base này.")
 		return
 	}
 	var input struct {
@@ -355,7 +364,7 @@ func (s *Server) deleteKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	kbID := chi.URLParam(r, "kbID")
 	if s.knowledgeAccess(r.Context(), user.ID, kbID) != "owner" {
-		writeError(w, http.StatusForbidden, "Chỉ chủ sở hữu mới xoá được knowledge base này.")
+		writeError(w, http.StatusForbidden, "Chỉ quản trị viên của workspace sở hữu mới xoá được knowledge base này.")
 		return
 	}
 	// Shares and mounts cascade, so removing the base also detaches it
@@ -382,7 +391,7 @@ func (s *Server) publishKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	kbID := chi.URLParam(r, "kbID")
 	if s.knowledgeAccess(r.Context(), user.ID, kbID) != "owner" {
-		writeError(w, http.StatusForbidden, "Chỉ chủ sở hữu mới publish được knowledge base này.")
+		writeError(w, http.StatusForbidden, "Chỉ quản trị viên của workspace sở hữu mới publish được knowledge base này.")
 		return
 	}
 
@@ -408,7 +417,7 @@ func (s *Server) publishKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) writeKnowledgeBase(w http.ResponseWriter, r *http.Request, kbID string, status int) {
 	user := currentUser(r.Context())
-	workspaceID := strings.TrimSpace(r.URL.Query().Get("workspace"))
+	workspaceID := s.knowledgeWorkspace(r.Context(), user.ID, r.URL.Query().Get("workspace"))
 	item, err := scanKnowledgeBase(s.db.QueryRow(r.Context(), `
 		SELECT `+knowledgeColumns+`
 		FROM knowledge_bases kb LEFT JOIN users u ON u.id = kb.owner_user_id
@@ -426,7 +435,7 @@ func (s *Server) listKnowledgeShares(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	kbID := chi.URLParam(r, "kbID")
 	if s.knowledgeAccess(r.Context(), user.ID, kbID) != "owner" {
-		writeError(w, http.StatusForbidden, "Chỉ chủ sở hữu mới xem được danh sách chia sẻ.")
+		writeError(w, http.StatusForbidden, "Chỉ quản trị viên của workspace sở hữu mới xem được danh sách chia sẻ.")
 		return
 	}
 	rows, err := s.db.Query(r.Context(), `
@@ -470,7 +479,7 @@ func (s *Server) listWorkspaceKnowledge(w http.ResponseWriter, r *http.Request) 
 		JOIN knowledge_bases kb ON kb.id = km.kb_id
 		LEFT JOIN users u ON u.id = kb.owner_user_id
 		WHERE km.target_type = 'workspace' AND km.target_id = $2
-		  AND (`+visibleKnowledgeSQL+`) AND (`+workspaceInScopeSQL+`)
+		  AND (`+workspaceInScopeSQL+`)
 		ORDER BY kb.name`, user.ID, workspaceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải knowledge base của workspace.")
@@ -508,7 +517,7 @@ func (s *Server) mountKnowledge(w http.ResponseWriter, r *http.Request) {
 	var version int
 	err := s.db.QueryRow(r.Context(), `
 		SELECT kb.version FROM knowledge_bases kb
-		WHERE kb.id = $3 AND (`+visibleKnowledgeSQL+`) AND (`+workspaceInScopeSQL+`)`,
+		WHERE kb.id = $3 AND (`+workspaceInScopeSQL+`)`,
 		user.ID, workspaceID, kbID).Scan(&version)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "Knowledge base này chưa được chia sẻ tới workspace của bạn.")
@@ -539,6 +548,22 @@ func (s *Server) unmountKnowledge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// knowledgeWorkspace resolves an explicitly framed workspace or the user's
+// current workspace. It always verifies membership: a query parameter can
+// choose a context, but can never grant access to another workspace.
+func (s *Server) knowledgeWorkspace(ctx context.Context, userID, requested string) string {
+	workspaceID := strings.TrimSpace(requested)
+	if workspaceID == "" {
+		if err := s.db.QueryRow(ctx, `SELECT COALESCE(last_workspace_id, '') FROM users WHERE id = $1`, userID).Scan(&workspaceID); err != nil {
+			return ""
+		}
+	}
+	if workspaceID == "" || !s.hasWorkspace(ctx, userID, workspaceID) {
+		return ""
+	}
+	return workspaceID
 }
 
 // workspaceDirectory lists every workspace by name, so an owner choosing who

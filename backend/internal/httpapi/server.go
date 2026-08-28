@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -50,6 +51,7 @@ type User struct {
 	Name            string `json:"name"`
 	Role            string `json:"role"`
 	LastWorkspaceID string `json:"last_workspace_id,omitempty"`
+	HasAvatar       bool   `json:"has_avatar"`
 }
 
 type Workspace struct {
@@ -114,7 +116,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 			ClientSecret: cfg.EntraClientSecret,
 			RedirectURL:  cfg.EntraRedirectURL,
 			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+			Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "User.Read"},
 		}
 		s.oidcVerifier = provider.Verifier(&oidc.Config{ClientID: cfg.EntraClientID})
 	}
@@ -138,6 +140,7 @@ func (s *Server) Router() http.Handler {
 	r.Group(func(protected chi.Router) {
 		protected.Use(s.requireUser)
 		protected.Get("/api/auth/me", s.me)
+		protected.Get("/api/auth/me/avatar", s.userAvatar)
 		protected.Get("/api/workspaces", s.workspaces)
 		protected.Post("/api/workspaces/{workspaceID}/select", s.selectWorkspace)
 		protected.Get("/api/conversations", s.listConversations)
@@ -240,7 +243,8 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) authConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"local_signup_enabled": true,
+		"local_signup_enabled": !s.cfg.EntraEnabled(),
+		"local_auth_enabled":   !s.cfg.EntraEnabled(),
 		"entra_enabled":        s.cfg.EntraEnabled(),
 		"model_configured":     s.models.Configured(),
 		"model_alias":          s.models.Model(),
@@ -248,6 +252,10 @@ func (s *Server) authConfig(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.EntraEnabled() {
+		writeError(w, http.StatusForbidden, "Đăng ký tài khoản cục bộ đã tắt khi Microsoft Entra ID được cấu hình.")
+		return
+	}
 	var input struct {
 		Name     string `json:"name"`
 		Email    string `json:"email"`
@@ -298,6 +306,10 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) signin(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.EntraEnabled() {
+		writeError(w, http.StatusForbidden, "Đăng nhập bằng tài khoản cục bộ đã tắt. Vui lòng dùng Microsoft Entra ID.")
+		return
+	}
 	var input struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -309,7 +321,7 @@ func (s *Server) signin(w http.ResponseWriter, r *http.Request) {
 	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
 	var user User
 	var hash *string
-	err := s.db.QueryRow(r.Context(), `SELECT id, email, name, role, password_hash FROM users WHERE email = $1`, input.Email).Scan(&user.ID, &user.Email, &user.Name, &user.Role, &hash)
+	err := s.db.QueryRow(r.Context(), `SELECT id, email, name, role, password_hash, (avatar_image IS NOT NULL) FROM users WHERE email = $1`, input.Email).Scan(&user.ID, &user.Email, &user.Name, &user.Role, &hash, &user.HasAvatar)
 	if err != nil || hash == nil || bcrypt.CompareHashAndPassword([]byte(*hash), []byte(input.Password)) != nil {
 		writeError(w, http.StatusUnauthorized, "Email hoặc mật khẩu không đúng.")
 		return
@@ -382,8 +394,50 @@ func (s *Server) entraCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=account_provision_failed", http.StatusFound)
 		return
 	}
+	if image, mime, err := fetchEntraAvatar(r.Context(), token.AccessToken); err == nil && len(image) > 0 {
+		if _, err := s.db.Exec(r.Context(), `UPDATE users SET avatar_image = $2, avatar_mime = $3, updated_at = NOW() WHERE id = $1`, user.ID, image, mime); err != nil {
+			s.logger.Warn("store Entra profile photo", "user_id", user.ID, "error", err)
+		} else {
+			user.HasAvatar = true
+		}
+	}
 	s.setSession(w, user, true)
 	http.Redirect(w, r, s.cfg.FrontendURL+"/chat", http.StatusFound)
+}
+
+// fetchEntraAvatar reads the signed-in user's profile photo from Microsoft
+// Graph. A missing photo or a tenant without User.Read consent is non-fatal:
+// the interface falls back to initials and the login still completes.
+func fetchEntraAvatar(ctx context.Context, accessToken string) ([]byte, string, error) {
+	if strings.TrimSpace(accessToken) == "" {
+		return nil, "", errors.New("missing Microsoft Graph access token")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://graph.microsoft.com/v1.0/me/photo/$value", nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := (&http.Client{Timeout: 8 * time.Second}).Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("Microsoft Graph returned %s", resp.Status)
+	}
+	mime := strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
+	if mime != "image/jpeg" && mime != "image/png" && mime != "image/gif" && mime != "image/webp" {
+		return nil, "", fmt.Errorf("unsupported Microsoft Graph avatar type %q", mime)
+	}
+	const maxAvatarBytes = 1024 * 1024
+	image, err := io.ReadAll(io.LimitReader(resp.Body, maxAvatarBytes+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(image) == 0 || len(image) > maxAvatarBytes {
+		return nil, "", errors.New("invalid Microsoft Graph avatar size")
+	}
+	return image, mime, nil
 }
 
 func (s *Server) upsertEntraUser(ctx context.Context, subject, email, name string) (User, error) {
@@ -437,6 +491,25 @@ func (s *Server) upsertEntraUser(ctx context.Context, subject, email, name strin
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": currentUser(r.Context())})
+}
+
+// userAvatar serves the cached Entra profile photo to its own account only.
+// Keeping it behind the session avoids exposing employee images as public URLs.
+func (s *Server) userAvatar(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	var image []byte
+	var mime string
+	if err := s.db.QueryRow(r.Context(), `SELECT avatar_image, COALESCE(avatar_mime, '') FROM users WHERE id = $1`, user.ID).Scan(&image, &mime); err != nil || len(image) == 0 {
+		writeError(w, http.StatusNotFound, "Tài khoản chưa có ảnh đại diện.")
+		return
+	}
+	if mime != "image/jpeg" && mime != "image/png" && mime != "image/gif" && mime != "image/webp" {
+		mime = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(image)
 }
 
 func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
@@ -713,7 +786,7 @@ func (s *Server) requireUser(next http.Handler) http.Handler {
 		}
 		userID, _ := claims.GetSubject()
 		var user User
-		if s.db.QueryRow(r.Context(), `SELECT id, email, name, role, COALESCE(last_workspace_id, '') FROM users WHERE id = $1`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Role, &user.LastWorkspaceID) != nil {
+		if s.db.QueryRow(r.Context(), `SELECT id, email, name, role, COALESCE(last_workspace_id, ''), (avatar_image IS NOT NULL) FROM users WHERE id = $1`, userID).Scan(&user.ID, &user.Email, &user.Name, &user.Role, &user.LastWorkspaceID, &user.HasAvatar) != nil {
 			writeError(w, http.StatusUnauthorized, "Tài khoản không còn hoạt động.")
 			return
 		}

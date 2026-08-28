@@ -2,7 +2,7 @@
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8080';
 
-export type User = {id: string; email: string; name: string; role: 'admin' | 'user'; last_workspace_id?: string};
+export type User = {id: string; email: string; name: string; role: 'admin' | 'user'; last_workspace_id?: string; has_avatar: boolean};
 export type Workspace = {
   id: string;
   name: string;
@@ -26,8 +26,8 @@ export type KnowledgeBase = {
   id: string;
   name: string;
   description: string;
-  owner_user_id: string;
-  owner_name?: string;
+  created_by_user_id?: string;
+  created_by_name?: string;
   owner_workspace_id?: string;
   visibility: 'workspace' | 'selected' | 'everyone';
   created_at: string;
@@ -61,7 +61,7 @@ export type Member = {user_id: string; email: string; name: string; role: string
 export type Invitation = {id: string; email: string; role: string; expires_at: string; created_at: string; invite_url?: string};
 export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
 export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; created_at: string};
-export type AuthConfig = {local_signup_enabled: boolean; entra_enabled: boolean; model_configured: boolean; model_alias: string};
+export type AuthConfig = {local_signup_enabled: boolean; local_auth_enabled: boolean; entra_enabled: boolean; model_configured: boolean; model_alias: string};
 
 type APIErrorShape = {error?: {message?: string}};
 
@@ -107,6 +107,7 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
 export const api = {
   authConfig: () => request<AuthConfig>('/api/auth/config'),
   me: () => request<{user: User}>('/api/auth/me'),
+	userAvatarURL: () => `${API_BASE}/api/auth/me/avatar`,
   signIn: (email: string, password: string, remember: boolean) => request<{user: User}>('/api/auth/signin', {method: 'POST', body: JSON.stringify({email, password, remember})}),
   signUp: (name: string, email: string, password: string) => request<{user: User}>('/api/auth/signup', {method: 'POST', body: JSON.stringify({name, email, password})}),
   signOut: () => request<void>('/api/auth/signout', {method: 'POST'}),

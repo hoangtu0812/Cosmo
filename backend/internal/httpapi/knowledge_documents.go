@@ -362,13 +362,14 @@ func (s *Server) retrievalContext(ctx context.Context, userID, workspaceID, quer
 		return nil, nil
 	}
 
-	// Three conditions, all required: the base is installed here, the user may
-	// see it, and this workspace is still within its reach. Dropping any one of
-	// them would let a revoked share keep answering questions.
+	// Two workspace-level conditions are required: the base is installed here
+	// and this workspace is still within its reach. Both are workspace facts,
+	// so a person who also belongs to the source workspace cannot accidentally
+	// make its KB available in this one.
 	rows, err := s.db.Query(ctx, `
 		SELECT kb.id FROM knowledge_bases kb
 		JOIN knowledge_mounts m ON m.kb_id = kb.id AND m.target_type = 'workspace' AND m.target_id = $2
-		WHERE (`+visibleKnowledgeSQL+`) AND (`+workspaceInScopeSQL+`)`, userID, workspaceID)
+		WHERE (`+workspaceInScopeSQL+`)`, userID, workspaceID)
 	if err != nil {
 		return nil, err
 	}

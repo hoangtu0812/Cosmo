@@ -57,6 +57,10 @@ var migrations = []string{
 	// Kept as a standalone, idempotent migration so existing installations gain
 	// the preference without requiring a destructive schema reset.
 	`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_workspace_id TEXT`,
+	// Entra profile photos are cached after sign-in and served only to that
+	// signed-in user. The access token used to fetch them is never persisted.
+	`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_image BYTEA`,
+	`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_mime TEXT`,
 	// Records which model produced each answer, so history stays accurate when
 	// the composer picker is used mid-conversation.
 	`ALTER TABLE messages ADD COLUMN IF NOT EXISTS model TEXT`,
@@ -68,16 +72,16 @@ var migrations = []string{
 	`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS icon_image BYTEA`,
 	`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS icon_mime TEXT`,
 
-	// Knowledge Plane control tables. A knowledge base is owned by the user who
-	// created it and lives outside any workspace, so it can be shared and
-	// mounted independently — grants say who may see it, mounts say where it is
-	// actually used for retrieval. Keeping those separate is what lets one KB
-	// serve several workspaces without widening who can read it.
+	// Knowledge Plane control tables. A knowledge base belongs to the workspace
+	// where it was created. The creator is audit metadata only; visibility says
+	// which workspaces may discover it and mounts say where it is used for
+	// retrieval. Keeping reach and mounts separate lets one KB serve several
+	// workspaces without enabling it automatically.
 	`CREATE TABLE IF NOT EXISTS knowledge_bases (
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
-		owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
 		visibility TEXT NOT NULL DEFAULT 'private',
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -98,7 +102,7 @@ var migrations = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		PRIMARY KEY (kb_id, target_type, target_id)
 	)`,
-	`CREATE INDEX IF NOT EXISTS idx_knowledge_owner ON knowledge_bases(owner_user_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_knowledge_creator ON knowledge_bases(owner_user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_knowledge_mounts_target ON knowledge_mounts(target_type, target_id)`,
 	// Documents keep only metadata and the object reference here; the bytes
 	// live in MinIO and the chunks in Qdrant.
@@ -135,7 +139,15 @@ var migrations = []string{
 	// A knowledge base belongs to the workspace it was created in, which is
 	// what its narrowest visibility means.
 	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS owner_workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL`,
-	// Version zero is a draft only its owner can see. Publishing releases it.
+	`CREATE INDEX IF NOT EXISTS idx_knowledge_owner_workspace ON knowledge_bases(owner_workspace_id)`,
+	// Earlier builds treated owner_user_id as the owner. Preserve its value as
+	// creator metadata but remove the cascade: deleting that account must not
+	// delete a workspace-owned KB.
+	`ALTER TABLE knowledge_bases DROP CONSTRAINT IF EXISTS knowledge_bases_owner_user_id_fkey`,
+	`ALTER TABLE knowledge_bases ALTER COLUMN owner_user_id DROP NOT NULL`,
+	`ALTER TABLE knowledge_bases ADD CONSTRAINT knowledge_bases_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL`,
+	// Version zero is a draft only its owning workspace can see. Publishing
+	// releases it to the configured sharing scope.
 	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`,
 	// Sharing is workspace to workspace: everyone signs in to a workspace
@@ -150,8 +162,8 @@ var migrations = []string{
 	// Which version a workspace signed up for, so a later publish can be
 	// announced rather than applied behind its back.
 	`ALTER TABLE knowledge_mounts ADD COLUMN IF NOT EXISTS installed_version INTEGER NOT NULL DEFAULT 0`,
-	// Carry the earlier vocabulary over: private meant "just me", which is now
-	// the owning workspace, and organization meant everyone.
+	// Carry the earlier vocabulary over: private now means the owning workspace,
+	// and organization means everyone.
 	`UPDATE knowledge_bases SET visibility = 'workspace' WHERE visibility = 'private'`,
 	`UPDATE knowledge_bases SET visibility = 'everyone' WHERE visibility = 'organization'`,
 	// Bases made before workspaces owned them adopt their creator's own space.

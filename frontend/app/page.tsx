@@ -115,68 +115,74 @@ export default function Home() {
                   )}
                 </VStack>
 
-                <Divider label={t('auth.or')} />
+                {config?.local_auth_enabled ? (
+                  <>
+                    <Divider label={t('auth.or')} />
 
-                <form onSubmit={submit}>
-                  <FormLayout>
-                    {mode === 'signup' && (
-                      <TextInput htmlName="name" isRequired label={t('auth.name')} onChange={setName} size="lg" value={name} width="100%" />
-                    )}
-                    <TextInput htmlName="email" isRequired label={t('auth.email')} onChange={setEmail} placeholder="name@example.com" size="lg" type="email" value={email} width="100%" />
-                    <TextInput
-                      htmlName="password"
-                      isRequired
-                      label={t('auth.password')}
-                      onChange={setPassword}
-                      placeholder={mode === 'signup' ? t('auth.passwordRule') : undefined}
-                      size="lg"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      width="100%"
-                    />
-                    <HStack hAlign="end">
+                    <form onSubmit={submit}>
+                      <FormLayout>
+                        {mode === 'signup' && (
+                          <TextInput htmlName="name" isRequired label={t('auth.name')} onChange={setName} size="lg" value={name} width="100%" />
+                        )}
+                        <TextInput htmlName="email" isRequired label={t('auth.email')} onChange={setEmail} placeholder="name@example.com" size="lg" type="email" value={email} width="100%" />
+                        <TextInput
+                          htmlName="password"
+                          isRequired
+                          label={t('auth.password')}
+                          onChange={setPassword}
+                          placeholder={mode === 'signup' ? t('auth.passwordRule') : undefined}
+                          size="lg"
+                          type={showPassword ? 'text' : 'password'}
+                          value={password}
+                          width="100%"
+                        />
+                        <HStack hAlign="end">
+                          <Button
+                            icon={showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                            label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
+                            onClick={() => setShowPassword((value) => !value)}
+                            size="sm"
+                            variant="ghost"
+                          />
+                        </HStack>
+
+                        {mode === 'signin' && (
+                          <HStack hAlign="between" vAlign="center">
+                            <CheckboxInput label={t('auth.remember')} onChange={setRemember} size="sm" value={remember} />
+                            <HStack gap={1.5} vAlign="center">
+                              <LockKeyhole size={12} />
+                              <Text color="secondary" type="supporting">{t('auth.encrypted')}</Text>
+                            </HStack>
+                          </HStack>
+                        )}
+
+                        <Button
+                          isDisabled={loading || checkingSession}
+                          isLoading={loading || checkingSession}
+                          label={loading ? t('auth.signingIn') : mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
+                          size="lg"
+                          type="submit"
+                          variant="primary"
+                          width="100%"
+                        />
+                      </FormLayout>
+                    </form>
+
+                    <HStack gap={1} hAlign="center" vAlign="center">
+                      <Text color="secondary">
+                        {mode === 'signin' ? t('auth.noAccount') : t('auth.hasAccount')}
+                      </Text>
                       <Button
-                        icon={showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                        label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
-                        onClick={() => setShowPassword((value) => !value)}
+                        label={mode === 'signin' ? t('auth.signUp') : t('auth.signIn')}
+                        onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
                         size="sm"
                         variant="ghost"
                       />
                     </HStack>
-
-                    {mode === 'signin' && (
-                      <HStack hAlign="between" vAlign="center">
-                        <CheckboxInput label={t('auth.remember')} onChange={setRemember} size="sm" value={remember} />
-                        <HStack gap={1.5} vAlign="center">
-                          <LockKeyhole size={12} />
-                          <Text color="secondary" type="supporting">{t('auth.encrypted')}</Text>
-                        </HStack>
-                      </HStack>
-                    )}
-
-                    <Button
-                      isDisabled={loading || checkingSession}
-                      isLoading={loading || checkingSession}
-                      label={loading ? t('auth.signingIn') : mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
-                      size="lg"
-                      type="submit"
-                      variant="primary"
-                      width="100%"
-                    />
-                  </FormLayout>
-                </form>
-
-                <HStack gap={1} hAlign="center" vAlign="center">
-                  <Text color="secondary">
-                    {mode === 'signin' ? t('auth.noAccount') : t('auth.hasAccount')}
-                  </Text>
-                  <Button
-                    label={mode === 'signin' ? t('auth.signUp') : t('auth.signIn')}
-                    onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setError(''); }}
-                    size="sm"
-                    variant="ghost"
-                  />
-                </HStack>
+                  </>
+                ) : config?.entra_enabled ? (
+                  <Text color="secondary" display="block" type="supporting">{t('auth.entraOnly')}</Text>
+                ) : null}
               </VStack>
             </Card>
           </VStack>

@@ -10,11 +10,12 @@ import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {Divider} from '@astryxdesign/core/Divider';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
-import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
 import {Section} from '@astryxdesign/core/Section';
 import {Selector} from '@astryxdesign/core/Selector';
@@ -172,16 +173,26 @@ export default function KnowledgePage() {
         }
       />
 
-      <Dialog isOpen={creating} onOpenChange={setCreating} padding={0} purpose="form">
-        <DialogHeader onOpenChange={setCreating} title={t('kb.create')} />
-        <VStack gap={4} padding={4}>
-          <TextInput label={t('kb.name')} onChange={setNewName} value={newName} width="100%" />
-          <TextInput label={t('kb.description')} onChange={setNewDescription} value={newDescription} width="100%" />
-          <HStack gap={2} hAlign="end">
-            <Button label={t('common.cancel')} onClick={() => setCreating(false)} variant="secondary" />
-            <Button isDisabled={!newName.trim() || busy} isLoading={busy} label={t('common.save')} onClick={() => void create()} variant="primary" />
-          </HStack>
-        </VStack>
+      <Dialog isOpen={creating} onOpenChange={setCreating} purpose="form">
+        <Layout
+          content={
+            <LayoutContent>
+              <VStack gap={4}>
+                <TextInput label={t('kb.name')} onChange={setNewName} value={newName} width="100%" />
+                <TextInput label={t('kb.description')} onChange={setNewDescription} value={newDescription} width="100%" />
+              </VStack>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button label={t('common.cancel')} onClick={() => setCreating(false)} variant="secondary" />
+                <Button isDisabled={!newName.trim() || busy} isLoading={busy} label={t('common.save')} onClick={() => void create()} variant="primary" />
+              </HStack>
+            </LayoutFooter>
+          }
+          header={<DialogHeader onOpenChange={setCreating} title={t('kb.create')} />}
+        />
       </Dialog>
 
       {selected && (
@@ -257,89 +268,95 @@ function ShareDialog({base, onClose, onError, onVisibility, workspaces}: {
   }
 
   return (
-    <Dialog isOpen onOpenChange={onClose} padding={0} purpose="form" width={560}>
-      <DialogHeader onOpenChange={onClose} subtitle={base.name} title={t('kb.share')} />
-      <VStack gap={4} padding={4}>
-        <Selector
-          label={t('kb.visibility')}
-          onChange={onVisibility}
-          options={[
-            {value: 'private', label: t('kb.private')},
-            {value: 'organization', label: t('kb.organization')},
-          ]}
-          value={base.visibility}
-          width="100%"
-        />
+    <Dialog isOpen onOpenChange={onClose} purpose="form" width={560}>
+      <Layout
+        content={
+          <LayoutContent>
+            <VStack gap={4}>
+              <Selector
+                label={t('kb.visibility')}
+                onChange={onVisibility}
+                options={[
+                  {value: 'private', label: t('kb.private')},
+                  {value: 'organization', label: t('kb.organization')},
+                ]}
+                value={base.visibility}
+                width="100%"
+              />
 
-        <Section dividers={['top']} padding={0}>
-          <VStack gap={3} paddingBlock={4}>
-            <Selector
-              label={t('kb.share')}
-              onChange={setSubjectType}
-              options={[
-                {value: 'user', label: t('kb.shareUser')},
-                {value: 'workspace', label: t('kb.shareWorkspace')},
-              ]}
-              value={subjectType}
-              width="100%"
-            />
-            <HStack gap={2} vAlign="end">
-              {subjectType === 'user' ? (
-                <TextInput label={t('kb.shareEmail')} onChange={setEmail} placeholder="name@example.com" type="email" value={email} width="100%" />
-              ) : (
+              <Divider />
+
+              <VStack gap={3}>
                 <Selector
-                  label={t('settings.workspace')}
-                  onChange={setWorkspaceID}
-                  options={workspaces.map((item) => ({value: item.id, label: item.name}))}
-                  value={workspaceID}
+                  label={t('kb.recipient')}
+                  onChange={setSubjectType}
+                  options={[
+                    {value: 'user', label: t('kb.shareUser')},
+                    {value: 'workspace', label: t('kb.shareWorkspace')},
+                  ]}
+                  value={subjectType}
                   width="100%"
                 />
-              )}
-              <Selector
-                label={t('kb.role')}
-                onChange={setRole}
-                options={[{value: 'viewer', label: t('kb.viewer')}, {value: 'editor', label: t('kb.editor')}]}
-                value={role}
-              />
-              <Button
-                isDisabled={busy || (subjectType === 'user' ? !email.trim() : !workspaceID)}
-                isLoading={busy}
-                label={t('kb.share')}
-                onClick={() => void share()}
-                variant="primary"
-              />
-            </HStack>
-          </VStack>
-        </Section>
-
-        {grants.length > 0 && (
-          <Card padding={0} width="100%">
-            <Section dividers={['bottom']} padding={4}>
-              <Text type="label" weight="semibold">{t('kb.sharedWith', {count: grants.length})}</Text>
-            </Section>
-            <List>
-              {grants.map((grant) => (
-                <Item
-                  as="li"
-                  description={grant.role === 'editor' ? t('kb.editor') : t('kb.viewer')}
-                  endContent={
-                    <IconButton
-                      icon={<Trash2 size={14} />}
-                      label={t('kb.revoke', {subject: grant.subject_name || grant.subject_id})}
-                      onClick={() => void revoke(grant)}
-                      size="sm"
-                      variant="ghost"
+                <HStack gap={2} vAlign="end">
+                  {subjectType === 'user' ? (
+                    <TextInput label={t('kb.shareEmail')} onChange={setEmail} placeholder="name@example.com" type="email" value={email} width="100%" />
+                  ) : (
+                    <Selector
+                      label={t('settings.workspace')}
+                      onChange={setWorkspaceID}
+                      options={workspaces.map((item) => ({value: item.id, label: item.name}))}
+                      value={workspaceID}
+                      width="100%"
                     />
-                  }
-                  key={`${grant.subject_type}:${grant.subject_id}`}
-                  label={grant.subject_name || grant.subject_id}
-                  startContent={<Icon icon={grant.subject_type === 'user' ? UserRound : Building2} size="sm" />}
-                />
-              ))}
-            </List>
-          </Card>
-        )}
-      </VStack>
+                  )}
+                  <Selector
+                    label={t('kb.role')}
+                    onChange={setRole}
+                    options={[{value: 'viewer', label: t('kb.viewer')}, {value: 'editor', label: t('kb.editor')}]}
+                    value={role}
+                  />
+                  <Button
+                    isDisabled={busy || (subjectType === 'user' ? !email.trim() : !workspaceID)}
+                    isLoading={busy}
+                    label={t('kb.share')}
+                    onClick={() => void share()}
+                    variant="primary"
+                  />
+                </HStack>
+              </VStack>
+
+              {grants.length > 0 && (
+                <Card padding={0} width="100%">
+                  <Section dividers={['bottom']} padding={4}>
+                    <Text type="label" weight="semibold">{t('kb.sharedWith', {count: grants.length})}</Text>
+                  </Section>
+                  <List>
+                    {grants.map((grant) => (
+                      <Item
+                        as="li"
+                        description={grant.role === 'editor' ? t('kb.editor') : t('kb.viewer')}
+                        endContent={
+                          <IconButton
+                            icon={<Trash2 size={14} />}
+                            label={t('kb.revoke', {subject: grant.subject_name || grant.subject_id})}
+                            onClick={() => void revoke(grant)}
+                            size="sm"
+                            variant="ghost"
+                          />
+                        }
+                        key={grant.subject_type + ':' + grant.subject_id}
+                        label={grant.subject_name || grant.subject_id}
+                        startContent={<Icon icon={grant.subject_type === 'user' ? UserRound : Building2} size="sm" />}
+                      />
+                    ))}
+                  </List>
+                </Card>
+              )}
+            </VStack>
+          </LayoutContent>
+        }
+        header={<DialogHeader onOpenChange={onClose} subtitle={base.name} title={t('kb.share')} />}
+      />
     </Dialog>
   );
 }

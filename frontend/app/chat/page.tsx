@@ -22,7 +22,7 @@ import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {SideNav, SideNavCollapseButton, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Text} from '@astryxdesign/core/Text';
@@ -474,17 +474,24 @@ export default function ChatPage() {
       <Dialog
         isOpen={renaming !== null}
         onOpenChange={(open) => { if (!open) setRenaming(null); }}
-        padding={0}
         purpose="form"
       >
-        <DialogHeader onOpenChange={(open) => { if (!open) setRenaming(null); }} title={t('conv.renameTitle')} />
-        <VStack gap={4} padding={4}>
-          <TextInput label={t('conv.title')} onChange={setRenameTitle} onEnter={() => void renameConversation()} value={renameTitle} width="100%" />
-          <HStack gap={2} hAlign="end">
-            <Button label={t('common.cancel')} onClick={() => setRenaming(null)} variant="secondary" />
-            <Button isDisabled={!renameTitle.trim() || busy} isLoading={busy} label={t('common.save')} onClick={() => void renameConversation()} variant="primary" />
-          </HStack>
-        </VStack>
+        <Layout
+          content={
+            <LayoutContent>
+              <TextInput label={t('conv.title')} onChange={setRenameTitle} onEnter={() => void renameConversation()} value={renameTitle} width="100%" />
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button label={t('common.cancel')} onClick={() => setRenaming(null)} variant="secondary" />
+                <Button isDisabled={!renameTitle.trim() || busy} isLoading={busy} label={t('common.save')} onClick={() => void renameConversation()} variant="primary" />
+              </HStack>
+            </LayoutFooter>
+          }
+          header={<DialogHeader onOpenChange={(open) => { if (!open) setRenaming(null); }} title={t('conv.renameTitle')} />}
+        />
       </Dialog>
 
       <AlertDialog

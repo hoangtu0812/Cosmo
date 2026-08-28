@@ -15,6 +15,7 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
+import {Selector} from '@astryxdesign/core/Selector';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
@@ -73,11 +74,16 @@ export default function AdminPage() {
     }
   }
 
-  async function updateSystemModels(embeddingModel: string, rerankerModel: string) {
+  async function updateSystemModels(settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) {
     setIsSavingSystem(true);
     setError('');
     try {
-      setSystem(await api.updateSystemSettings(embeddingModel, rerankerModel));
+      setSystem(await api.updateSystemSettings({
+        embedding_model: settings.embeddingModel,
+        reranker_model: settings.rerankerModel,
+        gateway_base_url: settings.gatewayBaseURL,
+        ...(settings.gatewayAPIKey ? {gateway_api_key: settings.gatewayAPIKey} : {}),
+      }));
       const audit = await api.auditEvents();
       setEvents(audit.events);
     } catch (caught) {
@@ -191,16 +197,22 @@ function AuditPanel({events, t}: {events: AuditEvent[]; t: ReturnType<typeof use
   );
 }
 
-function SystemPanel({system, isSaving, onSave, t}: {system: SystemStatus | null; isSaving: boolean; onSave: (embeddingModel: string, rerankerModel: string) => void; t: ReturnType<typeof useTranslation>}) {
+function SystemPanel({system, isSaving, onSave, t}: {system: SystemStatus | null; isSaving: boolean; onSave: (settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) => void; t: ReturnType<typeof useTranslation>}) {
   const [embeddingModel, setEmbeddingModel] = useState('');
   const [rerankerModel, setRerankerModel] = useState('');
+  const [gatewayBaseURL, setGatewayBaseURL] = useState('');
+  const [gatewayAPIKey, setGatewayAPIKey] = useState('');
+  const [gatewayModels, setGatewayModels] = useState<string[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
   useEffect(() => {
     setEmbeddingModel(system?.embedding_model ?? '');
     setRerankerModel(system?.reranker_model ?? '');
-  }, [system?.embedding_model, system?.reranker_model]);
+    setGatewayBaseURL(system?.system_gateway.base_url ?? '');
+    setGatewayAPIKey('');
+  }, [system?.embedding_model, system?.reranker_model, system?.system_gateway.base_url]);
   const rows = system ? [
     [t('admin.entra'), system.entra_enabled],
-    [t('admin.gateway'), system.model_gateway_enabled],
+    [t('admin.gateway'), system.system_gateway.configured],
     [t('admin.knowledge'), system.knowledge_enabled],
     [t('admin.cookieSecure'), system.cookie_secure],
   ] : [];
@@ -221,10 +233,32 @@ function SystemPanel({system, isSaving, onSave, t}: {system: SystemStatus | null
       </Card>
       {system && <Card width="100%">
         <VStack gap={4}>
-          <TextInput label={t('admin.embeddingModel')} onChange={(event) => setEmbeddingModel(event.target.value)} value={embeddingModel} />
-          <TextInput label={t('admin.rerankerModel')} onChange={(event) => setRerankerModel(event.target.value)} value={rerankerModel} />
+          <Text type="label" weight="semibold">{t('admin.gateway')}</Text>
+          <TextInput label={t('admin.gatewayBaseURL')} onChange={setGatewayBaseURL} value={gatewayBaseURL} />
+          <TextInput label={system.system_gateway.has_api_key ? t('admin.gatewayKeyStored', {hint: system.system_gateway.api_key_hint ?? ''}) : t('admin.gatewayApiKey')} onChange={setGatewayAPIKey} placeholder="sk-..." type="password" value={gatewayAPIKey} />
           <HStack hAlign="end">
-            <Button isDisabled={!embeddingModel.trim() || !rerankerModel.trim()} isLoading={isSaving} label={t('admin.saveSystem')} onClick={() => onSave(embeddingModel.trim(), rerankerModel.trim())} variant="primary" />
+            <Button
+              isDisabled={!gatewayBaseURL.trim() || isLoadingModels}
+              isLoading={isLoadingModels}
+              label={t('admin.loadModels')}
+              onClick={() => {
+                setIsLoadingModels(true);
+                api.systemGatewayModels({base_url: gatewayBaseURL.trim(), ...(gatewayAPIKey.trim() ? {api_key: gatewayAPIKey.trim()} : {})})
+                  .then((result) => { if (result.ok) setGatewayModels(result.models); })
+                  .catch(() => setGatewayModels([]))
+                  .finally(() => setIsLoadingModels(false));
+              }}
+              variant="secondary"
+            />
+          </HStack>
+        </VStack>
+      </Card>}
+      {system && <Card width="100%">
+        <VStack gap={4}>
+          {gatewayModels.length > 0 ? <Selector label={t('admin.embeddingModel')} onChange={setEmbeddingModel} options={gatewayModels.map((model) => ({label: model, value: model}))} value={embeddingModel} width="100%" /> : <TextInput label={t('admin.embeddingModel')} onChange={setEmbeddingModel} value={embeddingModel} />}
+          {gatewayModels.length > 0 ? <Selector label={t('admin.rerankerModel')} onChange={setRerankerModel} options={gatewayModels.map((model) => ({label: model, value: model}))} value={rerankerModel} width="100%" /> : <TextInput label={t('admin.rerankerModel')} onChange={setRerankerModel} value={rerankerModel} />}
+          <HStack hAlign="end">
+            <Button isDisabled={!embeddingModel.trim() || !rerankerModel.trim()} isLoading={isSaving} label={t('admin.saveSystem')} onClick={() => onSave({embeddingModel: embeddingModel.trim(), rerankerModel: rerankerModel.trim(), gatewayBaseURL: gatewayBaseURL.trim(), gatewayAPIKey: gatewayAPIKey.trim()})} variant="primary" />
           </HStack>
         </VStack>
       </Card>}

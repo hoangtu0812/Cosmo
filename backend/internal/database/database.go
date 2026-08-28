@@ -230,6 +230,17 @@ var migrations = []string{
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
 	)`,
+	// The platform gateway is distinct from workspace gateways. It serves
+	// platform jobs such as choosing the embedding and reranker models, and its
+	// API key remains sealed just like a workspace credential.
+	`CREATE TABLE IF NOT EXISTS system_model_gateway_config (
+		id BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+		base_url TEXT NOT NULL DEFAULT '',
+		api_key_sealed BYTEA,
+		api_key_hint TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
+	)`,
 }
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

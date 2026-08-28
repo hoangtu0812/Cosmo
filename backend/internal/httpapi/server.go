@@ -147,6 +147,7 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/admin/audit-logs", s.listAuditLogs)
 		protected.Get("/api/admin/system", s.systemStatus)
 		protected.Put("/api/admin/system", s.updateSystemSettings)
+		protected.Post("/api/admin/system/models", s.listSystemGatewayModels)
 		protected.Get("/api/workspaces", s.workspaces)
 		protected.Post("/api/workspaces/{workspaceID}/select", s.selectWorkspace)
 		protected.Get("/api/conversations", s.listConversations)

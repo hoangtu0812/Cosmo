@@ -347,7 +347,7 @@ export default function ChatPage() {
                 variant="ghost"
               />
             ) : (
-              <Text color="secondary" type="supporting">{workspace?.model_alias ?? t('chat.modelMissing')}</Text>
+              <Text color="secondary" type="supporting">{workspace?.model_alias || t('composer.model')}</Text>
             )}
             <Selector
               isLabelHidden

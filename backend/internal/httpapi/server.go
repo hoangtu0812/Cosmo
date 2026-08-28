@@ -533,7 +533,7 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 		var item Workspace
 		var baseURL, model string
 		if rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Type, &item.Description, &item.Icon, &item.HasIconImage, &item.Role, &baseURL, &model) == nil {
-			if baseURL != "" && model != "" {
+			if baseURL != "" {
 				item.ModelConfigured = true
 				item.ModelAlias = model
 			} else if s.models.Configured() {
@@ -649,10 +649,6 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	models := s.modelsFor(r.Context(), conversationWorkspaceID)
-	if !models.Configured() {
-		writeError(w, http.StatusServiceUnavailable, "Workspace này chưa cấu hình Model Gateway. Vào Cài đặt để thêm Base URL, API key và model.")
-		return
-	}
 	var input struct {
 		Content         string `json:"content"`
 		Model           string `json:"model"`
@@ -680,6 +676,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	options := modelgateway.Options{Model: input.Model, ReasoningEffort: input.ReasoningEffort}
+	if !models.HasGateway() {
+		writeError(w, http.StatusServiceUnavailable, "Workspace này chưa cấu hình Model Gateway. Vào Cài đặt để thêm Base URL và API key.")
+		return
+	}
+	if models.ResolveModel(options) == "" {
+		writeError(w, http.StatusBadRequest, "Hãy chọn model cho hội thoại hoặc đặt model mặc định trong Cài đặt workspace.")
+		return
+	}
 	userMessage := Message{ID: "msg_" + randomID(18), ConversationID: conversationID, Role: "user", Content: input.Content, CreatedAt: time.Now()}
 	_, err := s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, created_at) VALUES($1, $2, $3, $4, $5)`, userMessage.ID, conversationID, userMessage.Role, userMessage.Content, userMessage.CreatedAt)
 	if err != nil {

@@ -89,7 +89,7 @@ func (s *Server) modelsFor(ctx context.Context, workspaceID string) *modelgatewa
 		s.logger.Error("read workspace model settings", "workspace_id", workspaceID, "error", err)
 		return s.models
 	}
-	if baseURL == "" || model == "" {
+	if baseURL == "" {
 		return s.models
 	}
 	return modelgateway.New(baseURL, apiKey, model, s.cfg.LLMSystemPrompt, s.cfg.LLMRequestTimeout)
@@ -143,7 +143,7 @@ func (s *Server) getLLMSettings(w http.ResponseWriter, r *http.Request) {
 		HasAPIKey:  apiKey != "" || hint != "",
 		APIKeyHint: hint,
 		UpdatedAt:  updatedAt,
-		Configured: baseURL != "" && model != "",
+		Configured: baseURL != "",
 	})
 }
 

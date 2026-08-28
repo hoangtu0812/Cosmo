@@ -165,7 +165,7 @@ function ModelSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: bo
   // A model list can only be fetched once there is somewhere to fetch it from
   // and something to authenticate with. Derived during render so the effect
   // below never has to reset state synchronously.
-  const canProbe = baseURL.trim() !== '' && (apiKey !== '' || !!settings?.has_api_key);
+  const canProbe = baseURL.trim() !== '';
   const models = canProbe ? probe.models : [];
   const modelState = canProbe ? probe.state : 'idle';
   const modelError = canProbe && probe.state === 'failed' ? probe.message : '';
@@ -180,8 +180,8 @@ function ModelSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: bo
 
   useEffect(load, [load]);
 
-  // The model list comes from the gateway itself, so the operator picks a real
-  // model instead of typing an identifier.
+  // The model list comes from the gateway itself. This setting is optional: it
+  // merely supplies the default used when a member has not picked one in chat.
   useEffect(() => {
     if (!canProbe) return;
     let cancelled = false;
@@ -256,11 +256,11 @@ function ModelSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: bo
           <VStack gap={2}>
             <Selector
               hasSearch
-              isDisabled={modelState !== 'ready' || models.length === 0}
+              isDisabled={modelState !== 'ready' && models.length === 0}
               isLoading={modelState === 'loading'}
-              label={t('model.model')}
+              label={t('model.defaultModel')}
               onChange={setModel}
-              options={models}
+              options={[{value: '', label: t('model.noDefault')}, ...models.map((item) => ({value: item, label: item}))]}
               value={model}
               width="100%"
             />

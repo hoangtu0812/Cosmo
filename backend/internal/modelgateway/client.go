@@ -39,7 +39,14 @@ func New(baseURL, apiKey, model, systemPrompt string, timeout time.Duration) *Cl
 }
 
 func (c *Client) Configured() bool {
-	return c.baseURL != "" && c.model != ""
+	return c.HasGateway() && c.model != ""
+}
+
+// HasGateway reports whether the client has an endpoint to call. A workspace
+// may intentionally omit the default model, because a member can choose one
+// in the conversation composer.
+func (c *Client) HasGateway() bool {
+	return c.baseURL != ""
 }
 
 func (c *Client) Model() string {
@@ -64,7 +71,7 @@ func (c *Client) ResolveModel(options Options) string {
 }
 
 func (c *Client) Stream(ctx context.Context, history []Message, options Options, onDelta func(string) error) error {
-	if !c.Configured() {
+	if !c.HasGateway() || c.ResolveModel(options) == "" {
 		return ErrNotConfigured
 	}
 	messages := make([]Message, 0, len(history)+1)

@@ -12,7 +12,11 @@ WORKDIR /srv
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
 
+COPY requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
 COPY app ./app
+COPY tests ./tests
 
 EXPOSE 8000
 

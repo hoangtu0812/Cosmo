@@ -53,6 +53,15 @@ def reranker():
     return _reranker
 
 
+def is_cold() -> bool:
+    """Whether the embedding model still has to be loaded.
+
+    Used only to phrase progress honestly: the first ingestion after a restart
+    spends minutes downloading weights, and saying so beats a silent pause.
+    """
+    return _embedder is None
+
+
 class Encoded:
     """One text's dense vector plus its sparse lexical weights."""
 

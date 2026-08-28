@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter} from 'next/navigation';
-import {ArrowLeft, FileText, Library, Trash2, Upload} from 'lucide-react';
+import {ArrowLeft, ChevronDown, ChevronRight, FileText, Library, Trash2, Upload} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Badge} from '@astryxdesign/core/Badge';
@@ -15,10 +15,12 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
+import {Section} from '@astryxdesign/core/Section';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {api, APIError, KnowledgeBase, KnowledgeDocument} from '../../lib/api';
+import {ProgressBar} from '@astryxdesign/core/ProgressBar';
+import {api, APIError, DocumentEvent, KnowledgeBase, KnowledgeDocument} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 // Ingestion is asynchronous, so a document that is still being parsed is
@@ -37,9 +39,11 @@ export default function KnowledgeDetailPage() {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
+  const [openLog, setOpenLog] = useState('');
+  const [publishing, setPublishing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const canEdit = base?.access === 'owner' || base?.access === 'editor';
+  const canEdit = base?.access === 'owner';
 
   // Both read the translator, so they live here rather than as free functions
   // that would have to restate its key type.
@@ -61,6 +65,10 @@ export default function KnowledgeDetailPage() {
     () => api.knowledgeDocuments(kbID).then((result) => setDocuments(result.documents)),
     [kbID],
   );
+
+  // Stable across renders: the log subscribes on this callback, and a fresh
+  // function each render would tear the stream down and reopen it every time.
+  const handleSettled = useCallback(() => { void loadDocuments(); }, [loadDocuments]);
 
   useEffect(() => {
     api.knowledgeBases()
@@ -90,10 +98,29 @@ export default function KnowledgeDetailPage() {
     try {
       const result = await api.uploadKnowledgeDocument(kbID, file);
       setDocuments((current) => [result.document, ...current]);
+      // Open the log straight away: the upload is the moment the person most
+      // wants to see that something is happening.
+      setOpenLog(result.document.id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('kb.uploadFailed'));
     } finally {
       setUploading(false);
+    }
+  }
+
+  // Publishing does not change what chat retrieves — that always reads the
+  // latest documents. It is the owner saying the base is ready, which is what
+  // lets installers see a new version and decide to take it.
+  async function publish() {
+    setPublishing(true);
+    setError('');
+    try {
+      const result = await api.publishKnowledgeBase(kbID);
+      setBase(result.knowledge_base);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('kb.publishFailed'));
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -133,15 +160,29 @@ export default function KnowledgeDetailPage() {
             <Toolbar
               endContent={
                 canEdit ? (
-                  <Button
-                    icon={<Upload size={14} />}
-                    isDisabled={uploading}
-                    isLoading={uploading}
-                    label={t('kb.upload')}
-                    onClick={() => fileRef.current?.click()}
-                    size="sm"
-                    variant="primary"
-                  />
+                  <HStack gap={2} vAlign="center">
+                    <Badge
+                      label={base && base.version > 0 ? t('kb.published', {version: base.version}) : t('kb.draft')}
+                      variant={base && base.version > 0 ? 'neutral' : 'warning'}
+                    />
+                    <Button
+                      icon={<Upload size={14} />}
+                      isDisabled={uploading}
+                      isLoading={uploading}
+                      label={t('kb.upload')}
+                      onClick={() => fileRef.current?.click()}
+                      size="sm"
+                      variant="secondary"
+                    />
+                    <Button
+                      isDisabled={publishing || !documents.some((item) => item.status === 'ready')}
+                      isLoading={publishing}
+                      label={base && base.version > 0 ? t('kb.republish') : t('kb.publish')}
+                      onClick={() => void publish()}
+                      size="sm"
+                      variant="primary"
+                    />
+                  </HStack>
                 ) : undefined
               }
               label={base?.name ?? ''}
@@ -172,27 +213,31 @@ export default function KnowledgeDetailPage() {
                 <Card padding={0} width="100%">
                   <List>
                     {documents.map((document) => (
-                      <Item
-                        as="li"
-                        description={describe(document)}
-                        endContent={
-                          <HStack gap={2} vAlign="center">
-                            <Badge label={statusLabel(document.status)} variant={statusVariant(document.status)} />
-                            {canEdit && (
-                              <IconButton
-                                icon={<Trash2 size={14} />}
-                                label={t('kb.docDelete')}
-                                onClick={() => setDeleting(document)}
-                                size="sm"
-                                variant="ghost"
-                              />
-                            )}
-                          </HStack>
-                        }
-                        key={document.id}
-                        label={document.title}
-                        startContent={<Icon icon={FileText} size="sm" />}
-                      />
+                      <VStack as="li" gap={0} key={document.id}>
+                        <Item
+                          description={describe(document)}
+                          endContent={
+                            <HStack gap={2} vAlign="center">
+                              <Badge label={statusLabel(document.status)} variant={statusVariant(document.status)} />
+                              {canEdit ? (
+                                <IconButton
+                                  icon={<Trash2 size={14} />}
+                                  label={t('kb.docDelete')}
+                                  onClick={() => setDeleting(document)}
+                                  size="sm"
+                                  variant="ghost"
+                                />
+                              ) : null}
+                            </HStack>
+                          }
+                          label={document.title}
+                          onClick={() => setOpenLog((current) => current === document.id ? '' : document.id)}
+                          startContent={<Icon icon={openLog === document.id ? ChevronDown : ChevronRight} size="sm" />}
+                        />
+                        {openLog === document.id ? (
+                          <IngestionLog document={document} kbID={kbID} onSettled={handleSettled} />
+                        ) : null}
+                      </VStack>
                     ))}
                   </List>
                 </Card>
@@ -225,4 +270,78 @@ function statusVariant(status: KnowledgeDocument['status']): 'success' | 'error'
   if (status === 'ready') return 'success';
   if (status === 'failed') return 'error';
   return 'neutral';
+}
+
+/**
+ * The ingestion log for one document.
+ *
+ * Parsing and embedding a large manual takes minutes during which nothing
+ * visible happens, which is indistinguishable from being stuck. The backend
+ * replays every stage recorded so far and then streams the rest, so opening
+ * this late still shows the whole story.
+ */
+function IngestionLog({document, kbID, onSettled}: {
+  document: KnowledgeDocument;
+  kbID: string;
+  onSettled: () => void;
+}) {
+  const t = useTranslation();
+  const [events, setEvents] = useState<DocumentEvent[]>([]);
+  const isLive = document.status === 'processing' || document.status === 'pending';
+
+  useEffect(() => {
+    if (!isLive) {
+      api.documentEvents(kbID, document.id)
+        .then((result) => setEvents(result.events))
+        .catch(() => setEvents([]));
+      return undefined;
+    }
+
+    const source = new EventSource(api.documentStreamURL(kbID, document.id), {withCredentials: true});
+    source.addEventListener('stage', (message) => {
+      const event = JSON.parse((message as MessageEvent<string>).data) as DocumentEvent;
+      setEvents((current) => current.some((item) => item.id === event.id) ? current : [...current, event]);
+      // The row still says "processing"; refreshing it is what turns the
+      // badge green once the last stage lands.
+      if (event.stage === 'done' || event.stage === 'error') onSettled();
+    });
+    return () => source.close();
+  }, [document.id, isLive, kbID, onSettled]);
+
+  const latest = events[events.length - 1];
+  const progress = latest && latest.total > 0 ? Math.round((latest.done / latest.total) * 100) : null;
+
+  return (
+    <Section dividers={['top']} padding={4}>
+      <VStack gap={2}>
+        {progress !== null ? <ProgressBar isLabelHidden label={t('kb.log')} value={progress} /> : null}
+        {events.length === 0 ? (
+          <Text color="secondary" type="supporting">{t('kb.logEmpty')}</Text>
+        ) : (
+          events.map((event) => (
+            <HStack gap={3} key={event.id} vAlign="start">
+              <Text color="secondary" type="code">{formatTime(event.created_at)}</Text>
+              <Text type="code" weight="medium">{stageLabel(event.stage, t)}</Text>
+              <Text color="secondary" type="code">{event.message}</Text>
+            </HStack>
+          ))
+        )}
+      </VStack>
+    </Section>
+  );
+}
+
+function formatTime(value: string): string {
+  const date = new Date(value);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+}
+
+// Stages the service does not name yet fall back to their raw key rather than
+// rendering an empty cell.
+const STAGE_KEYS = new Set([
+  'queued', 'received', 'stored', 'parsing', 'chunked', 'embedding', 'indexing', 'done', 'error',
+]);
+
+function stageLabel(stage: string, t: ReturnType<typeof useTranslation>): string {
+  return STAGE_KEYS.has(stage) ? t(`kb.stage.${stage}` as Parameters<typeof t>[0]) : stage;
 }

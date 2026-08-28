@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter} from 'next/navigation';
-import {ArrowLeft, Building2, Copy, KeyRound, Library, SlidersHorizontal, Trash2, Users} from 'lucide-react';
+import {ArrowLeft, Building2, Copy, KeyRound, SlidersHorizontal, Trash2, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
@@ -23,7 +23,7 @@ import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesig
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {api, APIError, Invitation, KnowledgeBase, LLMSettings, Member, User, Workspace} from '../lib/api';
+import {api, APIError, Invitation, LLMSettings, Member, User, Workspace} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {usePreferences} from '../lib/preferences';
 
@@ -547,8 +547,6 @@ function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, onSwitch, w
         </VStack>
       </Card>
 
-      {workspace && <WorkspaceKnowledge canEdit={canEdit} onError={onError} workspaceID={workspace.id} />}
-
       <Card padding={0} width="100%">
         <Section dividers={['bottom']} padding={4}>
           <Text type="label" weight="semibold">{t('workspace.yours', {count: workspaces.length})}</Text>
@@ -568,75 +566,6 @@ function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, onSwitch, w
         </List>
       </Card>
     </VStack>
-  );
-}
-
-function WorkspaceKnowledge({canEdit, onError, workspaceID}: {
-  canEdit: boolean;
-  onError: (value: string) => void;
-  workspaceID: string;
-}) {
-  const t = useTranslation();
-  const [bases, setBases] = useState<KnowledgeBase[]>([]);
-  const [pending, setPending] = useState('');
-
-  useEffect(() => {
-    api.knowledgeBases(workspaceID)
-      .then((result) => setBases(result.knowledge_bases))
-      .catch(() => setBases([]));
-  }, [workspaceID]);
-
-  async function toggle(base: KnowledgeBase) {
-    setPending(base.id);
-    onError('');
-    try {
-      if (base.is_mounted) await api.unmountKnowledge(workspaceID, base.id);
-      else await api.mountKnowledge(workspaceID, base.id);
-      setBases((current) => current.map((item) => item.id === base.id ? {...item, is_mounted: !item.is_mounted} : item));
-    } catch (caught) {
-      onError(caught instanceof Error ? caught.message : t('kb.mountFailed'));
-    } finally {
-      setPending('');
-    }
-  }
-
-  return (
-    <Card padding={0} width="100%">
-      <Section dividers={['bottom']} padding={4}>
-        <Text type="label" weight="semibold">{t('kb.workspaceTitle')}</Text>
-      </Section>
-      {bases.length === 0 ? (
-        <Section padding={4}>
-          <Text color="secondary" type="supporting">{t('kb.empty')}</Text>
-        </Section>
-      ) : (
-        <List>
-          {bases.map((base) => (
-            <Item
-              as="li"
-              description={base.description || undefined}
-              endContent={
-                canEdit ? (
-                  <Button
-                    isDisabled={pending === base.id}
-                    isLoading={pending === base.id}
-                    label={base.is_mounted ? t('kb.uninstall') : t('kb.install')}
-                    onClick={() => void toggle(base)}
-                    size="sm"
-                    variant={base.is_mounted ? 'ghost' : 'secondary'}
-                  />
-                ) : base.is_mounted ? (
-                  <Badge label={t('kb.installed')} variant="neutral" />
-                ) : undefined
-              }
-              key={base.id}
-              label={base.name}
-              startContent={<Icon icon={Library} size="sm" />}
-            />
-          ))}
-        </List>
-      )}
-    </Card>
   );
 }
 

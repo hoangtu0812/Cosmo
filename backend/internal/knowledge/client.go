@@ -7,10 +7,12 @@
 package knowledge
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,6 +56,20 @@ type IngestResult struct {
 	StorageKey string `json:"storage_key"`
 }
 
+// Event is one stage of an ingestion, as it happens.
+type Event struct {
+	Stage      string `json:"stage"`
+	Message    string `json:"message"`
+	Done       int    `json:"done"`
+	Total      int    `json:"total"`
+	Chunks     int    `json:"chunks"`
+	StorageKey string `json:"storage_key"`
+}
+
+// Terminal reports whether this is the last event of a stream. A stream that
+// ends without one was cut short rather than finished.
+func (e Event) Terminal() bool { return e.Stage == "done" || e.Stage == "error" }
+
 // Passage is one retrieved chunk, carrying enough provenance for the answer to
 // be traced back to a document.
 type Passage struct {
@@ -67,7 +83,13 @@ type Passage struct {
 	Score         float64 `json:"score"`
 }
 
-func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, contentType, title string, version int, content []byte) (IngestResult, error) {
+// Ingest sends one document through the pipeline, calling onEvent for each
+// stage as it is reported.
+//
+// The service streams NDJSON because parsing and embedding a large manual
+// takes minutes: waiting for a single response would leave the person who
+// uploaded the file staring at nothing, unable to tell slow from stuck.
+func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, contentType, title string, version int, content []byte, onEvent func(Event)) (IngestResult, error) {
 	body := IngestRequest{
 		KBID:            kbID,
 		DocumentID:      documentID,
@@ -77,9 +99,61 @@ func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, content
 		Title:           title,
 		DocumentVersion: version,
 	}
-	var result IngestResult
-	err := c.call(ctx, http.MethodPost, "/ingest", body, &result)
-	return result, err
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return IngestResult{}, err
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/ingest", bytes.NewReader(encoded))
+	if err != nil {
+		return IngestResult{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := c.http.Do(request)
+	if err != nil {
+		return IngestResult{}, err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode >= 300 {
+		payload, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		return IngestResult{}, fmt.Errorf("knowledge service returned %d: %s", response.StatusCode, strings.TrimSpace(string(payload)))
+	}
+
+	scanner := bufio.NewScanner(response.Body)
+	// A stage message carries a chunk of document text in the failure case, so
+	// the line budget is well above the default 64 KB.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var last Event
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var event Event
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+		last = event
+		if onEvent != nil {
+			onEvent(event)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return IngestResult{}, err
+	}
+
+	switch {
+	case last.Stage == "error":
+		return IngestResult{}, errors.New(last.Message)
+	case last.Stage != "done":
+		// The connection ended mid-pipeline. Reporting success here would mark
+		// a half-indexed document as ready.
+		return IngestResult{}, errors.New("ingestion ended before it finished")
+	}
+	return IngestResult{DocumentID: documentID, Chunks: last.Chunks, StorageKey: last.StorageKey}, nil
 }
 
 // Search retrieves passages across the knowledge bases the caller has already

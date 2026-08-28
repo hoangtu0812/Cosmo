@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"cosmo/backend/internal/knowledge"
 )
 
 // maxDocumentSize caps a single upload. Large manuals are the point of the
@@ -80,8 +82,7 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 
 	// Adding to a knowledge base is a write, so viewers are turned away here
 	// rather than at the ingestion service, which knows nothing about roles.
-	access := s.knowledgeAccess(r.Context(), user.ID, kbID)
-	if access != "owner" && access != "editor" {
+	if s.knowledgeAccess(r.Context(), user.ID, kbID) != "owner" {
 		writeError(w, http.StatusForbidden, "Bạn không có quyền thêm tài liệu vào knowledge base này.")
 		return
 	}
@@ -157,14 +158,29 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 	}})
 }
 
-// ingestDocument sends one document through the knowledge service and records
-// the outcome. A failure is written to the row rather than only logged, so the
-// person who uploaded the file can see what happened to it.
+// ingestDocument sends one document through the knowledge service, recording
+// each stage as it arrives and the outcome at the end.
+//
+// The stages are written to the database rather than only streamed, so the log
+// survives a page reload and is readable by someone who was not watching while
+// it ran. A failure is recorded on the row too, not merely logged, so the
+// person who uploaded the file can see what became of it.
 func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType string, content []byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.RAGTimeout)
 	defer cancel()
 
-	result, err := s.knowledge.Ingest(ctx, kbID, documentID, filename, contentType, title, 1, content)
+	record := func(event knowledge.Event) {
+		if _, err := s.db.Exec(context.Background(), `
+			INSERT INTO knowledge_document_events(document_id, stage, message, done, total)
+			VALUES($1, $2, $3, $4, $5)`,
+			documentID, event.Stage, event.Message, event.Done, event.Total); err != nil {
+			slog.Error("could not record ingestion event", "document", documentID, "error", err)
+		}
+	}
+
+	record(knowledge.Event{Stage: "queued", Message: "Queued for ingestion"})
+
+	result, err := s.knowledge.Ingest(ctx, kbID, documentID, filename, contentType, title, 1, content, record)
 	if err != nil {
 		slog.Error("document ingestion failed", "document", documentID, "error", err)
 		message := err.Error()
@@ -187,13 +203,124 @@ func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType s
 	}
 }
 
+// DocumentEvent is one line of an ingestion log.
+type DocumentEvent struct {
+	ID        int64     `json:"id"`
+	Stage     string    `json:"stage"`
+	Message   string    `json:"message"`
+	Done      int       `json:"done"`
+	Total     int       `json:"total"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// eventPollInterval is how often a live log connection looks for new stages.
+// Ingestion stages are seconds apart at best, so anything tighter would spend
+// database round trips to shave latency nobody can perceive.
+const eventPollInterval = 900 * time.Millisecond
+
+// streamKnowledgeDocumentEvents sends the ingestion log as server-sent events.
+//
+// Everything recorded so far is replayed first, then the connection tails the
+// document until it reaches a terminal stage. Opening the log late therefore
+// shows the whole story rather than only what happens next.
+func (s *Server) streamKnowledgeDocumentEvents(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	kbID := chi.URLParam(r, "kbID")
+	documentID := chi.URLParam(r, "documentID")
+
+	if s.knowledgeAccess(r.Context(), user.ID, kbID) == "" {
+		writeError(w, http.StatusNotFound, "Không tìm thấy knowledge base.")
+		return
+	}
+	var exists bool
+	if err := s.db.QueryRow(r.Context(),
+		`SELECT EXISTS (SELECT 1 FROM knowledge_documents WHERE id = $1 AND kb_id = $2)`,
+		documentID, kbID).Scan(&exists); err != nil || !exists {
+		writeError(w, http.StatusNotFound, "Không tìm thấy tài liệu.")
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "Streaming không được hỗ trợ.")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	var lastID int64
+	ticker := time.NewTicker(eventPollInterval)
+	defer ticker.Stop()
+
+	for {
+		events, err := s.documentEvents(r.Context(), documentID, lastID)
+		if err != nil {
+			return
+		}
+		for _, event := range events {
+			lastID = event.ID
+			writeSSE(w, "stage", event)
+			flusher.Flush()
+			if event.Stage == "done" || event.Stage == "error" {
+				return
+			}
+		}
+
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// listKnowledgeDocumentEvents returns the log in one response, for readers that
+// only want the history of a document that has already settled.
+func (s *Server) listKnowledgeDocumentEvents(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	kbID := chi.URLParam(r, "kbID")
+	if s.knowledgeAccess(r.Context(), user.ID, kbID) == "" {
+		writeError(w, http.StatusNotFound, "Không tìm thấy knowledge base.")
+		return
+	}
+	events, err := s.documentEvents(r.Context(), chi.URLParam(r, "documentID"), 0)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể tải nhật ký xử lý.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
+}
+
+func (s *Server) documentEvents(ctx context.Context, documentID string, afterID int64) ([]DocumentEvent, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, stage, message, done, total, created_at
+		FROM knowledge_document_events
+		WHERE document_id = $1 AND id > $2
+		ORDER BY id ASC`, documentID, afterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := make([]DocumentEvent, 0)
+	for rows.Next() {
+		var event DocumentEvent
+		if err := rows.Scan(&event.ID, &event.Stage, &event.Message, &event.Done, &event.Total, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
 func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	kbID := chi.URLParam(r, "kbID")
 	documentID := chi.URLParam(r, "documentID")
 
-	access := s.knowledgeAccess(r.Context(), user.ID, kbID)
-	if access != "owner" && access != "editor" {
+	if s.knowledgeAccess(r.Context(), user.ID, kbID) != "owner" {
 		writeError(w, http.StatusForbidden, "Bạn không có quyền xoá tài liệu trong knowledge base này.")
 		return
 	}
@@ -235,10 +362,13 @@ func (s *Server) retrievalContext(ctx context.Context, userID, workspaceID, quer
 		return nil, nil
 	}
 
+	// Three conditions, all required: the base is installed here, the user may
+	// see it, and this workspace is still within its reach. Dropping any one of
+	// them would let a revoked share keep answering questions.
 	rows, err := s.db.Query(ctx, `
 		SELECT kb.id FROM knowledge_bases kb
 		JOIN knowledge_mounts m ON m.kb_id = kb.id AND m.target_type = 'workspace' AND m.target_id = $2
-		WHERE `+visibleKnowledgeSQL, userID, workspaceID)
+		WHERE (`+visibleKnowledgeSQL+`) AND (`+workspaceInScopeSQL+`)`, userID, workspaceID)
 	if err != nil {
 		return nil, err
 	}

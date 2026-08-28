@@ -119,6 +119,53 @@ var migrations = []string{
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_knowledge_documents_kb ON knowledge_documents(kb_id, created_at DESC)`,
+	// One row per ingestion stage. Kept in the database rather than only
+	// streamed, so the log of what happened to a document survives a reload
+	// and can be read by someone who was not watching at the time.
+	`CREATE TABLE IF NOT EXISTS knowledge_document_events (
+		id BIGSERIAL PRIMARY KEY,
+		document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
+		stage TEXT NOT NULL,
+		message TEXT NOT NULL DEFAULT '',
+		done INTEGER NOT NULL DEFAULT 0,
+		total INTEGER NOT NULL DEFAULT 0,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_knowledge_document_events ON knowledge_document_events(document_id, id)`,
+	// A knowledge base belongs to the workspace it was created in, which is
+	// what its narrowest visibility means.
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS owner_workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL`,
+	// Version zero is a draft only its owner can see. Publishing releases it.
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`,
+	// Sharing is workspace to workspace: everyone signs in to a workspace
+	// already, so naming a person as well would only restate that.
+	`CREATE TABLE IF NOT EXISTS knowledge_shares (
+		kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (kb_id, workspace_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_knowledge_shares_workspace ON knowledge_shares(workspace_id)`,
+	// Which version a workspace signed up for, so a later publish can be
+	// announced rather than applied behind its back.
+	`ALTER TABLE knowledge_mounts ADD COLUMN IF NOT EXISTS installed_version INTEGER NOT NULL DEFAULT 0`,
+	// Carry the earlier vocabulary over: private meant "just me", which is now
+	// the owning workspace, and organization meant everyone.
+	`UPDATE knowledge_bases SET visibility = 'workspace' WHERE visibility = 'private'`,
+	`UPDATE knowledge_bases SET visibility = 'everyone' WHERE visibility = 'organization'`,
+	// Bases made before workspaces owned them adopt their creator's own space.
+	`UPDATE knowledge_bases kb SET owner_workspace_id = (
+		SELECT m.workspace_id FROM workspace_memberships m
+		WHERE m.user_id = kb.owner_user_id ORDER BY m.created_at LIMIT 1
+	) WHERE kb.owner_workspace_id IS NULL`,
+	// Anything that already had documents was in use before publishing
+	// existed, so treat it as released rather than silently hiding it.
+	`UPDATE knowledge_bases kb SET version = 1, published_at = NOW()
+	 WHERE kb.version = 0 AND EXISTS (
+		SELECT 1 FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status = 'ready'
+	 )`,
+	`DROP TABLE IF EXISTS knowledge_grants`,
 	// Model gateway credentials live per workspace so each team can point at its
 	// own LiteLLM key; the API key is stored sealed, never in plaintext.
 	`CREATE TABLE IF NOT EXISTS workspace_llm_configs (

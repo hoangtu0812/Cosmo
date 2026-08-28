@@ -9,13 +9,15 @@ about identity here is what keeps authorisation in one place.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 
 from fastapi import Body, FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import ingest, objects, retrieve, store
+from . import ingest, objects, pipeline, retrieve, store
 from . import models as ml
 from .config import settings
 
@@ -34,12 +36,6 @@ class IngestRequest(BaseModel):
     title: str = ""
     document_version: int = 1
     effective_date: str | None = None
-
-
-class IngestResponse(BaseModel):
-    document_id: str
-    chunks: int
-    storage_key: str
 
 
 class SearchRequest(BaseModel):
@@ -74,8 +70,14 @@ def ready() -> dict:
     return {"status": "ready"}
 
 
-@app.post("/ingest", response_model=IngestResponse)
-def ingest_document(request: IngestRequest = Body(...)) -> IngestResponse:
+@app.post("/ingest")
+def ingest_document(request: IngestRequest = Body(...)):
+    """Ingest a document, streaming one JSON event per line as it progresses.
+
+    NDJSON rather than a single response: the caller needs to show what is
+    happening during the minutes this takes, and a stream lets it forward each
+    stage without holding the whole pipeline in memory.
+    """
     try:
         content = base64.b64decode(request.content_base64)
     except Exception as error:  # noqa: BLE001
@@ -84,29 +86,20 @@ def ingest_document(request: IngestRequest = Body(...)) -> IngestResponse:
     if not content:
         raise HTTPException(status_code=400, detail="document is empty")
 
-    key = ingest.storage_key(request.kb_id, request.document_id, request.filename)
-    objects.put(key, content, request.content_type)
+    def stream():
+        for event in pipeline.run(
+            content=content,
+            filename=request.filename,
+            content_type=request.content_type,
+            kb_id=request.kb_id,
+            document_id=request.document_id,
+            title=request.title or request.filename,
+            document_version=request.document_version,
+            effective_date=request.effective_date,
+        ):
+            yield json.dumps(event, ensure_ascii=False) + "\n"
 
-    chunks = ingest.chunk(
-        content=content,
-        filename=request.filename,
-        kb_id=request.kb_id,
-        document_id=request.document_id,
-        document_version=request.document_version,
-        title=request.title or request.filename,
-        effective_date=request.effective_date,
-    )
-    if not chunks:
-        raise HTTPException(status_code=422, detail="no readable text in document")
-
-    # Replace rather than append, so re-ingesting a document cannot leave
-    # chunks of the previous version behind to be retrieved later.
-    store.delete_document(request.document_id)
-    encoded = ml.encode([chunk["text"] for chunk in chunks])
-    store.upsert(chunks, encoded)
-
-    logger.info("ingested %s (%d chunks) into %s", request.filename, len(chunks), request.kb_id)
-    return IngestResponse(document_id=request.document_id, chunks=len(chunks), storage_key=key)
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
 @app.post("/search", response_model=SearchResponse)

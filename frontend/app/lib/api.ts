@@ -28,10 +28,17 @@ export type KnowledgeBase = {
   description: string;
   owner_user_id: string;
   owner_name?: string;
-  visibility: 'private' | 'organization';
+  owner_workspace_id?: string;
+  visibility: 'workspace' | 'selected' | 'everyone';
   created_at: string;
-  access: 'owner' | 'editor' | 'viewer';
+  access: 'owner' | 'viewer';
+  version: number;
+  has_unpublished_changes: boolean;
   is_mounted: boolean;
+  installed_version: number;
+  update_available: boolean;
+  document_count: number;
+  shared_count: number;
 };
 export type KnowledgeDocument = {
   id: string;
@@ -47,7 +54,9 @@ export type KnowledgeDocument = {
   created_at: string;
   updated_at: string;
 };
-export type KnowledgeGrant = {subject_type: 'user' | 'workspace'; subject_id: string; subject_name?: string; role: 'viewer' | 'editor'; created_at: string};
+export type KnowledgeShare = {workspace_id: string; name: string};
+export type WorkspaceRef = {id: string; name: string};
+export type DocumentEvent = {id: number; stage: string; message: string; done: number; total: number; created_at: string};
 export type Member = {user_id: string; email: string; name: string; role: string; joined_at: string};
 export type Invitation = {id: string; email: string; role: string; expires_at: string; created_at: string; invite_url?: string};
 export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
@@ -120,9 +129,15 @@ export const api = {
   workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
   knowledgeBases: (workspaceID?: string) =>
     request<{knowledge_bases: KnowledgeBase[]}>(`/api/knowledge${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
-  createKnowledgeBase: (name: string, description: string) =>
-    request<{knowledge_base: KnowledgeBase}>('/api/knowledge', {method: 'POST', body: JSON.stringify({name, description})}),
-  updateKnowledgeBase: (kbID: string, body: {name?: string; description?: string; visibility?: string}) =>
+  createKnowledgeBase: (name: string, description: string, workspaceID: string) =>
+    request<{knowledge_base: KnowledgeBase}>('/api/knowledge', {method: 'POST', body: JSON.stringify({name, description, workspace_id: workspaceID})}),
+  publishKnowledgeBase: (kbID: string) =>
+    request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}/publish`, {method: 'POST'}),
+  knowledgeShares: (kbID: string) =>
+    request<{shares: KnowledgeShare[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/shares`),
+  workspaceDirectory: () =>
+    request<{workspaces: WorkspaceRef[]}>('/api/workspaces/directory'),
+  updateKnowledgeBase: (kbID: string, body: {name?: string; description?: string; visibility?: string; workspaces?: string[]}) =>
     request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
   deleteKnowledgeBase: (kbID: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
@@ -136,12 +151,10 @@ export const api = {
     request<{documents: KnowledgeDocument[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/documents`),
   deleteKnowledgeDocument: (kbID: string, documentID: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}`, {method: 'DELETE'}),
-  knowledgeGrants: (kbID: string) =>
-    request<{grants: KnowledgeGrant[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/grants`),
-  createKnowledgeGrant: (kbID: string, body: {subject_type: string; email?: string; workspace_id?: string; role: string}) =>
-    request<{grants: KnowledgeGrant[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/grants`, {method: 'POST', body: JSON.stringify(body)}),
-  deleteKnowledgeGrant: (kbID: string, subjectType: string, subjectID: string) =>
-    request<void>(`/api/knowledge/${encodeURIComponent(kbID)}/grants/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectID)}`, {method: 'DELETE'}),
+  documentEvents: (kbID: string, documentID: string) =>
+    request<{events: DocumentEvent[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}/events`),
+  documentStreamURL: (kbID: string, documentID: string) =>
+    `${API_BASE}/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}/stream`,
   workspaceKnowledge: (workspaceID: string) =>
     request<{knowledge_bases: KnowledgeBase[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge`),
   mountKnowledge: (workspaceID: string, kbID: string) =>

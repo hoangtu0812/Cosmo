@@ -180,7 +180,11 @@ func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType s
 
 	record(knowledge.Event{Stage: "queued", Message: "Queued for ingestion"})
 
-	result, err := s.knowledge.Ingest(ctx, kbID, documentID, filename, contentType, title, 1, content, record)
+	models, settingsErr := s.knowledgeModelSettings(ctx)
+	if settingsErr != nil {
+		slog.Error("could not load knowledge model settings", "document", documentID, "error", settingsErr)
+	}
+	result, err := s.knowledge.Ingest(ctx, kbID, documentID, filename, contentType, title, 1, content, models, record)
 	if err != nil {
 		slog.Error("document ingestion failed", "document", documentID, "error", err)
 		message := ingestionErrorMessage(err)
@@ -398,7 +402,11 @@ func (s *Server) retrievalContext(ctx context.Context, userID, workspaceID, quer
 		return nil, nil
 	}
 
-	passages, err := s.knowledge.Search(ctx, query, kbIDs, 0)
+	models, settingsErr := s.knowledgeModelSettings(ctx)
+	if settingsErr != nil {
+		return nil, settingsErr
+	}
+	passages, err := s.knowledge.Search(ctx, query, kbIDs, 0, models)
 	if err != nil {
 		return nil, err
 	}

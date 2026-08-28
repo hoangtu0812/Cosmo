@@ -17,6 +17,7 @@ import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign
 import {List} from '@astryxdesign/core/List';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
+import {TextInput} from '@astryxdesign/core/TextInput';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {AdminUser, api, APIError, AuditEvent, SystemStatus, User} from '../lib/api';
@@ -35,6 +36,7 @@ export default function AdminPage() {
   const [system, setSystem] = useState<SystemStatus | null>(null);
   const [error, setError] = useState('');
   const [pendingUserID, setPendingUserID] = useState('');
+  const [isSavingSystem, setIsSavingSystem] = useState(false);
 
   useEffect(() => {
     api.me().then((result) => {
@@ -68,6 +70,20 @@ export default function AdminPage() {
       setError(caught instanceof Error ? caught.message : t('admin.loadFailed'));
     } finally {
       setPendingUserID('');
+    }
+  }
+
+  async function updateSystemModels(embeddingModel: string, rerankerModel: string) {
+    setIsSavingSystem(true);
+    setError('');
+    try {
+      setSystem(await api.updateSystemSettings(embeddingModel, rerankerModel));
+      const audit = await api.auditEvents();
+      setEvents(audit.events);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('admin.loadFailed'));
+    } finally {
+      setIsSavingSystem(false);
     }
   }
 
@@ -106,7 +122,7 @@ export default function AdminPage() {
               {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
               {section === 'users' && <UsersPanel pendingUserID={pendingUserID} t={t} users={users} onUpdateRole={updateRole} />}
               {section === 'audit' && <AuditPanel events={events} t={t} />}
-              {section === 'system' && <SystemPanel system={system} t={t} />}
+              {section === 'system' && <SystemPanel isSaving={isSavingSystem} system={system} t={t} onSave={updateSystemModels} />}
             </VStack>
           </LayoutContent>
         }
@@ -175,7 +191,13 @@ function AuditPanel({events, t}: {events: AuditEvent[]; t: ReturnType<typeof use
   );
 }
 
-function SystemPanel({system, t}: {system: SystemStatus | null; t: ReturnType<typeof useTranslation>}) {
+function SystemPanel({system, isSaving, onSave, t}: {system: SystemStatus | null; isSaving: boolean; onSave: (embeddingModel: string, rerankerModel: string) => void; t: ReturnType<typeof useTranslation>}) {
+  const [embeddingModel, setEmbeddingModel] = useState('');
+  const [rerankerModel, setRerankerModel] = useState('');
+  useEffect(() => {
+    setEmbeddingModel(system?.embedding_model ?? '');
+    setRerankerModel(system?.reranker_model ?? '');
+  }, [system?.embedding_model, system?.reranker_model]);
   const rows = system ? [
     [t('admin.entra'), system.entra_enabled],
     [t('admin.gateway'), system.model_gateway_enabled],
@@ -197,6 +219,15 @@ function SystemPanel({system, t}: {system: SystemStatus | null; t: ReturnType<ty
           {system && <Item as="li" label={t('admin.adminEmails')} endContent={<Text type="label">{String(system.admin_email_count)}</Text>} />}
         </List>
       </Card>
+      {system && <Card width="100%">
+        <VStack gap={4}>
+          <TextInput label={t('admin.embeddingModel')} onChange={(event) => setEmbeddingModel(event.target.value)} value={embeddingModel} />
+          <TextInput label={t('admin.rerankerModel')} onChange={(event) => setRerankerModel(event.target.value)} value={rerankerModel} />
+          <HStack hAlign="end">
+            <Button isDisabled={!embeddingModel.trim() || !rerankerModel.trim()} isLoading={isSaving} label={t('admin.saveSystem')} onClick={() => onSave(embeddingModel.trim(), rerankerModel.trim())} variant="primary" />
+          </HStack>
+        </VStack>
+      </Card>}
     </VStack>
   );
 }

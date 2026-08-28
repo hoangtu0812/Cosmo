@@ -19,6 +19,28 @@ _embedder = None
 _reranker = None
 _embedder_lock = threading.Lock()
 _reranker_lock = threading.Lock()
+_settings_lock = threading.Lock()
+_embedding_model = settings.embedding_model
+_reranker_model = settings.reranker_model
+
+
+def configure(embedding_model: str | None, reranker_model: str | None) -> None:
+    """Apply the control plane's model selection to the next operation.
+
+    Model instances are discarded only when their identifier changes. This
+    makes a saved Admin setting effective immediately while retaining a warm
+    model when normal jobs use the same configuration.
+    """
+    global _embedder, _reranker, _embedding_model, _reranker_model
+    with _settings_lock:
+        if embedding_model and embedding_model != _embedding_model:
+            logger.info("switching embedding model from %s to %s", _embedding_model, embedding_model)
+            _embedding_model = embedding_model
+            _embedder = None
+        if reranker_model and reranker_model != _reranker_model:
+            logger.info("switching reranker from %s to %s", _reranker_model, reranker_model)
+            _reranker_model = reranker_model
+            _reranker = None
 
 
 def embedder():
@@ -28,9 +50,9 @@ def embedder():
             if _embedder is None:
                 from FlagEmbedding import BGEM3FlagModel
 
-                logger.info("loading embedding model %s", settings.embedding_model)
+                logger.info("loading embedding model %s", _embedding_model)
                 _embedder = BGEM3FlagModel(
-                    settings.embedding_model,
+                    _embedding_model,
                     cache_dir=settings.model_cache,
                     use_fp16=False,
                 )
@@ -44,9 +66,9 @@ def reranker():
             if _reranker is None:
                 from FlagEmbedding import FlagReranker
 
-                logger.info("loading reranker %s", settings.reranker_model)
+                logger.info("loading reranker %s", _reranker_model)
                 _reranker = FlagReranker(
-                    settings.reranker_model,
+                    _reranker_model,
                     cache_dir=settings.model_cache,
                     use_fp16=False,
                 )

@@ -36,12 +36,16 @@ class IngestRequest(BaseModel):
     title: str = ""
     document_version: int = 1
     effective_date: str | None = None
+    embedding_model: str | None = Field(default=None, max_length=200)
+    reranker_model: str | None = Field(default=None, max_length=200)
 
 
 class SearchRequest(BaseModel):
     query: str
     kb_ids: list[str] = Field(default_factory=list)
     limit: int | None = None
+    embedding_model: str | None = Field(default=None, max_length=200)
+    reranker_model: str | None = Field(default=None, max_length=200)
 
 
 class SearchResponse(BaseModel):
@@ -78,6 +82,7 @@ def ingest_document(request: IngestRequest = Body(...)):
     happening during the minutes this takes, and a stream lets it forward each
     stage without holding the whole pipeline in memory.
     """
+    ml.configure(request.embedding_model, request.reranker_model)
     try:
         content = base64.b64decode(request.content_base64)
     except Exception as error:  # noqa: BLE001
@@ -104,6 +109,7 @@ def ingest_document(request: IngestRequest = Body(...)):
 
 @app.post("/search", response_model=SearchResponse)
 def search(request: SearchRequest = Body(...)) -> SearchResponse:
+    ml.configure(request.embedding_model, request.reranker_model)
     return SearchResponse(results=retrieve.search(request.query, request.kb_ids, request.limit))
 
 

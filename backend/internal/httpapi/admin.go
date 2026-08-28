@@ -8,8 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"cosmo/backend/internal/knowledge"
+
 	"github.com/go-chi/chi/v5"
 )
+
+const defaultEmbeddingModel = "BAAI/bge-m3"
+const defaultRerankerModel = "BAAI/bge-reranker-v2-m3"
 
 // AdminUser is deliberately limited to provisioned Cosmo accounts. Listing a
 // whole Entra tenant would require broad Graph application permissions, while
@@ -45,6 +50,8 @@ type SystemStatus struct {
 	SessionTTL          string `json:"session_ttl"`
 	AdminEmailCount     int    `json:"admin_email_count"`
 	ConfigurationSource string `json:"configuration_source"`
+	EmbeddingModel      string `json:"embedding_model"`
+	RerankerModel       string `json:"reranker_model"`
 }
 
 func (s *Server) requirePlatformAdmin(w http.ResponseWriter, r *http.Request) (User, bool) {
@@ -166,13 +173,102 @@ func (s *Server) systemStatus(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requirePlatformAdmin(w, r); !ok {
 		return
 	}
+	models, err := s.knowledgeModelSettings(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể tải cấu hình mô hình knowledge.")
+		return
+	}
 	writeJSON(w, http.StatusOK, SystemStatus{
 		EntraEnabled: s.cfg.EntraEnabled(), EntraTenantID: s.cfg.EntraTenantID,
 		ModelGatewayEnabled: s.cfg.LLMEnabled(), KnowledgeEnabled: s.cfg.KnowledgeEnabled(),
 		CookieSecure: s.cfg.CookieSecure, SessionTTL: s.cfg.SessionTTL.String(),
 		AdminEmailCount:     len(s.cfg.PlatformAdminEmails),
-		ConfigurationSource: "Environment variables (.env); restart the backend after changing them.",
+		ConfigurationSource: "Các mô hình knowledge được lưu trong Cosmo. Bí mật triển khai vẫn cấu hình trong .env.",
+		EmbeddingModel:      models.EmbeddingModel,
+		RerankerModel:       models.RerankerModel,
 	})
+}
+
+// knowledgeModelSettings returns safe, platform-wide model identifiers. A
+// default keeps existing installs working until an administrator first saves
+// this section in the console.
+func (s *Server) knowledgeModelSettings(ctx context.Context) (knowledge.ModelSettings, error) {
+	values := map[string]string{
+		"embedding_model": defaultEmbeddingModel,
+		"reranker_model":  defaultRerankerModel,
+	}
+	rows, err := s.db.Query(ctx, `SELECT key, value FROM system_settings WHERE key IN ('embedding_model', 'reranker_model')`)
+	if err != nil {
+		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
+		}
+		if strings.TrimSpace(value) != "" {
+			values[key] = value
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
+	}
+	return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, nil
+}
+
+func (s *Server) updateSystemSettings(w http.ResponseWriter, r *http.Request) {
+	actor, ok := s.requirePlatformAdmin(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		EmbeddingModel string `json:"embedding_model"`
+		RerankerModel  string `json:"reranker_model"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.EmbeddingModel = strings.TrimSpace(input.EmbeddingModel)
+	input.RerankerModel = strings.TrimSpace(input.RerankerModel)
+	if input.EmbeddingModel == "" || input.RerankerModel == "" || len(input.EmbeddingModel) > 200 || len(input.RerankerModel) > 200 {
+		writeError(w, http.StatusBadRequest, "Tên mô hình embedding và reranker là bắt buộc, tối đa 200 ký tự.")
+		return
+	}
+
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình hệ thống.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	for key, value := range map[string]string{"embedding_model": input.EmbeddingModel, "reranker_model": input.RerankerModel} {
+		if _, err := tx.Exec(r.Context(), `
+			INSERT INTO system_settings(key, value, updated_at, updated_by)
+			VALUES($1, $2, NOW(), $3)
+			ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW(), updated_by = EXCLUDED.updated_by`, key, value, actor.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình hệ thống.")
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình hệ thống.")
+		return
+	}
+	s.writeAudit(r.Context(), actor.ID, "admin.system.knowledge_models_updated", "system", "knowledge_models", map[string]string{
+		"embedding_model": input.EmbeddingModel,
+		"reranker_model":  input.RerankerModel,
+	})
+	system := SystemStatus{
+		EntraEnabled: s.cfg.EntraEnabled(), EntraTenantID: s.cfg.EntraTenantID,
+		ModelGatewayEnabled: s.cfg.LLMEnabled(), KnowledgeEnabled: s.cfg.KnowledgeEnabled(),
+		CookieSecure: s.cfg.CookieSecure, SessionTTL: s.cfg.SessionTTL.String(),
+		AdminEmailCount:     len(s.cfg.PlatformAdminEmails),
+		ConfigurationSource: "Các mô hình knowledge được lưu trong Cosmo. Bí mật triển khai vẫn cấu hình trong .env.",
+		EmbeddingModel:      input.EmbeddingModel,
+		RerankerModel:       input.RerankerModel,
+	}
+	writeJSON(w, http.StatusOK, system)
 }
 
 func (s *Server) writeAudit(ctx context.Context, actorID, action, targetType, targetID string, metadata any) {

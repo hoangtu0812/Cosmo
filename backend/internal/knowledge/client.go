@@ -48,6 +48,16 @@ type IngestRequest struct {
 	Title           string `json:"title"`
 	DocumentVersion int    `json:"document_version"`
 	EffectiveDate   string `json:"effective_date,omitempty"`
+	EmbeddingModel  string `json:"embedding_model,omitempty"`
+	RerankerModel   string `json:"reranker_model,omitempty"`
+}
+
+// ModelSettings selects the models used for an individual knowledge job. The
+// control plane supplies it from the platform configuration, so the data
+// service never has to hold database credentials or read deployment env vars.
+type ModelSettings struct {
+	EmbeddingModel string
+	RerankerModel  string
 }
 
 type IngestResult struct {
@@ -89,7 +99,7 @@ type Passage struct {
 // The service streams NDJSON because parsing and embedding a large manual
 // takes minutes: waiting for a single response would leave the person who
 // uploaded the file staring at nothing, unable to tell slow from stuck.
-func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, contentType, title string, version int, content []byte, onEvent func(Event)) (IngestResult, error) {
+func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, contentType, title string, version int, content []byte, models ModelSettings, onEvent func(Event)) (IngestResult, error) {
 	body := IngestRequest{
 		KBID:            kbID,
 		DocumentID:      documentID,
@@ -98,6 +108,8 @@ func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, content
 		ContentBase64:   base64.StdEncoding.EncodeToString(content),
 		Title:           title,
 		DocumentVersion: version,
+		EmbeddingModel:  models.EmbeddingModel,
+		RerankerModel:   models.RerankerModel,
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -159,11 +171,11 @@ func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, content
 // Search retrieves passages across the knowledge bases the caller has already
 // been authorised for. An empty list returns nothing and never widens to a
 // search over everything.
-func (c *Client) Search(ctx context.Context, query string, kbIDs []string, limit int) ([]Passage, error) {
+func (c *Client) Search(ctx context.Context, query string, kbIDs []string, limit int, models ModelSettings) ([]Passage, error) {
 	if len(kbIDs) == 0 || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	body := map[string]any{"query": query, "kb_ids": kbIDs}
+	body := map[string]any{"query": query, "kb_ids": kbIDs, "embedding_model": models.EmbeddingModel, "reranker_model": models.RerankerModel}
 	if limit > 0 {
 		body["limit"] = limit
 	}

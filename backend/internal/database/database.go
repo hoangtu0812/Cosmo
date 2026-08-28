@@ -221,6 +221,15 @@ var migrations = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at DESC)`,
+	// Non-secret platform settings that an administrator may update in the
+	// console. Keys are intentionally explicit at their call sites; this table
+	// is not a replacement for deployment secrets in .env.
+	`CREATE TABLE IF NOT EXISTS system_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
+	)`,
 }
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

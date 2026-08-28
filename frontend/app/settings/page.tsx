@@ -2,14 +2,13 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter} from 'next/navigation';
-import {ArrowLeft, Building2, Copy, KeyRound, SlidersHorizontal, Trash2, Users} from 'lucide-react';
+import {ArrowLeft, Building2, Copy, KeyRound, Trash2, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
-import {Divider} from '@astryxdesign/core/Divider';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Heading} from '@astryxdesign/core/Heading';
 import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
@@ -25,16 +24,15 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {api, APIError, Invitation, LLMSettings, Member, User, Workspace} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
-import {usePreferences} from '../lib/preferences';
 
-type SectionKey = 'model' | 'members' | 'workspace' | 'preferences';
+type SectionKey = 'model' | 'members' | 'workspace';
 
 const WORKSPACE_SECTIONS: {key: SectionKey; labelKey: 'settings.model' | 'settings.members' | 'settings.workspace'; icon: typeof KeyRound}[] = [
   {key: 'model', labelKey: 'settings.model', icon: KeyRound},
   {key: 'members', labelKey: 'settings.members', icon: Users},
   {key: 'workspace', labelKey: 'settings.workspace', icon: Building2},
 ];
-const ALL_SECTIONS: SectionKey[] = ['model', 'members', 'workspace', 'preferences'];
+const ALL_SECTIONS: SectionKey[] = ['model', 'members', 'workspace'];
 
 export default function SettingsPage() {
   const t = useTranslation();
@@ -111,15 +109,6 @@ export default function SettingsPage() {
               />
             ))}
           </SideNavSection>
-          <Divider />
-          <SideNavSection title={t('settings.personalGroup')}>
-            <SideNavItem
-              icon={<Icon icon={SlidersHorizontal} size="sm" />}
-              isSelected={section === 'preferences'}
-              label={t('settings.preferences')}
-              onClick={() => { setSection('preferences'); setNotice(''); setError(''); }}
-            />
-          </SideNavSection>
         </SideNav>
       }
     >
@@ -140,7 +129,7 @@ export default function SettingsPage() {
               {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
               {notice && <Banner isDismissable onDismiss={() => setNotice('')} status="success" title={notice} />}
 
-              {!workspaceID && !error && section !== 'preferences' && <EmptyState description={t('settings.empty')} title="—" />}
+              {!workspaceID && !error && <EmptyState description={t('settings.empty')} title="—" />}
 
               {workspaceID && section === 'model' && (
                 <ModelSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
@@ -148,15 +137,8 @@ export default function SettingsPage() {
               {workspaceID && section === 'members' && (
                 <MemberSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
               )}
-              {section === 'preferences' && <PreferenceSettings />}
               {workspaceID && section === 'workspace' && (
                 <WorkspaceSettings
-                  onCreated={(created) => {
-                    setWorkspaces((current) => [...current, created]);
-                    setWorkspaceID(created.id);
-                    void api.selectWorkspace(created.id).catch((caught) => setError(caught instanceof Error ? caught.message : t('settings.loadFailed')));
-                    setNotice(t('workspace.created', {name: created.name}));
-                  }}
                   onError={setError}
                   onNotice={setNotice}
                   onUpdated={(updated) => setWorkspaces((current) => current.map((item) => item.id === updated.id ? {...item, ...updated} : item))}
@@ -446,17 +428,15 @@ async function resizeToSquare(file: File, size = 128): Promise<{mime: string; da
   return {mime: 'image/png', data: btoa(binary)};
 }
 
-function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, workspace}: {
-  onCreated: (workspace: Workspace) => void;
+function WorkspaceSettings({onError, onNotice, onUpdated, workspace}: {
   onError: (value: string) => void;
   onNotice: (value: string) => void;
   onUpdated: (workspace: Workspace) => void;
   workspace?: Workspace;
 }) {
   const t = useTranslation();
-  const [name, setName] = useState('');
-  const [creating, setCreating] = useState(false);
   const [identityName, setIdentityName] = useState(workspace?.name ?? '');
+  const [identityDescription, setIdentityDescription] = useState(workspace?.description ?? '');
   const [identityIcon, setIdentityIcon] = useState(workspace?.icon ?? '');
   const [savingIdentity, setSavingIdentity] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -467,7 +447,7 @@ function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, workspace}:
     setSavingIdentity(true);
     onError('');
     try {
-      const result = await api.updateWorkspace(workspace.id, {name: identityName, icon: identityIcon});
+      const result = await api.updateWorkspace(workspace.id, {name: identityName, description: identityDescription, icon: identityIcon});
       onUpdated(result.workspace);
       onNotice(t('workspace.identitySaved'));
     } catch (caught) {
@@ -500,20 +480,6 @@ function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, workspace}:
     }
   }
 
-  async function create() {
-    setCreating(true);
-    onError('');
-    try {
-      const result = await api.createWorkspace(name);
-      setName('');
-      onCreated(result.workspace);
-    } catch (caught) {
-      onError(caught instanceof Error ? caught.message : t('workspace.createFailed'));
-    } finally {
-      setCreating(false);
-    }
-  }
-
   return (
     <VStack gap={4}>
       <Heading level={1} type="display-3">{t('settings.workspace')}</Heading>
@@ -531,6 +497,7 @@ function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, workspace}:
               <TextInput label={t('workspace.name')} onChange={setIdentityName} value={identityName} width="100%" />
               <TextInput label={t('workspace.icon')} onChange={setIdentityIcon} value={identityIcon} width={96} />
             </HStack>
+            <TextInput label={t('workspace.description')} onChange={setIdentityDescription} value={identityDescription} width="100%" />
             <HStack gap={2} hAlign="end">
               <input
                 accept="image/png,image/jpeg,image/webp,image/gif"
@@ -549,61 +516,6 @@ function WorkspaceSettings({onCreated, onError, onNotice, onUpdated, workspace}:
         </Card>
       )}
 
-      <Card padding={4} width="100%">
-        <VStack gap={3}>
-          <Text type="label" weight="semibold">{t('workspace.createTitle')}</Text>
-          <HStack gap={2} vAlign="end">
-            <TextInput label={t('workspace.name')} onChange={setName} value={name} width="100%" />
-            <Button isDisabled={!name.trim() || creating} isLoading={creating} label={t('workspace.create')} onClick={() => void create()} variant="primary" />
-          </HStack>
-        </VStack>
-      </Card>
-    </VStack>
-  );
-}
-
-function PreferenceSettings() {
-  const t = useTranslation();
-  const {preferences, setLocale, setTheme} = usePreferences();
-
-  return (
-    <VStack gap={4}>
-      <Heading level={1} type="display-3">{t('settings.preferences')}</Heading>
-
-      <Card padding={0} width="100%">
-        <Section dividers={['bottom']} padding={4}>
-          <HStack hAlign="between" vAlign="center">
-            <Text type="label">{t('prefs.theme')}</Text>
-            <Selector
-              label={t('prefs.theme')}
-              isLabelHidden
-              onChange={(value) => setTheme(value as 'light' | 'dark' | 'system')}
-              options={[
-                {value: 'light', label: t('prefs.themeLight')},
-                {value: 'dark', label: t('prefs.themeDark')},
-                {value: 'system', label: t('prefs.themeSystem')},
-              ]}
-              value={preferences.theme}
-            />
-          </HStack>
-        </Section>
-
-        <Section padding={4}>
-          <HStack hAlign="between" vAlign="center">
-            <Text type="label">{t('prefs.language')}</Text>
-            <Selector
-              label={t('prefs.language')}
-              isLabelHidden
-              onChange={(value) => setLocale(value as 'en' | 'vi')}
-              options={[
-                {value: 'en', label: t('prefs.languageEn')},
-                {value: 'vi', label: t('prefs.languageVi')},
-              ]}
-              value={preferences.locale}
-            />
-          </HStack>
-        </Section>
-      </Card>
     </VStack>
   );
 }

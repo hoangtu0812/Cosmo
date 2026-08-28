@@ -3,7 +3,7 @@
 import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useRouter} from 'next/navigation';
 import {ThinkingOrb} from 'thinking-orbs';
-import {Bot, Building2, Check, Library, LogOut, MessageSquare, Plus, Settings, SquarePen, UserPlus, UserRound} from 'lucide-react';
+import {Bot, Building2, Check, Library, MessageSquare, Plus, Settings, SquarePen, UserPlus, UserRound} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -37,6 +37,7 @@ import {MoreMenu} from '@astryxdesign/core/MoreMenu';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Selector} from '@astryxdesign/core/Selector';
 import {useTranslation} from '../lib/i18n';
+import {usePreferences} from '../lib/preferences';
 
 const MOBILE_QUERY = '(max-width: 768px)';
 
@@ -48,6 +49,7 @@ function subscribeMobile(onChange: () => void) {
 
 export default function ChatPage() {
   const t = useTranslation();
+  const {preferences, setLocale, setTheme} = usePreferences();
   const router = useRouter();
   const suggestions = [t('chat.suggestion1'), t('chat.suggestion2'), t('chat.suggestion3'), t('chat.suggestion4')];
   const [user, setUser] = useState<User | null>(null);
@@ -75,6 +77,13 @@ export default function ChatPage() {
   const [renameTitle, setRenameTitle] = useState('');
   const [deleting, setDeleting] = useState<Conversation | null>(null);
   const [busy, setBusy] = useState(false);
+  const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [workspaceDescription, setWorkspaceDescription] = useState('');
+  const [workspaceLogo, setWorkspaceLogo] = useState<File | null>(null);
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false);
+  const workspaceLogoInput = useRef<HTMLInputElement>(null);
 
   // Below 768px the rail must start collapsed. Tracked as a subscription
   // rather than an effect so a resize stays in sync.
@@ -183,6 +192,37 @@ export default function ChatPage() {
 
   async function signOut() { await api.signOut(); router.replace('/'); }
 
+  function closeCreateWorkspace(force = false) {
+    if (isCreatingWorkspace && !force) return;
+    setIsCreateWorkspaceOpen(false);
+    setWorkspaceName('');
+    setWorkspaceDescription('');
+    setWorkspaceLogo(null);
+  }
+
+  async function createWorkspace() {
+    const name = workspaceName.trim();
+    if (!name) return;
+    setIsCreatingWorkspace(true);
+    setError('');
+    try {
+      const result = await api.createWorkspace(name, workspaceDescription.trim());
+      let created = result.workspace;
+      if (workspaceLogo) {
+        const {mime, data} = await resizeToSquare(workspaceLogo);
+        await api.uploadWorkspaceIcon(created.id, mime, data);
+        created = {...created, has_icon_image: true};
+      }
+      setWorkspaces((current) => [...current, created]);
+      closeCreateWorkspace(true);
+      await switchWorkspace(created);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('workspace.createFailed'));
+    } finally {
+      setIsCreatingWorkspace(false);
+    }
+  }
+
   async function submit(content: string) {
     const trimmed = content.trim();
     if (!trimmed || streaming || !workspace) return;
@@ -253,14 +293,7 @@ export default function ChatPage() {
       <DropdownMenuItem
         icon={<Plus size={15} />}
         label={t('menu.createWorkspace')}
-        onClick={() => router.push('/settings?section=workspace')}
-      />
-      <DropdownMenuDivider />
-      <DropdownMenuItem
-        description={user?.email}
-        icon={<LogOut size={15} />}
-        label={t('menu.signOut')}
-        onClick={() => void signOut()}
+        onClick={() => setIsCreateWorkspaceOpen(true)}
       />
     </>
   );
@@ -355,12 +388,20 @@ export default function ChatPage() {
           footer={
             user ? (
               <Card padding={3} width="100%">
-                <HStack gap={2} vAlign="center">
+                <HStack gap={2} hAlign="between" vAlign="center">
                   <Avatar name={user.name} size="md" src={user.has_avatar ? api.userAvatarURL() : undefined} />
                   <VStack gap={0} minWidth={0}>
                     <Text truncate type="label" weight="semibold">{user.name}</Text>
                     <Text color="secondary" truncate type="supporting">{user.email}</Text>
                   </VStack>
+                  <MoreMenu
+                    items={[
+                      {label: t('settings.preferences'), onClick: () => setIsProfileSettingsOpen(true)},
+                      {label: t('menu.signOut'), onClick: () => void signOut(), variant: 'destructive'},
+                    ]}
+                    label={t('profile.options')}
+                    size="sm"
+                  />
                 </HStack>
               </Card>
             ) : undefined
@@ -518,6 +559,109 @@ export default function ChatPage() {
         onOpenChange={(open) => { if (!open) setDeleting(null); }}
         title={t('conv.deleteTitle')}
       />
+
+      <Dialog
+        isOpen={isCreateWorkspaceOpen}
+        onOpenChange={(open) => { if (!open) closeCreateWorkspace(); }}
+        purpose="form"
+      >
+        <Layout
+          content={
+            <LayoutContent>
+              <VStack gap={4}>
+                <TextInput label={t('workspace.name')} onChange={setWorkspaceName} onEnter={() => void createWorkspace()} value={workspaceName} width="100%" />
+                <TextInput label={t('workspace.description')} onChange={setWorkspaceDescription} value={workspaceDescription} width="100%" />
+                <VStack gap={2}>
+                  <Text type="label">{t('workspace.logo')}</Text>
+                  <HStack gap={2} vAlign="center">
+                    <Avatar name={workspaceName || 'Workspace'} size="lg" src={workspaceLogo ? URL.createObjectURL(workspaceLogo) : undefined} />
+                    <input
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      hidden
+                      onChange={(event) => { setWorkspaceLogo(event.target.files?.[0] ?? null); event.target.value = ''; }}
+                      ref={workspaceLogoInput}
+                      type="file"
+                    />
+                    <Button label={t('workspace.uploadImage')} onClick={() => workspaceLogoInput.current?.click()} variant="secondary" />
+                    {workspaceLogo && <Button label={t('workspace.removeImage')} onClick={() => setWorkspaceLogo(null)} variant="ghost" />}
+                  </HStack>
+                </VStack>
+              </VStack>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button label={t('common.cancel')} onClick={closeCreateWorkspace} variant="secondary" />
+                <Button isDisabled={!workspaceName.trim() || isCreatingWorkspace} isLoading={isCreatingWorkspace} label={t('workspace.create')} onClick={() => void createWorkspace()} variant="primary" />
+              </HStack>
+            </LayoutFooter>
+          }
+          header={<DialogHeader onOpenChange={(open) => { if (!open) closeCreateWorkspace(); }} title={t('workspace.createTitle')} />}
+        />
+      </Dialog>
+
+      <Dialog
+        isOpen={isProfileSettingsOpen}
+        onOpenChange={setIsProfileSettingsOpen}
+        purpose="form"
+      >
+        <Layout
+          content={
+            <LayoutContent>
+              <VStack gap={4}>
+                <HStack hAlign="between" vAlign="center">
+                  <Text type="label">{t('prefs.theme')}</Text>
+                  <Selector
+                    isLabelHidden
+                    label={t('prefs.theme')}
+                    onChange={(value) => setTheme(value as 'light' | 'dark' | 'system')}
+                    options={[
+                      {value: 'light', label: t('prefs.themeLight')},
+                      {value: 'dark', label: t('prefs.themeDark')},
+                      {value: 'system', label: t('prefs.themeSystem')},
+                    ]}
+                    value={preferences.theme}
+                  />
+                </HStack>
+                <HStack hAlign="between" vAlign="center">
+                  <Text type="label">{t('prefs.language')}</Text>
+                  <Selector
+                    isLabelHidden
+                    label={t('prefs.language')}
+                    onChange={(value) => setLocale(value as 'en' | 'vi')}
+                    options={[
+                      {value: 'en', label: t('prefs.languageEn')},
+                      {value: 'vi', label: t('prefs.languageVi')},
+                    ]}
+                    value={preferences.locale}
+                  />
+                </HStack>
+              </VStack>
+            </LayoutContent>
+          }
+          header={<DialogHeader onOpenChange={setIsProfileSettingsOpen} title={t('settings.preferences')} />}
+        />
+      </Dialog>
     </AppShell>
   );
+}
+
+async function resizeToSquare(file: File, size = 128): Promise<{mime: string; data: string}> {
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas unavailable');
+  const side = Math.min(bitmap.width, bitmap.height);
+  context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+  bitmap.close();
+  const blob: Blob = await new Promise((resolve, reject) => {
+    canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('Encode failed'))), 'image/png');
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return {mime: 'image/png', data: btoa(binary)};
 }

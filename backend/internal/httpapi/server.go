@@ -55,11 +55,12 @@ type User struct {
 }
 
 type Workspace struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Slug string `json:"slug"`
-	Type string `json:"type"`
-	Icon string `json:"icon,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Icon        string `json:"icon,omitempty"`
 	// True when an uploaded image exists; the client fetches it from
 	// /api/workspaces/{id}/icon rather than receiving it inline.
 	HasIconImage bool   `json:"has_icon_image"`
@@ -515,7 +516,7 @@ func (s *Server) userAvatar(w http.ResponseWriter, r *http.Request) {
 func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	rows, err := s.db.Query(r.Context(), `
-		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.icon, ''), (w.icon_image IS NOT NULL), m.role,
+		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.description, ''), COALESCE(w.icon, ''), (w.icon_image IS NOT NULL), m.role,
 		       COALESCE(c.base_url, ''), COALESCE(c.model, '')
 		FROM workspace_memberships m
 		JOIN workspaces w ON w.id = m.workspace_id
@@ -531,7 +532,7 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item Workspace
 		var baseURL, model string
-		if rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Type, &item.Icon, &item.HasIconImage, &item.Role, &baseURL, &model) == nil {
+		if rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Type, &item.Description, &item.Icon, &item.HasIconImage, &item.Role, &baseURL, &model) == nil {
 			if baseURL != "" && model != "" {
 				item.ModelConfigured = true
 				item.ModelAlias = model

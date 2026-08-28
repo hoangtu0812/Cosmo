@@ -6,6 +6,7 @@ export type User = {id: string; email: string; name: string; role: 'admin' | 'us
 export type Workspace = {
   id: string;
   name: string;
+  description: string;
   slug: string;
   type: 'personal' | 'team' | 'project';
   role: string;
@@ -107,7 +108,7 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
 export const api = {
   authConfig: () => request<AuthConfig>('/api/auth/config'),
   me: () => request<{user: User}>('/api/auth/me'),
-	userAvatarURL: () => `${API_BASE}/api/auth/me/avatar`,
+  userAvatarURL: () => `${API_BASE}/api/auth/me/avatar`,
   signIn: (email: string, password: string, remember: boolean) => request<{user: User}>('/api/auth/signin', {method: 'POST', body: JSON.stringify({email, password, remember})}),
   signUp: (name: string, email: string, password: string) => request<{user: User}>('/api/auth/signup', {method: 'POST', body: JSON.stringify({name, email, password})}),
   signOut: () => request<void>('/api/auth/signout', {method: 'POST'}),
@@ -121,7 +122,7 @@ export const api = {
     request<{conversation: {id: string; title: string}}>(`/api/conversations/${encodeURIComponent(conversationID)}`, {method: 'PATCH', body: JSON.stringify({title})}),
   deleteConversation: (conversationID: string) =>
     request<void>(`/api/conversations/${encodeURIComponent(conversationID)}`, {method: 'DELETE'}),
-  updateWorkspace: (workspaceID: string, body: {name?: string; icon?: string}) =>
+  updateWorkspace: (workspaceID: string, body: {name?: string; description?: string; icon?: string}) =>
     request<{workspace: Workspace}>(`/api/workspaces/${encodeURIComponent(workspaceID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
   uploadWorkspaceIcon: (workspaceID: string, mime: string, data: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'PUT', body: JSON.stringify({mime, data})}),
@@ -162,7 +163,7 @@ export const api = {
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'PUT'}),
   unmountKnowledge: (workspaceID: string, kbID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
-  createWorkspace: (name: string) => request<{workspace: Workspace}>('/api/workspaces', {method: 'POST', body: JSON.stringify({name})}),
+  createWorkspace: (name: string, description = '') => request<{workspace: Workspace}>('/api/workspaces', {method: 'POST', body: JSON.stringify({name, description})}),
   workspaceModels: (workspaceID: string) => request<{models: string[]; default: string}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/models`),
   members: (workspaceID: string) => request<{members: Member[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/members`),
 

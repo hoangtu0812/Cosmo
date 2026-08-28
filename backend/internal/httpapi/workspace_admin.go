@@ -333,7 +333,8 @@ func fetchGatewayModels(ctx context.Context, baseURL, apiKey string) ([]string, 
 func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	var input struct {
-		Name string `json:"name"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -341,6 +342,11 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" || len([]rune(input.Name)) > 80 {
 		writeError(w, http.StatusBadRequest, "Tên workspace phải từ 1 đến 80 ký tự.")
+		return
+	}
+	input.Description = strings.TrimSpace(input.Description)
+	if len([]rune(input.Description)) > 500 {
+		writeError(w, http.StatusBadRequest, "Mô tả workspace không được quá 500 ký tự.")
 		return
 	}
 	workspaceID := "ws_" + randomID(18)
@@ -352,7 +358,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	if _, err := tx.Exec(r.Context(), `INSERT INTO workspaces(id, name, slug, type) VALUES($1, $2, $3, 'team')`, workspaceID, input.Name, slug); err != nil {
+	if _, err := tx.Exec(r.Context(), `INSERT INTO workspaces(id, name, slug, type, description) VALUES($1, $2, $3, 'team', $4)`, workspaceID, input.Name, slug, input.Description); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tạo workspace.")
 		return
 	}
@@ -364,7 +370,7 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể tạo workspace.")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"workspace": Workspace{ID: workspaceID, Name: input.Name, Slug: slug, Type: "team", Role: "owner"}})
+	writeJSON(w, http.StatusCreated, map[string]any{"workspace": Workspace{ID: workspaceID, Name: input.Name, Slug: slug, Type: "team", Description: input.Description, Role: "owner"}})
 }
 
 func (s *Server) listMembers(w http.ResponseWriter, r *http.Request) {
@@ -609,16 +615,17 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 
 // ------------------------------------------------------- workspace identity
 
-// updateWorkspace renames a workspace and sets its emoji mark. Both fields are
-// optional: a nil pointer leaves the stored value alone.
+// updateWorkspace changes the current workspace's display details. Every
+// request field is optional: a nil pointer leaves the stored value alone.
 func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID, ok := s.requireWorkspaceAdmin(w, r)
 	if !ok {
 		return
 	}
 	var input struct {
-		Name *string `json:"name"`
-		Icon *string `json:"icon"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		Icon        *string `json:"icon"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -631,6 +638,17 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := s.db.Exec(r.Context(), `UPDATE workspaces SET name = $2 WHERE id = $1`, workspaceID, name); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể đổi tên workspace.")
+			return
+		}
+	}
+	if input.Description != nil {
+		description := strings.TrimSpace(*input.Description)
+		if len([]rune(description)) > 500 {
+			writeError(w, http.StatusBadRequest, "Mô tả workspace không được quá 500 ký tự.")
+			return
+		}
+		if _, err := s.db.Exec(r.Context(), `UPDATE workspaces SET description = $2 WHERE id = $1`, workspaceID, description); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu mô tả workspace.")
 			return
 		}
 	}
@@ -650,10 +668,10 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	var workspace Workspace
 	err := s.db.QueryRow(r.Context(), `
-		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.icon, ''), (w.icon_image IS NOT NULL), m.role
+		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.description, ''), COALESCE(w.icon, ''), (w.icon_image IS NOT NULL), m.role
 		FROM workspaces w JOIN workspace_memberships m ON m.workspace_id = w.id AND m.user_id = $2
 		WHERE w.id = $1`, workspaceID, currentUser(r.Context()).ID).
-		Scan(&workspace.ID, &workspace.Name, &workspace.Slug, &workspace.Type, &workspace.Icon, &workspace.HasIconImage, &workspace.Role)
+		Scan(&workspace.ID, &workspace.Name, &workspace.Slug, &workspace.Type, &workspace.Description, &workspace.Icon, &workspace.HasIconImage, &workspace.Role)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể đọc lại workspace.")
 		return

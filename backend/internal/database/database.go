@@ -71,6 +71,7 @@ var migrations = []string{
 	// dedicated endpoint so the workspace list payload stays small.
 	`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS icon_image BYTEA`,
 	`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS icon_mime TEXT`,
+	`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`,
 
 	// Knowledge Plane control tables. A knowledge base belongs to the workspace
 	// where it was created. The creator is audit metadata only; visibility says

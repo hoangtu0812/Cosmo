@@ -85,6 +85,8 @@ const strings = {
     'common.save': 'Save',
     'workspace.identity': 'Name and icon',
     'workspace.icon': 'Icon',
+    'workspace.logo': 'Workspace logo',
+    'workspace.description': 'Description',
     'workspace.uploadImage': 'Upload image',
     'workspace.removeImage': 'Remove image',
     'workspace.saveIdentity': 'Save',
@@ -182,6 +184,7 @@ const strings = {
     'menu.createWorkspace': 'Create workspace',
     'menu.signOut': 'Sign out',
     'menu.yourWorkspaces': 'Your workspaces',
+    'profile.options': 'Profile options',
 
     'settings.title': 'Settings',
     'settings.back': 'Back to app',
@@ -321,6 +324,8 @@ const strings = {
     'common.save': 'Lưu',
     'workspace.identity': 'Tên và biểu tượng',
     'workspace.icon': 'Biểu tượng',
+    'workspace.logo': 'Logo workspace',
+    'workspace.description': 'Mô tả',
     'workspace.uploadImage': 'Tải ảnh lên',
     'workspace.removeImage': 'Xoá ảnh',
     'workspace.saveIdentity': 'Lưu',
@@ -418,6 +423,7 @@ const strings = {
     'menu.createWorkspace': 'Tạo workspace',
     'menu.signOut': 'Đăng xuất',
     'menu.yourWorkspaces': 'Workspace của bạn',
+    'profile.options': 'Tuỳ chọn hồ sơ',
 
     'settings.title': 'Cài đặt',
     'settings.back': 'Quay lại ứng dụng',

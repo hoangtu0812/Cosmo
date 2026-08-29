@@ -2,18 +2,22 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ExternalLink, FileText, Trash2, Upload, X} from 'lucide-react';
+import {ExternalLink, FileText, SlidersHorizontal, Trash2, Upload, X} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
-import {HStack, Layout, LayoutContent, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
 import {PowerSearch, PowerSearchFilter, usePowerSearchConfig} from '@astryxdesign/core/PowerSearch';
 import {Section} from '@astryxdesign/core/Section';
+import {Spinner} from '@astryxdesign/core/Spinner';
+import {Step, Stepper} from '@astryxdesign/core/Stepper';
+import {Selector} from '@astryxdesign/core/Selector';
 import {proportional, Table, TableColumn, toSearchFilters, useTableFiltering, useTableFilterState} from '@astryxdesign/core/Table';
 import {Text} from '@astryxdesign/core/Text';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
@@ -54,6 +58,8 @@ export default function KnowledgeDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pipelineDocument, setPipelineDocument] = useState<KnowledgeDocument | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
   const [detail, setDetail] = useState<KnowledgeDocumentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -109,8 +115,10 @@ export default function KnowledgeDetailPage() {
       {key: 'size_bytes', header: 'Dung lượng', width: proportional(1), renderCell: (document) => <Text>{formatSize(document.size_bytes)}</Text>},
       {key: 'chunk_count', header: 'Chunks', align: 'end', width: proportional(1), renderCell: (document) => <Text>{document.chunk_count}</Text>},
       {
-        key: 'log', header: 'Nhật ký', width: proportional(1),
-        renderCell: (document) => <Button label={t('kb.log')} onClick={() => void openDocument(document)} size="sm" variant="secondary" />,
+        key: 'pipeline', header: 'Tiến trình', width: proportional(1),
+        renderCell: (document) => (
+          <Button label={t('kb.pipelineView')} onClick={() => setPipelineDocument(document)} size="sm" variant="secondary" />
+        ),
       },
       {
         key: 'status', header: 'Trạng thái', width: proportional(1), filter: 'status',
@@ -252,6 +260,13 @@ export default function KnowledgeDetailPage() {
                       label={base && base.version > 0 ? t('kb.published', {version: base.version}) : t('kb.draft')}
                       variant={base && base.version > 0 ? 'neutral' : 'warning'}
                     />
+                    <IconButton
+                      icon={<SlidersHorizontal size={14} />}
+                      label={t('kb.layoutMode')}
+                      onClick={() => setSettingsOpen(true)}
+                      size="sm"
+                      variant="ghost"
+                    />
                     <Button
                       icon={<Upload size={14} />}
                       isDisabled={uploading}
@@ -333,7 +348,83 @@ export default function KnowledgeDetailPage() {
         onOpenChange={(open) => { if (!open) setDeleting(null); }}
         title={t('kb.docDeleteTitle')}
       />
+
+      {pipelineDocument ? (
+        <PipelineDialog
+          document={pipelineDocument}
+          kbID={kbID}
+          onClose={() => setPipelineDocument(null)}
+          onSettled={handleSettled}
+        />
+      ) : null}
+
+      {settingsOpen && base ? (
+        <LayoutDialog
+          base={base}
+          onClose={() => setSettingsOpen(false)}
+          onError={setError}
+          onSaved={(next) => { setBase(next); setSettingsOpen(false); }}
+        />
+      ) : null}
     </>
+  );
+}
+
+// Layout analysis is billed per page, so which documents are worth it belongs
+// to the owner of the corpus rather than to the deployment. It applies to
+// documents ingested from here on; what is already indexed is only re-read by
+// a re-index.
+function LayoutDialog({base, onClose, onError, onSaved}: {
+  base: KnowledgeBase;
+  onClose: () => void;
+  onError: (value: string) => void;
+  onSaved: (base: KnowledgeBase) => void;
+}) {
+  const t = useTranslation();
+  const [mode, setMode] = useState(base.layout_mode);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const result = await api.updateKnowledgeBase(base.id, {layout_mode: mode});
+      onSaved(result.knowledge_base);
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : t('kb.saveFailed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog isOpen onOpenChange={onClose} purpose="form" width={480}>
+      <Layout
+        content={
+          <LayoutContent>
+            <Selector
+              label={t('kb.layoutMode')}
+              onChange={(value) => setMode(value as KnowledgeBase['layout_mode'])}
+              options={[
+                {value: 'auto', label: t('kb.layoutAuto')},
+                {value: 'always', label: t('kb.layoutAlways')},
+                {value: 'off', label: t('kb.layoutOff')},
+              ]}
+              value={mode}
+              width="100%"
+            />
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <HStack gap={2} hAlign="end">
+              <Button label={t('common.cancel')} onClick={onClose} variant="secondary" />
+              <Button isDisabled={busy} isLoading={busy} label={t('common.save')} onClick={() => void save()} variant="primary" />
+            </HStack>
+          </LayoutFooter>
+        }
+        header={<DialogHeader onOpenChange={onClose} subtitle={base.name} title={t('kb.layoutMode')} />}
+      />
+    </Dialog>
   );
 }
 
@@ -423,19 +514,13 @@ function statusVariant(status: KnowledgeDocument['status']): 'success' | 'error'
 }
 
 /**
- * The ingestion log for one document.
+ * Every stage recorded for one document, kept current while it is still being
+ * processed.
  *
- * Parsing and embedding a large manual takes minutes during which nothing
- * visible happens, which is indistinguishable from being stuck. The backend
- * replays every stage recorded so far and then streams the rest, so opening
- * this late still shows the whole story.
+ * The backend replays everything recorded so far and then streams the rest, so
+ * opening late still shows the whole story rather than only what happens next.
  */
-function IngestionLog({document, kbID, onSettled}: {
-  document: KnowledgeDocument;
-  kbID: string;
-  onSettled: () => void;
-}) {
-  const t = useTranslation();
+function useIngestionEvents(kbID: string, document: KnowledgeDocument, onSettled: () => void) {
   const [events, setEvents] = useState<DocumentEvent[]>([]);
   const isLive = document.status === 'processing' || document.status === 'pending';
 
@@ -458,6 +543,142 @@ function IngestionLog({document, kbID, onSettled}: {
     return () => source.close();
   }, [document.id, isLive, kbID, onSettled]);
 
+  return {events, isLive};
+}
+
+// The pipeline the service actually runs, in the order it runs it. Reported
+// stages fold onto these steps rather than each becoming one: layout analysis
+// is a route through reading a document, not a stage after it, and `done` is
+// the index write finishing.
+const PIPELINE_STEPS = [
+  {key: 'received', stages: ['received']},
+  {key: 'stored', stages: ['stored']},
+  {key: 'parsing', stages: ['parsing', 'layout']},
+  {key: 'chunked', stages: ['chunked']},
+  {key: 'embedding', stages: ['embedding']},
+  {key: 'indexing', stages: ['indexing', 'done']},
+] as const;
+
+/**
+ * The ingestion pipeline for one document, drawn as the sequence it is.
+ *
+ * A log answers "what happened" only if you read it. The shape of the work is
+ * the thing worth showing: which step it is on, how long each one took, and —
+ * when a scan goes to layout analysis — that the minutes of silence are one
+ * known step rather than a stall.
+ */
+function PipelineDialog({document, kbID, onClose, onSettled}: {
+  document: KnowledgeDocument;
+  kbID: string;
+  onClose: () => void;
+  onSettled: () => void;
+}) {
+  const t = useTranslation();
+  const {events, isLive} = useIngestionEvents(kbID, document, onSettled);
+  const [now, setNow] = useState(() => Date.now());
+
+  // The step in progress shows time elapsed, which only reads as progress if
+  // it moves. Nothing else on the page depends on this clock.
+  useEffect(() => {
+    if (!isLive) return undefined;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [isLive]);
+
+  const failure = events.find((event) => event.stage === 'error');
+  const finished = events.some((event) => event.stage === 'done');
+  const first = (stages: readonly string[]) => events.find((event) => stages.includes(event.stage));
+  const last = (stages: readonly string[]) => events.filter((event) => stages.includes(event.stage)).at(-1);
+
+  const starts = PIPELINE_STEPS.map((step) => first(step.stages)?.created_at ?? null);
+  const terminal = (finished ? last(['done']) : failure)?.created_at ?? null;
+
+  let active = 0;
+  starts.forEach((start, index) => { if (start) active = index; });
+  if (finished) active = PIPELINE_STEPS.length;
+
+  const embedding = last(['embedding']);
+  const progress = embedding && embedding.total > 0 ? Math.round((embedding.done / embedding.total) * 100) : null;
+
+  return (
+    <Dialog isOpen maxHeight={720} onOpenChange={onClose} purpose="info" width={680}>
+      <Layout
+        content={
+          <LayoutContent>
+            <VStack gap={4}>
+              <Stepper activeStep={active} density="compact" label={t('kb.pipeline')} orientation="vertical">
+                {PIPELINE_STEPS.map((step, index) => {
+                  const start = starts[index];
+                  const nextStart = starts.slice(index + 1).find(Boolean) ?? terminal;
+                  const isCurrent = index === active && !finished;
+                  // A step that has started but not handed over is still
+                  // running, so it counts up to now rather than showing nothing.
+                  const elapsed = start
+                    ? (nextStart ? Date.parse(nextStart) : (isLive ? now : null))
+                    : null;
+                  return (
+                    <Step
+                      description={last(step.stages)?.message ?? undefined}
+                      endContent={start && elapsed ? (
+                        <Text color="secondary" type="supporting">{formatElapsed(elapsed - Date.parse(start))}</Text>
+                      ) : undefined}
+                      indicator={isCurrent && isLive ? <Spinner size="sm" /> : 'auto'}
+                      key={step.key}
+                      label={t(`kb.step.${step.key}` as Parameters<typeof t>[0])}
+                      status={failure && index === active ? 'error' : undefined}
+                      step={index}
+                    >
+                      {step.key === 'embedding' && progress !== null && isCurrent ? (
+                        <ProgressBar isLabelHidden label={t('kb.step.embedding')} value={progress} />
+                      ) : null}
+                    </Step>
+                  );
+                })}
+              </Stepper>
+
+              {failure ? <Banner status="error" title={failure.message} /> : null}
+
+              <Section dividers={['top']} padding={0}>
+                <VStack gap={2}>
+                  {events.map((event) => (
+                    <HStack gap={3} key={event.id} vAlign="start">
+                      <Text color="secondary" type="code">{formatTime(event.created_at)}</Text>
+                      <Text type="code" weight="medium">{stageLabel(event.stage, t)}</Text>
+                      <Text color="secondary" type="code">{event.message}</Text>
+                    </HStack>
+                  ))}
+                </VStack>
+              </Section>
+            </VStack>
+          </LayoutContent>
+        }
+        header={<DialogHeader onOpenChange={onClose} subtitle={document.title || document.filename} title={t('kb.pipeline')} />}
+      />
+    </Dialog>
+  );
+}
+
+function formatElapsed(milliseconds: number): string {
+  const seconds = Math.max(milliseconds, 0) / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${Math.floor(seconds / 60)}m ${String(Math.round(seconds % 60)).padStart(2, '0')}s`;
+}
+
+/**
+ * The ingestion log for one document.
+ *
+ * Parsing and embedding a large manual takes minutes during which nothing
+ * visible happens, which is indistinguishable from being stuck. The backend
+ * replays every stage recorded so far and then streams the rest, so opening
+ * this late still shows the whole story.
+ */
+function IngestionLog({document, kbID, onSettled}: {
+  document: KnowledgeDocument;
+  kbID: string;
+  onSettled: () => void;
+}) {
+  const t = useTranslation();
+  const {events} = useIngestionEvents(kbID, document, onSettled);
   const latest = events[events.length - 1];
   const progress = latest && latest.total > 0 ? Math.round((latest.done / latest.total) * 100) : null;
 
@@ -489,7 +710,7 @@ function formatTime(value: string): string {
 // Stages the service does not name yet fall back to their raw key rather than
 // rendering an empty cell.
 const STAGE_KEYS = new Set([
-  'queued', 'received', 'stored', 'parsing', 'chunked', 'embedding', 'indexing', 'done', 'error',
+  'queued', 'received', 'stored', 'parsing', 'layout', 'chunked', 'embedding', 'indexing', 'done', 'error',
 ]);
 
 function stageLabel(stage: string, t: ReturnType<typeof useTranslation>): string {

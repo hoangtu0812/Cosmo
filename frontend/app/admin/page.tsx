@@ -16,13 +16,14 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
+import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {Selector} from '@astryxdesign/core/Selector';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {AdminUser, api, APIError, AuditEvent, SystemStatus, User} from '../lib/api';
+import {AdminUser, api, APIError, AuditEvent, KnowledgeIndexStatus, SystemStatus, User} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {UserProfileCard} from '../components/UserProfileCard';
 
@@ -40,6 +41,7 @@ export default function AdminPage() {
   const [pendingUserID, setPendingUserID] = useState('');
   const [isSavingSystem, setIsSavingSystem] = useState(false);
   const [isReindexing, setIsReindexing] = useState(false);
+  const [indexStatus, setIndexStatus] = useState<KnowledgeIndexStatus | null>(null);
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
@@ -49,17 +51,30 @@ export default function AdminPage() {
         return;
       }
       setUser(result.user);
-      return Promise.all([api.adminUsers(), api.auditEvents(), api.systemStatus()]).then(([userResult, auditResult, systemResult]) => {
-        setUsers(userResult.users);
-        setEvents(auditResult.events);
-        setSystem(systemResult);
-      });
+      return Promise.all([api.adminUsers(), api.auditEvents(), api.systemStatus(), api.knowledgeIndexStatus()])
+        .then(([userResult, auditResult, systemResult, indexResult]) => {
+          setUsers(userResult.users);
+          setEvents(auditResult.events);
+          setSystem(systemResult);
+          setIndexStatus(indexResult);
+        });
     }).catch((caught) => {
       if (caught instanceof APIError && caught.status === 401) router.replace('/');
       else if (caught instanceof APIError && caught.status === 403) router.replace('/chat');
       else setError(caught instanceof Error ? caught.message : t('admin.loadFailed'));
     });
   }, [router, t]);
+
+  // A re-index outlives the request that started it, so progress is read from
+  // the document rows until nothing is left in flight. The poll stops itself
+  // rather than running for as long as the console is open.
+  useEffect(() => {
+    if (!indexStatus?.running) return undefined;
+    const timer = setInterval(() => {
+      void api.knowledgeIndexStatus().then(setIndexStatus).catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [indexStatus?.running]);
 
   async function updateRole(target: AdminUser) {
     const role = target.role === 'admin' ? 'user' : 'admin';
@@ -103,6 +118,7 @@ export default function AdminPage() {
     try {
       const result = await api.reindexKnowledge();
       setNotice(t('admin.reindexQueued', {count: result.queued}));
+      setIndexStatus(await api.knowledgeIndexStatus());
       const audit = await api.auditEvents();
       setEvents(audit.events);
     } catch (caught) {
@@ -148,7 +164,7 @@ export default function AdminPage() {
               {notice && <Banner isDismissable onDismiss={() => setNotice('')} status="success" title={notice} />}
               {section === 'users' && <UsersPanel pendingUserID={pendingUserID} t={t} users={users} onUpdateRole={updateRole} />}
               {section === 'audit' && <AuditPanel events={events} t={t} />}
-              {section === 'system' && <SystemPanel isReindexing={isReindexing} isSaving={isSavingSystem} system={system} t={t} onReindex={reindexKnowledge} onSave={updateSystemModels} />}
+              {section === 'system' && <SystemPanel indexStatus={indexStatus} isReindexing={isReindexing} isSaving={isSavingSystem} system={system} t={t} onReindex={reindexKnowledge} onSave={updateSystemModels} />}
             </VStack>
           </LayoutContent>
         }
@@ -217,7 +233,7 @@ function AuditPanel({events, t}: {events: AuditEvent[]; t: ReturnType<typeof use
   );
 }
 
-function SystemPanel({system, isSaving, isReindexing, onSave, onReindex, t}: {system: SystemStatus | null; isSaving: boolean; isReindexing: boolean; onSave: (settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) => void; onReindex: () => void; t: ReturnType<typeof useTranslation>}) {
+function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onReindex, t}: {system: SystemStatus | null; indexStatus: KnowledgeIndexStatus | null; isSaving: boolean; isReindexing: boolean; onSave: (settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) => void; onReindex: () => void; t: ReturnType<typeof useTranslation>}) {
   const [embeddingModel, setEmbeddingModel] = useState('');
   const [rerankerModel, setRerankerModel] = useState('');
   const [gatewayBaseURL, setGatewayBaseURL] = useState('');
@@ -284,10 +300,23 @@ function SystemPanel({system, isSaving, isReindexing, onSave, onReindex, t}: {sy
         </VStack>
       </Card>}
       {system && <Card width="100%">
-        <HStack hAlign="between" vAlign="center">
-          <Text type="label" weight="semibold">{t('admin.reindex')}</Text>
-          <Button isDisabled={isReindexing || !system.system_gateway.configured} isLoading={isReindexing} label={t('admin.reindexAction')} onClick={() => setIsReindexDialogOpen(true)} variant="secondary" />
-        </HStack>
+        <VStack gap={3}>
+          <HStack hAlign="between" vAlign="center">
+            <Text type="label" weight="semibold">{t('admin.reindex')}</Text>
+            <Button isDisabled={isReindexing || indexStatus?.running || !system.system_gateway.configured} isLoading={isReindexing} label={t('admin.reindexAction')} onClick={() => setIsReindexDialogOpen(true)} variant="secondary" />
+          </HStack>
+          {indexStatus && indexStatus.total > 0 ? (
+            <VStack gap={2}>
+              {indexStatus.running ? (
+                <ProgressBar isLabelHidden label={t('admin.reindex')} value={Math.round(((indexStatus.total - indexStatus.pending) / indexStatus.total) * 100)} />
+              ) : null}
+              <HStack gap={3}>
+                <Text color="secondary" type="supporting">{t('admin.indexProgress', {ready: indexStatus.ready, total: indexStatus.total})}</Text>
+                {indexStatus.failed > 0 ? <Badge label={t('admin.indexFailed', {failed: indexStatus.failed})} variant="error" /> : null}
+              </HStack>
+            </VStack>
+          ) : null}
+        </VStack>
       </Card>}
       <AlertDialog
         actionLabel={t('admin.reindexConfirm')}

@@ -31,6 +31,7 @@ export type KnowledgeBase = {
   created_by_name?: string;
   owner_workspace_id?: string;
   visibility: 'workspace' | 'selected' | 'everyone';
+  layout_mode: 'auto' | 'always' | 'off';
   created_at: string;
   access: 'owner' | 'viewer';
   version: number;
@@ -55,6 +56,7 @@ export type KnowledgeDocument = {
   created_at: string;
   updated_at: string;
 };
+export type KnowledgeIndexStatus = {total: number; ready: number; failed: number; pending: number; running: boolean};
 export type KnowledgeShare = {workspace_id: string; name: string};
 export type WorkspaceRef = {id: string; name: string};
 export type DocumentEvent = {id: number; stage: string; message: string; done: number; total: number; created_at: string};
@@ -128,6 +130,7 @@ export const api = {
   updateSystemSettings: (body: {embedding_model: string; reranker_model: string; gateway_base_url: string; gateway_api_key?: string}) => request<SystemStatus>('/api/admin/system', {method: 'PUT', body: JSON.stringify(body)}),
   systemGatewayModels: (body: {base_url?: string; api_key?: string}) => request<{ok: boolean; message?: string; models: string[]}>('/api/admin/system/models', {method: 'POST', body: JSON.stringify(body)}),
   reindexKnowledge: () => request<{queued: number}>('/api/admin/system/knowledge/reindex', {method: 'POST'}),
+  knowledgeIndexStatus: () => request<KnowledgeIndexStatus>('/api/admin/system/knowledge/reindex'),
   signIn: (email: string, password: string, remember: boolean) => request<{user: User}>('/api/auth/signin', {method: 'POST', body: JSON.stringify({email, password, remember})}),
   signUp: (name: string, email: string, password: string) => request<{user: User}>('/api/auth/signup', {method: 'POST', body: JSON.stringify({name, email, password})}),
   signOut: () => request<void>('/api/auth/signout', {method: 'POST'}),
@@ -158,7 +161,7 @@ export const api = {
     request<{shares: KnowledgeShare[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/shares`),
   workspaceDirectory: () =>
     request<{workspaces: WorkspaceRef[]}>('/api/workspaces/directory'),
-  updateKnowledgeBase: (kbID: string, body: {name?: string; description?: string; visibility?: string; workspaces?: string[]}) =>
+  updateKnowledgeBase: (kbID: string, body: {name?: string; description?: string; visibility?: string; layout_mode?: string; workspaces?: string[]}) =>
     request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
   deleteKnowledgeBase: (kbID: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),

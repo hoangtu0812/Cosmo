@@ -25,6 +25,16 @@ class Settings:
     chunk_size: int
     chunk_overlap: int
 
+    # Azure AI Document Intelligence. Analysis is billed per page, so the mode
+    # decides which documents are worth it rather than sending everything.
+    layout_endpoint: str
+    layout_key: str
+    layout_mode: str
+    layout_min_chars_per_page: int
+    layout_api_version: str
+    layout_timeout: float
+    layout_poll_interval: float
+
 
 def load() -> Settings:
     return Settings(
@@ -41,6 +51,13 @@ def load() -> Settings:
         max_chunks_per_document=int(os.environ.get("MAX_CHUNKS_PER_DOCUMENT", "3")),
         chunk_size=int(os.environ.get("CHUNK_SIZE", "900")),
         chunk_overlap=int(os.environ.get("CHUNK_OVERLAP", "150")),
+        layout_endpoint=os.environ.get("DOCUMENT_LAYOUT_ENDPOINT", "").strip().rstrip("/"),
+        layout_key=os.environ.get("DOCUMENT_LAYOUT_KEY", "").strip(),
+        layout_mode=os.environ.get("DOCUMENT_LAYOUT_MODE", "auto").strip().lower(),
+        layout_min_chars_per_page=int(os.environ.get("DOCUMENT_LAYOUT_MIN_CHARS_PER_PAGE", "120")),
+        layout_api_version=os.environ.get("DOCUMENT_LAYOUT_API_VERSION", "2024-11-30").strip(),
+        layout_timeout=float(os.environ.get("DOCUMENT_LAYOUT_TIMEOUT", "600")),
+        layout_poll_interval=float(os.environ.get("DOCUMENT_LAYOUT_POLL_INTERVAL", "2")),
     )
 
 

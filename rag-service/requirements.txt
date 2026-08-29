@@ -7,6 +7,9 @@ llama-index-core==0.12.11
 llama-index-readers-file==0.4.3
 pypdf==5.1.0
 docx2txt==0.8
+# .pptx is an accepted upload format; without this the reader raises and the
+# archive would be read as text.
+python-pptx==1.0.2
 
 # Retrieval backend and object storage.
 qdrant-client==1.12.2

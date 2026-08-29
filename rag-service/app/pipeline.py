@@ -26,6 +26,20 @@ def _event(stage: str, message: str, **fields) -> dict:
     return {"stage": stage, "message": message, "at": time.time(), **fields}
 
 
+def _reported(stages: Iterator[dict]) -> Iterator[dict]:
+    """Forward the parser's own stages, stamped like every other event.
+
+    The parser announces a slow route before taking it, so its stages have to
+    reach the reader as they happen rather than being collected at the end.
+    """
+    while True:
+        try:
+            stage = next(stages)
+        except StopIteration as finished:
+            return finished.value or []
+        yield _event(stage["stage"], stage["message"])
+
+
 def run(
     *,
     content: bytes,
@@ -36,6 +50,8 @@ def run(
     title: str,
     document_version: int,
     effective_date: str | None,
+    layout_mode: str | None = None,
+    storage_key: str | None = None,
 ) -> Iterator[dict]:
     """Ingest one document, yielding an event per stage.
 
@@ -47,12 +63,19 @@ def run(
     try:
         yield _event("received", f"Received {filename} ({len(content):,} bytes)")
 
-        key = ingest.storage_key(kb_id, document_id, filename)
-        objects.put(key, content, content_type)
-        yield _event("stored", f"Original stored as {key}", storage_key=key)
+        if storage_key:
+            # Re-indexing reads an original that is already in object storage.
+            # Writing it back would be a copy of itself, and a failed write
+            # would lose the only copy the index can be rebuilt from.
+            key = storage_key
+            yield _event("stored", f"Original already stored as {key}", storage_key=key)
+        else:
+            key = ingest.storage_key(kb_id, document_id, filename)
+            objects.put(key, content, content_type)
+            yield _event("stored", f"Original stored as {key}", storage_key=key)
 
         yield _event("parsing", "Parsing document")
-        chunks = ingest.chunk(
+        chunks = yield from _reported(ingest.parse(
             content=content,
             filename=filename,
             kb_id=kb_id,
@@ -60,7 +83,8 @@ def run(
             document_version=document_version,
             title=title,
             effective_date=effective_date,
-        )
+            layout_mode=layout_mode,
+        ))
         if not chunks:
             yield _event("error", "No readable text found in the document")
             return

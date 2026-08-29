@@ -94,3 +94,25 @@ class TestFailure:
     def test_nothing_is_indexed_when_parsing_finds_no_text(self, stub):
         run(content=b"   ", filename="empty.txt")
         assert "n" not in stub["upserted"], "an unreadable document must not reach the index"
+
+
+class TestReindex:
+    """A re-index reads the original where it already is.
+
+    Sending the bytes back to the service that stored them costs a full copy of
+    every document in both directions, and rewriting the object would put the
+    only source the index can be rebuilt from at risk of a failed write.
+    """
+
+    def test_an_original_already_stored_is_not_written_again(self, stub, monkeypatch):
+        def explode(*args, **kwargs):
+            raise AssertionError("re-indexing must not rewrite the original")
+
+        monkeypatch.setattr(pipeline.objects, "put", explode)
+        events = run(storage_key="kb_1/doc_1.md")
+        assert events[-1]["stage"] == "done"
+
+    def test_the_original_keeps_its_key(self, stub, monkeypatch):
+        monkeypatch.setattr(pipeline.objects, "put", lambda *args, **kwargs: None)
+        events = run(storage_key="kb_1/doc_1.md")
+        assert events[-1]["storage_key"] == "kb_1/doc_1.md"

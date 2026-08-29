@@ -32,10 +32,15 @@ class IngestRequest(BaseModel):
     document_id: str
     filename: str
     content_type: str = "application/octet-stream"
-    content_base64: str
+    # Exactly one source: the bytes inline for a new upload, or the key of an
+    # original already in object storage for a re-index.
+    content_base64: str = ""
+    storage_key: str | None = Field(default=None, max_length=512)
     title: str = ""
     document_version: int = 1
     effective_date: str | None = None
+    # How hard to work at reading a PDF, chosen by the owning knowledge base.
+    layout_mode: str | None = Field(default=None, max_length=20)
     embedding_model: str | None = Field(default=None, max_length=200)
     reranker_model: str | None = Field(default=None, max_length=200)
 
@@ -87,10 +92,20 @@ def ingest_document(
     stage without holding the whole pipeline in memory.
     """
     ml.configure(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
-    try:
-        content = base64.b64decode(request.content_base64)
-    except Exception as error:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail="content_base64 is not valid base64") from error
+
+    if request.storage_key:
+        # A re-index names the original rather than resending it: the control
+        # plane would otherwise read every document out of object storage only
+        # to base64-encode it back to the service that stored it.
+        try:
+            content = objects.get(request.storage_key)
+        except Exception as error:  # noqa: BLE001 - the key is the useful part
+            raise HTTPException(status_code=404, detail=f"could not read {request.storage_key}: {error}") from error
+    else:
+        try:
+            content = base64.b64decode(request.content_base64)
+        except Exception as error:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="content_base64 is not valid base64") from error
 
     if not content:
         raise HTTPException(status_code=400, detail="document is empty")
@@ -105,6 +120,8 @@ def ingest_document(
             title=request.title or request.filename,
             document_version=request.document_version,
             effective_date=request.effective_date,
+            layout_mode=request.layout_mode,
+            storage_key=request.storage_key,
         ):
             yield json.dumps(event, ensure_ascii=False) + "\n"
 

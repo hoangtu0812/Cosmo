@@ -34,6 +34,10 @@ type Config struct {
 	// one occupies the knowledge service and the model gateway, so this is the
 	// knob for how much of that capacity a rebuild is allowed to take.
 	ReindexWorkers int
+	// RetrievalLog records the questions asked of the knowledge plane and what
+	// came back, which is where a curated evaluation set comes from. It stores
+	// what people typed, so it is off unless an operator turns it on.
+	RetrievalLog bool
 }
 
 func Load() (Config, error) {
@@ -74,6 +78,7 @@ func Load() (Config, error) {
 		RAGServiceURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("RAG_SERVICE_URL")), "/"),
 		RAGTimeout:          ragTimeout,
 		ReindexWorkers:      intEnv("KNOWLEDGE_REINDEX_WORKERS", 4),
+		RetrievalLog:        boolEnv("KNOWLEDGE_RETRIEVAL_LOG", false),
 	}
 
 	if len(cfg.SessionSecret) < 32 {

@@ -121,6 +121,10 @@ type Passage struct {
 	Page          string  `json:"page"`
 	Text          string  `json:"text"`
 	Score         float64 `json:"score"`
+	// Matched names the retrievers that found this passage — dense, lexical or
+	// both. It is what makes a hybrid index's second half auditable instead of
+	// assumed.
+	Matched []string `json:"matched"`
 }
 
 // DocumentChunk is one processed payload retained in Qdrant. Inspection is

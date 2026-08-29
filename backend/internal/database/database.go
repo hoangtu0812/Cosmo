@@ -249,6 +249,20 @@ var migrations = []string{
 	// differs per corpus: a base of scanned drawings is worth paying layout
 	// analysis for on every document, a base of typed memos is not.
 	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS layout_mode TEXT NOT NULL DEFAULT 'auto'`,
+	// What was asked of the knowledge plane and what came back. Retrieval
+	// tuning is otherwise argued from memory: this is where the real questions
+	// come from, and which of them the index answered badly. It only fills
+	// when KNOWLEDGE_RETRIEVAL_LOG is on, because it stores what people typed,
+	// and it follows the workspace out the door when one is deleted.
+	`CREATE TABLE IF NOT EXISTS knowledge_retrieval_log (
+		id BIGSERIAL PRIMARY KEY,
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		query TEXT NOT NULL,
+		kb_ids TEXT[] NOT NULL DEFAULT '{}',
+		passages JSONB NOT NULL DEFAULT '[]'::jsonb,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_knowledge_retrieval_log_created ON knowledge_retrieval_log(created_at DESC)`,
 }
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

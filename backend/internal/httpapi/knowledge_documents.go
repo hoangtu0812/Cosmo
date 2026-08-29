@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 
 	"fmt"
 	"io"
@@ -528,6 +529,7 @@ func (s *Server) retrievalContext(ctx context.Context, workspaceID, query string
 	if err != nil {
 		return nil, err
 	}
+	s.logRetrieval(ctx, workspaceID, query, kbIDs, passages)
 
 	allowed := make(map[string]bool, len(kbIDs))
 	for _, id := range kbIDs {
@@ -553,6 +555,43 @@ func (s *Server) retrievalContext(ctx context.Context, workspaceID, query string
 		})
 	}
 	return result, nil
+}
+
+// logRetrieval records what was asked and what came back.
+//
+// This is the raw material a curated evaluation set is built from: the
+// questions people actually ask, and which of them the index answered badly.
+// It is off unless an operator turns it on, because it stores what someone
+// typed, and it is deliberately best-effort — a chat answer must not fail
+// because a measurement row could not be written.
+func (s *Server) logRetrieval(ctx context.Context, workspaceID, query string, kbIDs []string, passages []knowledge.Passage) {
+	if !s.cfg.RetrievalLog {
+		return
+	}
+	type found struct {
+		DocumentID string   `json:"document_id"`
+		KBID       string   `json:"kb_id"`
+		Score      float64  `json:"score"`
+		Matched    []string `json:"matched"`
+	}
+	rows := make([]found, 0, len(passages))
+	for _, passage := range passages {
+		rows = append(rows, found{
+			DocumentID: passage.DocumentID,
+			KBID:       passage.KBID,
+			Score:      passage.Score,
+			Matched:    passage.Matched,
+		})
+	}
+	encoded, err := json.Marshal(rows)
+	if err != nil {
+		return
+	}
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO knowledge_retrieval_log(workspace_id, query, kb_ids, passages)
+		VALUES($1, $2, $3, $4::jsonb)`, workspaceID, query, kbIDs, string(encoded)); err != nil {
+		slog.Warn("could not record retrieval", "workspace", workspaceID, "error", err)
+	}
 }
 
 type knowledgePassage struct {

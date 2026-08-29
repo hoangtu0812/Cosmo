@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"cosmo/backend/internal/knowledge"
@@ -511,27 +512,80 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusAccepted, map[string]int{"queued": len(documents)})
 }
 
+// runKnowledgeReindex rebuilds the index, several documents at a time.
+//
+// Re-indexing is the slow path an administrator waits on after changing the
+// embedding model, and one document at a time makes it cost the sum of every
+// parse and every gateway round trip. The pool is bounded rather than
+// unbounded: each worker holds a document and keeps the gateway busy, so the
+// point is to overlap the waiting, not to flood the service with it.
+//
+// Nothing is read here any more. Each job names the original by its object
+// key and the knowledge service reads it directly, which keeps a full copy of
+// every document from travelling to the control plane and back.
 func (s *Server) runKnowledgeReindex(documents []reindexDocument) {
-	for _, document := range documents {
-		ctx, cancel := context.WithTimeout(context.Background(), s.cfg.RAGTimeout)
-		content, err := s.knowledge.OriginalDocument(ctx, document.ID, document.StorageKey)
-		cancel()
-		if err != nil {
-			message := ingestionErrorMessage(err)
-			s.logger.Error("could not load original document for re-index", "document", document.ID, "error", err)
-			if _, dbErr := s.db.Exec(context.Background(), `
-				UPDATE knowledge_documents SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`, document.ID, message); dbErr != nil {
-				s.logger.Error("could not record re-index failure", "document", document.ID, "error", dbErr)
-			}
-			if _, dbErr := s.db.Exec(context.Background(), `
-				INSERT INTO knowledge_document_events(document_id, stage, message, done, total)
-				VALUES($1, 'error', $2, 0, 0)`, document.ID, message); dbErr != nil {
-				s.logger.Error("could not record re-index error", "document", document.ID, "error", dbErr)
-			}
-			continue
-		}
-		s.ingestDocument(document.ID, document.KBID, document.Title, document.Filename, document.ContentType, document.Version, content)
+	started := time.Now()
+	workers := s.cfg.ReindexWorkers
+	if workers > len(documents) {
+		workers = len(documents)
 	}
+
+	jobs := make(chan reindexDocument)
+	var wait sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for document := range jobs {
+				s.ingestDocument(knowledge.IngestJob{
+					KBID:        document.KBID,
+					DocumentID:  document.ID,
+					Filename:    document.Filename,
+					ContentType: document.ContentType,
+					Title:       document.Title,
+					Version:     document.Version,
+					StorageKey:  document.StorageKey,
+				})
+			}
+		}()
+	}
+	for _, document := range documents {
+		jobs <- document
+	}
+	close(jobs)
+	wait.Wait()
+
+	s.logger.Info("knowledge re-index finished",
+		"documents", len(documents), "workers", workers, "seconds", int(time.Since(started).Seconds()))
+}
+
+// KnowledgeIndexStatus is how far the index has got, counted from the document
+// rows themselves rather than from a job record. A re-index that dies with the
+// process therefore stops reporting progress instead of claiming to still run.
+type KnowledgeIndexStatus struct {
+	Total   int  `json:"total"`
+	Ready   int  `json:"ready"`
+	Failed  int  `json:"failed"`
+	Pending int  `json:"pending"`
+	Running bool `json:"running"`
+}
+
+func (s *Server) knowledgeIndexStatus(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePlatformAdmin(w, r); !ok {
+		return
+	}
+	var status KnowledgeIndexStatus
+	if err := s.db.QueryRow(r.Context(), `
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE status = 'ready'),
+		       COUNT(*) FILTER (WHERE status = 'failed'),
+		       COUNT(*) FILTER (WHERE status IN ('pending', 'processing'))
+		FROM knowledge_documents`).Scan(&status.Total, &status.Ready, &status.Failed, &status.Pending); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể đọc tiến độ re-index.")
+		return
+	}
+	status.Running = status.Pending > 0
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) writeAudit(ctx context.Context, actorID, action, targetType, targetID string, metadata any) {

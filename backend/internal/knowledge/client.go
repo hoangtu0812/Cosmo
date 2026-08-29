@@ -44,10 +44,12 @@ type IngestRequest struct {
 	DocumentID      string `json:"document_id"`
 	Filename        string `json:"filename"`
 	ContentType     string `json:"content_type"`
-	ContentBase64   string `json:"content_base64"`
+	ContentBase64   string `json:"content_base64,omitempty"`
+	StorageKey      string `json:"storage_key,omitempty"`
 	Title           string `json:"title"`
 	DocumentVersion int    `json:"document_version"`
 	EffectiveDate   string `json:"effective_date,omitempty"`
+	LayoutMode      string `json:"layout_mode,omitempty"`
 	EmbeddingModel  string `json:"embedding_model,omitempty"`
 	RerankerModel   string `json:"reranker_model,omitempty"`
 }
@@ -67,6 +69,25 @@ func (m ModelSettings) applyGatewayHeaders(request *http.Request) {
 	if m.GatewayAPIKey != "" {
 		request.Header.Set("X-Cosmo-Gateway-API-Key", m.GatewayAPIKey)
 	}
+}
+
+// IngestJob is one document to put through the pipeline.
+//
+// Content and StorageKey are the two ways to name the bytes, and a job carries
+// exactly one of them. A new upload sends the bytes it has just received; a
+// re-index sends the key of an original already in object storage, because
+// reading it here only to encode it back to the service that stored it costs a
+// full copy of every document in both directions.
+type IngestJob struct {
+	KBID        string
+	DocumentID  string
+	Filename    string
+	ContentType string
+	Title       string
+	LayoutMode  string
+	Version     int
+	Content     []byte
+	StorageKey  string
 }
 
 type IngestResult struct {
@@ -127,17 +148,21 @@ type DocumentInspection struct {
 // The service streams NDJSON because parsing and embedding a large manual
 // takes minutes: waiting for a single response would leave the person who
 // uploaded the file staring at nothing, unable to tell slow from stuck.
-func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, contentType, title string, version int, content []byte, models ModelSettings, onEvent func(Event)) (IngestResult, error) {
+func (c *Client) Ingest(ctx context.Context, job IngestJob, models ModelSettings, onEvent func(Event)) (IngestResult, error) {
 	body := IngestRequest{
-		KBID:            kbID,
-		DocumentID:      documentID,
-		Filename:        filename,
-		ContentType:     contentType,
-		ContentBase64:   base64.StdEncoding.EncodeToString(content),
-		Title:           title,
-		DocumentVersion: version,
+		KBID:            job.KBID,
+		DocumentID:      job.DocumentID,
+		Filename:        job.Filename,
+		ContentType:     job.ContentType,
+		StorageKey:      job.StorageKey,
+		Title:           job.Title,
+		LayoutMode:      job.LayoutMode,
+		DocumentVersion: job.Version,
 		EmbeddingModel:  models.EmbeddingModel,
 		RerankerModel:   models.RerankerModel,
+	}
+	if job.StorageKey == "" {
+		body.ContentBase64 = base64.StdEncoding.EncodeToString(job.Content)
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -194,7 +219,7 @@ func (c *Client) Ingest(ctx context.Context, kbID, documentID, filename, content
 		// a half-indexed document as ready.
 		return IngestResult{}, errors.New("ingestion ended before it finished")
 	}
-	return IngestResult{DocumentID: documentID, Chunks: last.Chunks, StorageKey: last.StorageKey}, nil
+	return IngestResult{DocumentID: job.DocumentID, Chunks: last.Chunks, StorageKey: last.StorageKey}, nil
 }
 
 // Search retrieves passages across the knowledge bases the caller has already

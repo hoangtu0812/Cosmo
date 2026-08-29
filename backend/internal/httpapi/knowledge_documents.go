@@ -227,7 +227,15 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 	// Parsing and embedding a large manual takes minutes, far longer than a
 	// browser will wait. The row is returned immediately as "processing" and
 	// the ingestion runs on its own context so it survives the response.
-	go s.ingestDocument(documentID, kbID, title, header.Filename, header.Header.Get("Content-Type"), 1, content)
+	go s.ingestDocument(knowledge.IngestJob{
+		KBID:        kbID,
+		DocumentID:  documentID,
+		Filename:    header.Filename,
+		ContentType: header.Header.Get("Content-Type"),
+		Title:       title,
+		Version:     1,
+		Content:     content,
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"document": KnowledgeDocument{
 		ID:          documentID,
@@ -250,7 +258,8 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 // survives a page reload and is readable by someone who was not watching while
 // it ran. A failure is recorded on the row too, not merely logged, so the
 // person who uploaded the file can see what became of it.
-func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType string, version int, content []byte) {
+func (s *Server) ingestDocument(job knowledge.IngestJob) {
+	documentID := job.DocumentID
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.RAGTimeout)
 	defer cancel()
 
@@ -265,11 +274,18 @@ func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType s
 
 	record(knowledge.Event{Stage: "queued", Message: "Queued for ingestion"})
 
+	// Read at ingestion time rather than passed in: both callers already know
+	// the knowledge base, and looking it up here means a mode changed between
+	// upload and re-index takes effect without a second plumbing route.
+	if err := s.db.QueryRow(ctx, `SELECT layout_mode FROM knowledge_bases WHERE id = $1`, job.KBID).Scan(&job.LayoutMode); err != nil {
+		slog.Error("could not read knowledge base layout mode", "kb", job.KBID, "error", err)
+	}
+
 	models, settingsErr := s.knowledgeModelSettings(ctx)
 	if settingsErr != nil {
 		slog.Error("could not load knowledge model settings", "document", documentID, "error", settingsErr)
 	}
-	result, err := s.knowledge.Ingest(ctx, kbID, documentID, filename, contentType, title, version, content, models, record)
+	result, err := s.knowledge.Ingest(ctx, job, models, record)
 	if err != nil {
 		slog.Error("document ingestion failed", "document", documentID, "error", err)
 		message := ingestionErrorMessage(err)
@@ -290,6 +306,23 @@ func (s *Server) ingestDocument(documentID, kbID, title, filename, contentType s
 		WHERE id = $1`, documentID, result.Chunks, result.StorageKey); err != nil {
 		slog.Error("could not record ingestion result", "document", documentID, "error", err)
 	}
+}
+
+// recoverInterruptedIngestions closes out documents left mid-flight by a
+// restart, so the person who uploaded one sees what became of it instead of a
+// spinner that never resolves.
+func (s *Server) recoverInterruptedIngestions(ctx context.Context) error {
+	const message = "Quá trình xử lý bị gián đoạn khi dịch vụ khởi động lại."
+	tag, err := s.db.Exec(ctx, `
+		UPDATE knowledge_documents SET status = 'failed', error = $1, updated_at = NOW()
+		WHERE status IN ('pending', 'processing')`, message)
+	if err != nil {
+		return err
+	}
+	if count := tag.RowsAffected(); count > 0 {
+		s.logger.Warn("marked interrupted ingestions as failed", "documents", count)
+	}
+	return nil
 }
 
 // ingestionErrorMessage keeps a useful, displayable cause in the document log

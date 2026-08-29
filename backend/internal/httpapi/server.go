@@ -133,6 +133,13 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		}
 		s.oidcVerifier = provider.Verifier(&oidc.Config{ClientID: cfg.EntraClientID})
 	}
+	// Ingestion runs inside this process, so a document still marked as being
+	// processed when it starts was cut short by the last shutdown and will
+	// never finish on its own. Left that way it also blocks re-indexing, which
+	// refuses to start while documents are in flight.
+	if err := s.recoverInterruptedIngestions(ctx); err != nil {
+		logger.Warn("could not recover interrupted ingestions", "error", err)
+	}
 	return s, nil
 }
 
@@ -161,6 +168,7 @@ func (s *Server) Router() http.Handler {
 		protected.Put("/api/admin/system", s.updateSystemSettings)
 		protected.Post("/api/admin/system/models", s.listSystemGatewayModels)
 		protected.Post("/api/admin/system/knowledge/reindex", s.reindexKnowledgeDocuments)
+		protected.Get("/api/admin/system/knowledge/reindex", s.knowledgeIndexStatus)
 		protected.Get("/api/workspaces", s.workspaces)
 		protected.Post("/api/workspaces/{workspaceID}/select", s.selectWorkspace)
 		protected.Get("/api/conversations", s.listConversations)

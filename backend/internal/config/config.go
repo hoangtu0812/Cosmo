@@ -30,6 +30,10 @@ type Config struct {
 	LLMRequestTimeout   time.Duration
 	RAGServiceURL       string
 	RAGTimeout          time.Duration
+	// ReindexWorkers is how many documents a re-index rebuilds at once. Each
+	// one occupies the knowledge service and the model gateway, so this is the
+	// knob for how much of that capacity a rebuild is allowed to take.
+	ReindexWorkers int
 }
 
 func Load() (Config, error) {
@@ -69,6 +73,7 @@ func Load() (Config, error) {
 		LLMRequestTimeout:   timeout,
 		RAGServiceURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("RAG_SERVICE_URL")), "/"),
 		RAGTimeout:          ragTimeout,
+		ReindexWorkers:      intEnv("KNOWLEDGE_REINDEX_WORKERS", 4),
 	}
 
 	if len(cfg.SessionSecret) < 32 {
@@ -128,6 +133,18 @@ func boolEnv(key string, fallback bool) bool {
 	}
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func intEnv(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 1 {
 		return fallback
 	}
 	return parsed

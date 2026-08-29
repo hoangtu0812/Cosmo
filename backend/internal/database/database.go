@@ -244,6 +244,11 @@ var migrations = []string{
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
 	)`,
+	// How hard the ingestion service should work at reading a PDF. It belongs
+	// to the knowledge base rather than the deployment because the answer
+	// differs per corpus: a base of scanned drawings is worth paying layout
+	// analysis for on every document, a base of typed memos is not.
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS layout_mode TEXT NOT NULL DEFAULT 'auto'`,
 }
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

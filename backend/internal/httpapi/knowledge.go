@@ -22,6 +22,19 @@ const (
 	visibilityEveryone = "everyone"
 )
 
+// How hard the ingestion service should work at reading a PDF. Layout analysis
+// is billed per page, so the choice belongs to the owner of the corpus: a scan
+// has no text layer to read, and an engineering table has a perfectly good one
+// and still comes back scrambled.
+const (
+	// layoutAuto analyses only a PDF with no usable text layer.
+	layoutAuto = "auto"
+	// layoutAlways analyses every PDF, which is what a table-heavy base needs.
+	layoutAlways = "always"
+	// layoutOff keeps every PDF on the local reader.
+	layoutOff = "off"
+)
+
 // KnowledgeBase is a document collection owned by its workspace. The person
 // who created it is retained solely as audit metadata; ownership, reach and
 // use are answered by owner_workspace_id, visibility, and knowledge_mounts.
@@ -33,6 +46,7 @@ type KnowledgeBase struct {
 	CreatedByName    string    `json:"created_by_name,omitempty"`
 	OwnerWorkspaceID string    `json:"owner_workspace_id,omitempty"`
 	Visibility       string    `json:"visibility"`
+	LayoutMode       string    `json:"layout_mode"`
 	CreatedAt        time.Time `json:"created_at"`
 	// Access is what the caller may do: owner or viewer.
 	Access string `json:"access"`
@@ -142,7 +156,7 @@ func (s *Server) knowledgeAccess(ctx context.Context, userID, kbID string) strin
 // workspace the answer is framed against (empty string when none).
 const knowledgeColumns = `
 	kb.id, kb.name, kb.description, COALESCE(kb.owner_user_id, ''), COALESCE(u.name, ''),
-	COALESCE(kb.owner_workspace_id, ''), kb.visibility, kb.created_at, kb.version,
+	COALESCE(kb.owner_workspace_id, ''), kb.visibility, kb.layout_mode, kb.created_at, kb.version,
 	` + accessSQL + `,
 	` + unpublishedSQL + `,
 	COALESCE((SELECT km.installed_version FROM knowledge_mounts km
@@ -156,7 +170,7 @@ func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 	// distinguishes "not installed" from "installed at version 0".
 	installed := -1
 	err := scan(&item.ID, &item.Name, &item.Description, &item.CreatedByUserID, &item.CreatedByName,
-		&item.OwnerWorkspaceID, &item.Visibility, &item.CreatedAt, &item.Version,
+		&item.OwnerWorkspaceID, &item.Visibility, &item.LayoutMode, &item.CreatedAt, &item.Version,
 		&item.Access, &item.HasUnpublishedChanges, &installed,
 		&item.DocumentCount, &item.SharedCount)
 	if err != nil {
@@ -251,6 +265,7 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		Name        *string   `json:"name"`
 		Description *string   `json:"description"`
 		Visibility  *string   `json:"visibility"`
+		LayoutMode  *string   `json:"layout_mode"`
 		Workspaces  *[]string `json:"workspaces"`
 	}
 	if !decodeJSON(w, r, &input) {
@@ -274,6 +289,20 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET description = $2, updated_at = NOW() WHERE id = $1`, kbID, strings.TrimSpace(*input.Description)); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu thay đổi.")
+			return
+		}
+	}
+	if input.LayoutMode != nil {
+		switch *input.LayoutMode {
+		case layoutAuto, layoutAlways, layoutOff:
+		default:
+			writeError(w, http.StatusBadRequest, "Chế độ phân tích tài liệu không hợp lệ.")
+			return
+		}
+		// Only documents ingested from now on are affected. Changing this does
+		// not re-read what is already indexed, which is what re-index is for.
+		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET layout_mode = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.LayoutMode); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu thay đổi.")
 			return
 		}

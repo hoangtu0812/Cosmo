@@ -88,18 +88,17 @@ def is_cold() -> bool:
 
 
 class Encoded:
-    """One gateway-provided dense vector.
+    """One gateway-provided dense vector, and only that.
 
-    Generic OpenAI-compatible embedding APIs do not provide BGE-M3's sparse
-    lexical weights, so sparse retrieval is deliberately omitted instead of
-    fabricating a local model call outside the gateway.
+    A generic OpenAI-compatible embeddings API has no lexical weights to give.
+    The lexical half of retrieval is therefore computed locally in `lexical`
+    rather than fabricated from a call this gateway cannot make.
     """
 
-    __slots__ = ("dense", "sparse")
+    __slots__ = ("dense",)
 
     def __init__(self, dense: list[float]):
         self.dense = dense
-        self.sparse: dict[int, float] = {}
 
 
 def encode(texts: Sequence[str]) -> list[Encoded]:

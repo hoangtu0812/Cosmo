@@ -1,4 +1,4 @@
-"""Qdrant access for gateway-generated dense vectors."""
+"""Qdrant access for the dense and lexical vectors of every chunk."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from typing import Iterable, Sequence
 
 from qdrant_client import QdrantClient, models
 
+from . import lexical
 from .config import settings
 from .models import Encoded
 
@@ -25,6 +26,22 @@ def client() -> QdrantClient:
     return _client
 
 
+def has_lexical(qdrant: QdrantClient | None = None) -> bool:
+    """Whether this collection carries lexical vectors.
+
+    Qdrant cannot add a sparse vector to a collection created without
+    one, so an index built before hybrid retrieval existed stays
+    dense-only until it is rebuilt. Reporting that is better than
+    writing vectors the index would reject, or searching one that is
+    not there.
+    """
+    qdrant = qdrant or client()
+    if not qdrant.collection_exists(settings.collection):
+        return True
+    sparse = qdrant.get_collection(settings.collection).config.params.sparse_vectors
+    return bool(sparse) and SPARSE in sparse
+
+
 def ensure_collection(qdrant: QdrantClient, vector_size: int) -> None:
     if qdrant.collection_exists(settings.collection):
         collection = qdrant.get_collection(settings.collection)
@@ -35,12 +52,21 @@ def ensure_collection(qdrant: QdrantClient, vector_size: int) -> None:
             raise RuntimeError(
                 f"embedding dimension {vector_size} does not match the existing index dimension {current_size}; reindex documents after changing embedding model"
             )
+        if not has_lexical(qdrant):
+            logger.warning(
+                "collection %s predates lexical retrieval and stays dense-only; re-index to enable it",
+                settings.collection,
+            )
         return
 
     logger.info("creating collection %s", settings.collection)
     qdrant.create_collection(
         collection_name=settings.collection,
         vectors_config={DENSE: models.VectorParams(size=vector_size, distance=models.Distance.COSINE)},
+        # IDF belongs to the index: it is the only place that knows how
+        # rare a term is across the corpus, and it stays correct as
+        # documents arrive.
+        sparse_vectors_config={SPARSE: models.SparseVectorParams(modifier=models.Modifier.IDF)},
     )
 
     # kb_id carries every access decision, so it is the one field that must be
@@ -74,13 +100,15 @@ def upsert(chunks: Sequence[dict], encoded: Sequence[Encoded]) -> None:
     if not encoded:
         return
     ensure_collection(client(), len(encoded[0].dense))
+    lexical_supported = has_lexical()
     points = []
     for chunk, vector in zip(chunks, encoded):
-        vectors = {DENSE: vector.dense}
-        if vector.sparse:
+        vectors: dict = {DENSE: vector.dense}
+        weights = lexical.encode(str(chunk.get("text", ""))) if lexical_supported else {}
+        if weights:
             vectors[SPARSE] = models.SparseVector(
-                indices=list(vector.sparse.keys()),
-                values=list(vector.sparse.values()),
+                indices=list(weights.keys()),
+                values=list(weights.values()),
             )
         points.append(
             models.PointStruct(
@@ -178,7 +206,7 @@ def search_dense(kb_ids: Sequence[str], vector: list[float], limit: int) -> list
 
 
 def search_sparse(kb_ids: Sequence[str], sparse: dict[int, float], limit: int) -> list[models.ScoredPoint]:
-    if not sparse:
+    if not sparse or not client().collection_exists(settings.collection) or not has_lexical():
         return []
     return client().query_points(
         collection_name=settings.collection,

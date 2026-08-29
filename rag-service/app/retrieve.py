@@ -7,7 +7,7 @@ change underneath us.
 
 Pipeline (§12):
 
-    resolve authorised KBs -> per-KB dense + sparse retrieval -> global RRF
+    resolve authorised KBs -> per-KB dense + lexical retrieval -> global RRF
     fusion -> cross-encoder rerank -> deduplication -> diversity ->
     authority/version -> final ACL check
 """
@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Sequence
 
+from . import lexical
 from . import models as ml
 from . import store
 from .config import settings
@@ -146,11 +147,18 @@ def search(query: str, kb_ids: Sequence[str], limit: int | None = None) -> list[
     allowed = set(kb_ids)
 
     encoded = ml.encode([query])[0]
+    # The lexical half runs here rather than at the gateway: it is a
+    # tokeniser and a hash, and sending it out of the process would buy
+    # nothing but a round trip.
+    terms = lexical.query(query)
 
     # Each KB is searched on its own so no single large KB can crowd the
     # others out before fusion has a chance to weigh them.
     def retrieve(kb_id: str) -> list[tuple[str, list]]:
-        return [(f"dense:{kb_id}", store.search_dense([kb_id], encoded.dense, settings.candidates_per_kb))]
+        found = [(f"dense:{kb_id}", store.search_dense([kb_id], encoded.dense, settings.candidates_per_kb))]
+        if terms:
+            found.append((f"sparse:{kb_id}", store.search_sparse([kb_id], terms, settings.candidates_per_kb)))
+        return found
 
     ranked_lists: list[tuple[str, list]] = []
     with ThreadPoolExecutor(max_workers=min(8, len(kb_ids))) as pool:

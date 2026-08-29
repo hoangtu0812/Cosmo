@@ -45,7 +45,9 @@ def test_embeddings_use_system_gateway(monkeypatch):
     assert captured["authorization"] == "Bearer secret"
     assert captured["body"] == {"model": "qwen3-embedding", "input": ["first", "second"]}
     assert [item.dense for item in encoded] == [[1.0, 2.0], [3.0, 4.0]]
-    assert all(item.sparse == {} for item in encoded)
+    # The gateway gives dense vectors and nothing else; the lexical half of
+    # retrieval is computed locally rather than asked of an API that has none.
+    assert all(not hasattr(item, "sparse") for item in encoded)
 
 
 def test_reranker_uses_system_gateway(monkeypatch):

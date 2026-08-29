@@ -25,6 +25,9 @@ class Settings:
     chunk_size: int
     chunk_overlap: int
 
+    # Length normalisation for lexical scoring, counted in terms.
+    average_passage_terms: int
+
     # Azure AI Document Intelligence. Analysis is billed per page, so the mode
     # decides which documents are worth it rather than sending everything.
     layout_endpoint: str
@@ -51,6 +54,7 @@ def load() -> Settings:
         max_chunks_per_document=int(os.environ.get("MAX_CHUNKS_PER_DOCUMENT", "3")),
         chunk_size=int(os.environ.get("CHUNK_SIZE", "900")),
         chunk_overlap=int(os.environ.get("CHUNK_OVERLAP", "150")),
+        average_passage_terms=int(os.environ.get("AVERAGE_PASSAGE_TERMS", "400")),
         layout_endpoint=os.environ.get("DOCUMENT_LAYOUT_ENDPOINT", "").strip().rstrip("/"),
         layout_key=os.environ.get("DOCUMENT_LAYOUT_KEY", "").strip(),
         layout_mode=os.environ.get("DOCUMENT_LAYOUT_MODE", "auto").strip().lower(),

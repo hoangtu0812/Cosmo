@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Evaluation runs. The question set is curated and belongs in the repository;
+# the reports it produces are per-run and do not.
+eval/reports/

@@ -1,0 +1,25 @@
+{
+  "questions": [
+    {
+      "id": "atsk-01",
+      "query": "Quy trình an toàn khi vào khu vực hàn cần những bước gì?",
+      "kb_ids": ["kb_REPLACE_WITH_A_REAL_ID"],
+      "relevant": ["doc_REPLACE_WITH_A_REAL_ID"]
+    },
+    {
+      "id": "bom-p101a",
+      "query": "P-101A bảo dưỡng định kỳ bao lâu một lần?",
+      "kb_ids": ["kb_REPLACE_WITH_A_REAL_ID"],
+      "relevant": {
+        "doc_REPLACE_WITH_THE_PROCEDURE": 3,
+        "doc_REPLACE_WITH_A_PASSING_MENTION": 1
+      }
+    },
+    {
+      "id": "moment-siet",
+      "query": "Mô men siết bu-lông mặt bích DN100",
+      "kb_ids": ["kb_REPLACE_WITH_A_REAL_ID", "kb_REPLACE_WITH_ANOTHER_ID"],
+      "relevant": ["doc_REPLACE_WITH_A_REAL_ID"]
+    }
+  ]
+}

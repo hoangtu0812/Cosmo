@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements-dev.txt
 
 COPY app ./app
 COPY tests ./tests
+# The example question set ships with the image; a real one is bind-mounted
+# over this directory so it can be edited without a rebuild.
+COPY eval ./eval
 
 EXPOSE 8000
 

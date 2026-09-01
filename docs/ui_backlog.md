@@ -54,6 +54,8 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Phân quyền | Menu ⋯ trên card | Quyền chi tiết `view/edit/test/publish/share/delete` | 1 (Sprint 4) |
 | Quan sát | Menu ⋯ trên card | Trace theo agent, token/cost | 5 |
 | Flow agent | Dialog tạo agent | Workflow engine | 3 |
+| Biến trong prompt | Editor agent › Prompt | Thay thế biến khi chạy, khai báo biến theo agent | chưa xếp |
+| Cải thiện prompt | Editor agent › panel | Model viết lại prompt và so sánh kết quả | chưa xếp |
 
 ## Đã dựng UI và **có** chức năng thật
 

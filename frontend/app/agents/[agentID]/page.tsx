@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ArrowLeft, History, MoreHorizontal, Pencil, Plus, SendHorizontal, Trash2, Wrench} from 'lucide-react';
+import {ArrowLeft, Braces, History, MoreHorizontal, Pencil, Plus, SendHorizontal, Trash2, Wrench} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -12,6 +12,7 @@ import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Switch} from '@astryxdesign/core/Switch';
+import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {Tab, TabList} from '@astryxdesign/core/TabList';
 import {Text} from '@astryxdesign/core/Text';
 import {Card} from '@astryxdesign/core/Card';
@@ -295,11 +296,17 @@ function AgentEditorView() {
                     borderless surface for that reason; the border and rounding
                     made ours read as a form field in a box. Utilities rather
                     than component props because TextArea has no ghost variant.
-                    The resize grip cannot be removed the same way: className
-                    lands on the wrapper, and resize belongs to the textarea
-                    inside it. That needs a prop Astryx does not expose. */}
+                    The className lands on the wrapper, which is what draws the
+                    border, and the grip belongs to the textarea inside it -
+                    hence the descendant variant for that one rule. */}
+                <HStack hAlign="start" width="100%">
+                  {/* Variables are the reference's one affordance above the
+                      prompt. Cosmo has no variable substitution yet, so the
+                      button says what is coming and does nothing. */}
+                  <Button icon={<Braces size={14} />} isDisabled label={t('agent.variables')} size="sm" variant="ghost" />
+                </HStack>
                 <TextArea
-                  className="border-0 bg-transparent px-0"
+                  className="border-0! bg-transparent! px-0! [&_textarea]:resize-none"
                   isDisabled={isReadOnly}
                   isLabelHidden
                   label={t('agent.systemPrompt')}
@@ -674,7 +681,12 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     <VStack gap={3} height="100%" padding={4} width={768}>
       <HStack gap={2} hAlign="between" vAlign="center">
         <HStack gap={2} vAlign="center">
-          <Text type="label">{t('agent.chat')}</Text>
+          {/* The reference names the panel's modes here. Only the first has
+              anything behind it - see docs/ui_backlog.md. */}
+          <SegmentedControl label={t('agent.panelMode')} onChange={() => undefined} size="sm" value="debug">
+            <SegmentedControlItem label={t('agent.panelDebug')} value="debug" />
+            <SegmentedControlItem isDisabled label={t('agent.panelOptimise')} value="optimise" />
+          </SegmentedControl>
           <StatusLabel label={t('agent.runsDraft')} variant="accent" />
         </HStack>
         <Button icon={<Plus size={14} />} label={t('agent.chatNew')} onClick={() => void startNew()} size="sm" variant="ghost" />

@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ArrowLeft, Plus, SendHorizontal, Trash2} from 'lucide-react';
+import {ArrowLeft, History, MoreHorizontal, Pencil, Plus, SendHorizontal, Trash2} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -16,6 +16,7 @@ import {Switch} from '@astryxdesign/core/Switch';
 import {Tab, TabList} from '@astryxdesign/core/TabList';
 import {Text} from '@astryxdesign/core/Text';
 import {Card} from '@astryxdesign/core/Card';
+import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {Item} from '@astryxdesign/core/Item';
 import {List} from '@astryxdesign/core/List';
 import {useEntryAnimation, useStreamingText} from '@astryxdesign/core/hooks';
@@ -78,6 +79,7 @@ function AgentEditorView() {
   const [changelog, setChangelog] = useState('');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [versions, setVersions] = useState<AgentVersion[]>([]);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isStale, setIsStale] = useState(false);
   const latest = useRef<Agent | null>(null);
   latest.current = agent;
@@ -192,22 +194,11 @@ function AgentEditorView() {
               isReadOnly ? null : (
                 <HStack gap={3} vAlign="center">
                   <Text color="secondary" type="supporting">{draftStatus}</Text>
-                  {agent.has_unpublished_changes ? (
-                    <Badge label={t('agent.unpublished')} variant="warning" />
-                  ) : (
-                    <Badge label={t('agent.publishedVersion', {version: String(agent.published_version)})} variant="neutral" />
-                  )}
-                  <Button
-                    label={t('agent.versions')}
-                    onClick={() => {
-                      setIsHistoryOpen(true);
-                      api.agentVersions(agent.id, workspaceID)
-                        .then((result) => setVersions(result.versions))
-                        .catch(() => setVersions([]));
-                    }}
-                    size="sm"
-                    variant="ghost"
-                  />
+                  <Text color={agent.has_unpublished_changes ? 'accent' : 'secondary'} type="supporting">
+                    {agent.has_unpublished_changes
+                      ? t('agent.unpublished')
+                      : t('agent.publishedVersion', {version: String(agent.published_version)})}
+                  </Text>
                   <Button
                     isDisabled={!agent.has_unpublished_changes || isStale}
                     isLoading={isPublishing}
@@ -230,7 +221,30 @@ function AgentEditorView() {
                   variant="ghost"
                 />
                 <Avatar name={agent.avatar || agent.name} size="sm" />
-                <Text type="label">{agent.name}</Text>
+                {/* Name and introduction belong to the agent's identity, so they
+                    sit in the header and leave the Prompt tab to the prompt. */}
+                <VStack gap={0}>
+                  <Text type="label">{agent.name}</Text>
+                  {agent.introduction ? (
+                    <Text color="secondary" maxLines={1} type="supporting">{agent.introduction}</Text>
+                  ) : null}
+                </VStack>
+                {isReadOnly ? null : (
+                  <DropdownMenu
+                    alignment="start"
+                    button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('agent.moreActions'), size: 'sm', variant: 'ghost'}}
+                    hasChevron={false}
+                    items={[
+                      {icon: <Pencil size={15} />, label: t('agent.editDetails'), onClick: () => setIsDetailsOpen(true)},
+                      {icon: <History size={15} />, label: t('agent.versions'), onClick: () => {
+                        setIsHistoryOpen(true);
+                        api.agentVersions(agent.id, workspaceID)
+                          .then((result) => setVersions(result.versions))
+                          .catch(() => setVersions([]));
+                      }},
+                    ]}
+                  />
+                )}
               </HStack>
             }
           />
@@ -271,50 +285,22 @@ function AgentEditorView() {
             </HStack>
 
             {tab === 'prompt' ? (
-              <VStack gap={4}>
-                <TextInput
-                  isDisabled={isReadOnly}
-                  label={t('agent.name')}
-                  onChange={(value) => patch({name: value})}
-                  value={agent.name}
-                  width="100%"
-                />
+              <VStack gap={1} width="100%">
                 <TextArea
                   isDisabled={isReadOnly}
-                  label={t('agent.introduction')}
-                  maxLength={512}
-                  onChange={(value) => patch({introduction: value})}
-                  rows={2}
-                  value={agent.introduction}
+                  isLabelHidden
+                  label={t('agent.systemPrompt')}
+                  onChange={(value) => patch({system_prompt: value})}
+                  placeholder={t('agent.systemPromptPlaceholder')}
+                  rows={26}
+                  value={agent.system_prompt}
                   width="100%"
                 />
-                <VStack gap={1} width="100%">
-                  <TextArea
-                    isDisabled={isReadOnly}
-                    label={t('agent.systemPrompt')}
-                    onChange={(value) => patch({system_prompt: value})}
-                    placeholder={t('agent.systemPromptPlaceholder')}
-                    rows={14}
-                    value={agent.system_prompt}
-                    width="100%"
-                  />
-                  <HStack hAlign="end" width="100%">
-                    <Text color="secondary" type="supporting">
-                      {t('agent.promptChars', {count: String(agent.system_prompt.length)})}
-                    </Text>
-                  </HStack>
-                </VStack>
-                <Selector
-                  isDisabled={isReadOnly}
-                  label={t('agent.visibility')}
-                  onChange={(value) => patch({visibility: value === 'workspace' ? 'workspace' : 'private'})}
-                  options={[
-                    {label: t('agent.visibilityPrivate'), value: 'private'},
-                    {label: t('agent.visibilityWorkspace'), value: 'workspace'},
-                  ]}
-                  value={agent.visibility}
-                  width="100%"
-                />
+                <HStack hAlign="end" width="100%">
+                  <Text color="secondary" type="supporting">
+                    {t('agent.promptChars', {count: String(agent.system_prompt.length)})}
+                  </Text>
+                </HStack>
               </VStack>
             ) : null}
 
@@ -416,6 +402,52 @@ function AgentEditorView() {
         </LayoutContent>
       }
     />
+
+    <Dialog isOpen={isDetailsOpen} onOpenChange={setIsDetailsOpen} purpose="form">
+      <Layout
+        content={
+          <LayoutContent>
+            <VStack gap={4}>
+              <TextInput
+                isDisabled={isReadOnly}
+                label={t('agent.name')}
+                onChange={(value) => patch({name: value})}
+                value={agent.name}
+                width="100%"
+              />
+              <TextArea
+                isDisabled={isReadOnly}
+                label={t('agent.introduction')}
+                maxLength={512}
+                onChange={(value) => patch({introduction: value})}
+                rows={3}
+                value={agent.introduction}
+                width="100%"
+              />
+              <Selector
+                isDisabled={isReadOnly}
+                label={t('agent.visibility')}
+                onChange={(value) => patch({visibility: value === 'workspace' ? 'workspace' : 'private'})}
+                options={[
+                  {label: t('agent.visibilityPrivate'), value: 'private'},
+                  {label: t('agent.visibilityWorkspace'), value: 'workspace'},
+                ]}
+                value={agent.visibility}
+                width="100%"
+              />
+            </VStack>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <HStack hAlign="end">
+              <Button label={t('common.done')} onClick={() => setIsDetailsOpen(false)} variant="primary" />
+            </HStack>
+          </LayoutFooter>
+        }
+        header={<DialogHeader onOpenChange={setIsDetailsOpen} title={t('agent.editDetails')} />}
+      />
+    </Dialog>
 
     <Dialog isOpen={isHistoryOpen} onOpenChange={setIsHistoryOpen} purpose="info">
       <Layout
@@ -641,8 +673,16 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       {!agent.model ? <Banner status="warning" title={t('agent.chatNoModel')} /> : null}
       {chatError ? <Banner isDismissable onDismiss={() => setChatError('')} status="error" title={chatError} /> : null}
       <VStack gap={3} isScrollable height="100%" width="100%">
-        {agent.opening_line && messages.length === 0 ? (
-          <Card padding={3} width="100%"><Markdown headingLevelStart={3}>{agent.opening_line}</Markdown></Card>
+        {messages.length === 0 && !streamed ? (
+          <VStack gap={2} hAlign="center" padding={6} width="100%">
+            <Avatar name={agent.avatar || agent.name} size="lg" />
+            <Text type="large">{agent.name}</Text>
+            {agent.opening_line ? (
+              <Markdown headingLevelStart={3}>{agent.opening_line}</Markdown>
+            ) : (
+              <Text color="secondary" type="supporting">{t('agent.chatEmpty')}</Text>
+            )}
+          </VStack>
         ) : null}
         {messages.map((message) => (
           <Card key={message.id} padding={3} width="100%" xstyle={entry}>

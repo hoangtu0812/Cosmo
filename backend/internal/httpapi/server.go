@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"cosmo/backend/internal/agents"
 	"cosmo/backend/internal/config"
 	"cosmo/backend/internal/knowledge"
 	"cosmo/backend/internal/modelgateway"
@@ -42,6 +43,7 @@ type Server struct {
 	models       *modelgateway.Client
 	knowledge    *knowledge.Client
 	runs         *runs.Repository
+	agents       *agents.Repository
 	secrets      *secrets.Box
 	logger       *slog.Logger
 	oauthConfig  *oauth2.Config
@@ -122,6 +124,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		models:    models,
 		knowledge: knowledge.New(cfg.RAGServiceURL, cfg.RAGTimeout),
 		runs:      runs.NewRepository(db),
+		agents:    agents.NewRepository(db, logger),
 		secrets:   box,
 		logger:    logger,
 	}
@@ -722,7 +725,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	var agentKnowledge []string
 	var agentRemembers, agentSuggests bool
 	if conversationAgentID != "" {
-		agent, err := s.loadAgentForRun(r.Context(), conversationAgentID)
+		agent, err := s.agents.Runtime(r.Context(), conversationAgentID)
 		if err != nil {
 			s.logger.Error("load agent for conversation", "conversation_id", conversationID, "agent_id", conversationAgentID, "error", err)
 			writeError(w, http.StatusConflict, "Agent không còn khả dụng trong workspace này.")
@@ -834,8 +837,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// grounding does, so retrieved passages end up closest to the exchange
 	// they explain.
 	if agentRemembers {
-		if memory := s.agentMemory(r.Context(), conversationAgentID, user.ID); memory != "" {
-			history = append([]modelgateway.Message{{Role: "system", Content: agentMemoryHeader + memory}}, history...)
+		if memory := s.agents.Memory(r.Context(), conversationAgentID, user.ID); memory != "" {
+			history = append([]modelgateway.Message{{Role: "system", Content: agents.MemoryHeader + memory}}, history...)
 		}
 	}
 
@@ -950,7 +953,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// Suggestions come after the answer is saved, so a failure here can never
 	// cost the reader the reply itself.
 	if agentSuggests {
-		if followUps := s.suggestFollowUps(r.Context(), input.Content, assistantMessage.Content, models, options); len(followUps) > 0 {
+		if followUps := s.agents.SuggestFollowUps(r.Context(), input.Content, assistantMessage.Content, models, options); len(followUps) > 0 {
 			writeSSE(w, "suggestions", map[string]any{"questions": followUps})
 			flusher.Flush()
 		}
@@ -959,7 +962,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	if agentRemembers {
-		go s.rememberExchange(conversationAgentID, user.ID, input.Content, assistantMessage.Content, models, options)
+		go s.agents.RememberExchange(conversationAgentID, user.ID, input.Content, assistantMessage.Content, models, options)
 	}
 }
 

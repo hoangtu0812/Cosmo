@@ -473,7 +473,7 @@ export default function ChatPage() {
                         >
                           {message.content
                             ? <VStack gap={3}>
-                              <Markdown isStreaming={isActiveStream} headingLevelStart={3}>
+                              <Markdown density="compact" isStreaming={isActiveStream} headingLevelStart={3}>
                                 {answerForDisplay(message.content, message.citations ?? [], isActiveStream)}
                               </Markdown>
                               {isActiveStream ? null : <CitationList citations={message.citations ?? []} showEmpty />}
@@ -646,7 +646,8 @@ function answerForDisplay(content: string, citations: Citation[], hideAllIndexes
   const indexes = new Set(citations.map((citation) => citation.index));
   if (indexes.size === 0 && !hideAllIndexes) return content;
   return content
-    .replace(/\s*\[(\d+)](?=\s|[.,;:!?)]|$)/g, (marker, value: string) => hideAllIndexes || indexes.has(Number(value)) ? '' : marker)
+    .replace(/\[(\d+)]/g, (marker, value: string) => hideAllIndexes || indexes.has(Number(value)) ? '' : marker)
+    .replace(/[ \t]+$/gm, '')
     .replace(/[ \t]+([.,;:!?])/g, '$1');
 }
 

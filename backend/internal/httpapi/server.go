@@ -805,6 +805,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	historyRows.Close()
+	history = withResponsePresentation(history)
 
 	// What the agent remembers about this person joins the conversation before
 	// grounding does, so retrieved passages end up closest to the exchange

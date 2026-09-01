@@ -41,6 +41,13 @@ func TestBuildGroundingPromptForbidsFillingGaps(t *testing.T) {
 	}
 }
 
+func TestBuildGroundingPromptAvoidsRepeatedBulletCitations(t *testing.T) {
+	prompt := buildGroundingPrompt([]knowledgePassage{{Title: "Manual", Text: "Torque to 40 Nm."}})
+	if !strings.Contains(prompt, "Do not repeat the same citation after every bullet") {
+		t.Errorf("prompt does not request compact citations:\n%s", prompt)
+	}
+}
+
 func TestPassageLabelOmitsMissingParts(t *testing.T) {
 	cases := map[string]knowledgePassage{
 		"Manual":                  {Title: "Manual"},

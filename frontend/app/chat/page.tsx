@@ -473,7 +473,9 @@ export default function ChatPage() {
                         >
                           {message.content
                             ? <VStack gap={3}>
-                              <Markdown isStreaming={isActiveStream} headingLevelStart={3}>{message.content}</Markdown>
+                              <Markdown isStreaming={isActiveStream} headingLevelStart={3}>
+                                {answerForDisplay(message.content, message.citations ?? [], isActiveStream)}
+                              </Markdown>
                               {isActiveStream ? null : <CitationList citations={message.citations ?? []} showEmpty />}
                             </VStack>
                             : (streaming ? <VStack gap={3}>
@@ -575,58 +577,77 @@ export default function ChatPage() {
 
 function CitationList({citations, showEmpty = false}: {citations: Citation[]; showEmpty?: boolean}) {
   if (citations.length === 0) {
-    return showEmpty ? <Text color="secondary" type="supporting">Không tìm thấy tài liệu Knowledge Base liên quan.</Text> : null;
+    return showEmpty ? <Text color="secondary" type="supporting">Không dùng tài liệu workspace cho câu trả lời này.</Text> : null;
   }
   const groups = groupCitations(citations);
   const list = (
-      <List>
+      <List density="compact">
         {groups.map((group) => (
           <Item
+            align="start"
+            density="compact"
             description={group.description}
-            endContent={
-              <Link href={api.documentOriginalURL(group.kbID, group.documentID)} isExternalLink>
-                Mở tài liệu
+            key={`${group.kbID}:${group.documentID}`}
+            label={
+              <Link href={api.documentOriginalURL(group.kbID, group.documentID)} isExternalLink isStandalone weight="medium">
+                {group.title}
               </Link>
             }
-            key={`${group.kbID}:${group.documentID}`}
-            label={`${group.references} ${group.title}`}
           />
         ))}
       </List>
   );
   if (groups.length <= 3) {
-    return <VStack gap={2}><Text type="label">Nguồn minh chứng · {groups.length} tệp</Text>{list}</VStack>;
+    return <VStack gap={1}><Text color="secondary" type="label">Tài liệu tham khảo ({groups.length})</Text>{list}</VStack>;
   }
-  return <Collapsible defaultIsOpen={false} trigger={<Text type="label">Nguồn minh chứng · {groups.length} tệp</Text>}>{list}</Collapsible>;
+  return <Collapsible defaultIsOpen={false} trigger={<Text color="secondary" type="label">Tài liệu tham khảo ({groups.length})</Text>}>{list}</Collapsible>;
 }
 
 function groupCitations(citations: Citation[]) {
-  const groups = new Map<string, {kbID: string; documentID: string; title: string; indexes: number[]; pages: string[]; sections: string[]; source: string}>();
+  const groups = new Map<string, {kbID: string; documentID: string; title: string; pages: string[]; sections: string[]; source: string}>();
   citations.forEach((citation) => {
     const key = `${citation.kb_id}:${citation.document_id}`;
     const group = groups.get(key) ?? {
       kbID: citation.kb_id,
       documentID: citation.document_id,
       title: citation.title || citation.source,
-      indexes: [],
       pages: [],
       sections: [],
       source: citation.source,
     };
-    if (!group.indexes.includes(citation.index)) group.indexes.push(citation.index);
     if (citation.page && !group.pages.includes(citation.page)) group.pages.push(citation.page);
     if (citation.section && !group.sections.includes(citation.section)) group.sections.push(citation.section);
     groups.set(key, group);
   });
   return [...groups.values()].map((group) => ({
     ...group,
-    references: group.indexes.map((index) => `[${index}]`).join(' '),
     description: [
-      group.sections.join(' · '),
-      group.pages.length ? `Trang ${group.pages.join(', ')}` : '',
+      summarizeValues(group.sections, 2, 'mục'),
+      group.pages.length ? `Trang ${summarizeValues([...group.pages].sort(naturalOrder), 4, 'trang')}` : '',
       !group.sections.length && !group.pages.length ? group.source : '',
     ].filter(Boolean).join(' · '),
   }));
+}
+
+function naturalOrder(left: string, right: string) {
+  return left.localeCompare(right, 'vi', {numeric: true});
+}
+
+function summarizeValues(values: string[], visibleCount: number, noun: string) {
+  if (values.length <= visibleCount) return values.join(', ');
+  return `${values.slice(0, visibleCount).join(', ')} và ${values.length - visibleCount} ${noun} khác`;
+}
+
+// Retrieval indexes such as [3] identify internal passages, not pages or list
+// items. Keep them in the stored answer so the backend can audit which
+// passages were used, but remove them from the reader-facing copy. The compact
+// document links below are the stable, understandable citation surface.
+function answerForDisplay(content: string, citations: Citation[], hideAllIndexes = false) {
+  const indexes = new Set(citations.map((citation) => citation.index));
+  if (indexes.size === 0 && !hideAllIndexes) return content;
+  return content
+    .replace(/\s*\[(\d+)](?=\s|[.,;:!?)]|$)/g, (marker, value: string) => hideAllIndexes || indexes.has(Number(value)) ? '' : marker)
+    .replace(/[ \t]+([.,;:!?])/g, '$1');
 }
 
 async function resizeToSquare(file: File, size = 128): Promise<{mime: string; data: string}> {

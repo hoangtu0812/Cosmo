@@ -6,6 +6,7 @@ import {Grid} from '@astryxdesign/core/Grid';
 import {Popover, PopoverTriggerRenderProps} from '@astryxdesign/core/Popover';
 import {Text} from '@astryxdesign/core/Text';
 import {VStack} from '@astryxdesign/core/Layout';
+import {useTranslation} from '../lib/i18n';
 
 const KNOWLEDGE_ICONS = [
   {value: '📚', label: 'Thư viện'},
@@ -23,6 +24,7 @@ const KNOWLEDGE_ICONS = [
 ] as const;
 
 export function KnowledgeIconPicker({value, onChange}: {value: string; onChange: (value: string) => void}) {
+  const t = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -46,7 +48,7 @@ export function KnowledgeIconPicker({value, onChange}: {value: string; onChange:
         </VStack>
       }
       isOpen={isOpen}
-      label="Chọn biểu tượng"
+      label={t('kb.pickIcon')}
       onOpenChange={setIsOpen}
       placement="below"
     >
@@ -55,7 +57,7 @@ export function KnowledgeIconPicker({value, onChange}: {value: string; onChange:
           {...aria}
           icon={<Text type="body">{value || '📚'}</Text>}
           isIconOnly
-          label="Chọn biểu tượng"
+          label={t('kb.pickIcon')}
           onClick={onClick}
           ref={ref}
           variant="secondary"

@@ -578,9 +578,9 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 									width="100%"
 								/>
 								<NumberInput isIntegerOnly label={t('kbd.topK')} max={50} min={1} onChange={setTopK} value={topK} width="100%" />
-								<SegmentedControl label="Sắp xếp kết quả" layout="fill" onChange={(value) => setRerankEnabled(value === 'rerank')} value={rerankEnabled ? 'rerank' : 'none'}>
-									<SegmentedControlItem label="Không rerank" value="none" />
-									<SegmentedControlItem label="Dùng reranker" value="rerank" />
+								<SegmentedControl label={t('kbd.rerankLabel')} layout="fill" onChange={(value) => setRerankEnabled(value === 'rerank')} value={rerankEnabled ? 'rerank' : 'none'}>
+									<SegmentedControlItem label={t('kbd.noRerank')} value="none" />
+									<SegmentedControlItem label={t('kbd.useRerank')} value="rerank" />
 								</SegmentedControl>
 								{rerankEnabled ? (
 									<Selector

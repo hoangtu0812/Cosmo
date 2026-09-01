@@ -15,6 +15,7 @@ import {Tab, TabList} from '@astryxdesign/core/TabList';
 import {Text} from '@astryxdesign/core/Text';
 import {Card} from '@astryxdesign/core/Card';
 import {Divider} from '@astryxdesign/core/Divider';
+import {Markdown} from '@astryxdesign/core/Markdown';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
@@ -428,13 +429,15 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       {chatError ? <Banner isDismissable onDismiss={() => setChatError('')} status="error" title={chatError} /> : null}
       <VStack gap={3} isScrollable height="100%" width="100%">
         {agent.opening_line && messages.length === 0 ? (
-          <Card padding={3} width="100%"><Text type="body">{agent.opening_line}</Text></Card>
+          <Card padding={3} width="100%"><Markdown headingLevelStart={3}>{agent.opening_line}</Markdown></Card>
         ) : null}
         {messages.map((message) => (
           <Card key={message.id} padding={3} width="100%">
             <VStack gap={1}>
               <Text color="secondary" type="supporting">{message.role === 'user' ? agent.owner_name || 'You' : agent.name}</Text>
-              <Text type="body">{message.content}</Text>
+              {message.role === 'assistant'
+                ? <Markdown headingLevelStart={3}>{message.content}</Markdown>
+                : <Text type="body">{message.content}</Text>}
             </VStack>
           </Card>
         ))}
@@ -442,7 +445,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
           <Card padding={3} width="100%">
             <VStack gap={1}>
               <Text color="secondary" type="supporting">{agent.name}</Text>
-              <Text type="body">{streamed}</Text>
+              <Markdown headingLevelStart={3} isStreaming>{streamed}</Markdown>
             </VStack>
           </Card>
         ) : null}

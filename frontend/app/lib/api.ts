@@ -102,12 +102,34 @@ export type Agent = {
   has_avatar_image: boolean;
   // Whether this viewer may edit the agent: its author, or a workspace admin.
   is_editable: boolean;
+  // What a save must carry back to prove it read the current draft.
+  draft_revision: number;
+  // 0 while the agent has never been published.
+  published_version: number;
+  published_version_id: string;
+  has_unpublished_changes: boolean;
   created_at: string;
   updated_at: string;
 };
 
 // Every field is optional so the editor can save one tab without resending the
 // rest; the server keeps what it is not sent.
+export type AgentVersion = {
+  id: string;
+  agent_id: string;
+  version_number: number;
+  model: string;
+  system_prompt: string;
+  opening_line: string;
+  preset_questions: string[];
+  has_suggested_questions: boolean;
+  is_memory_enabled: boolean;
+  knowledge_base_ids: string[];
+  changelog: string;
+  published_by: string;
+  created_at: string;
+};
+
 export type AgentUpdate = Partial<{
   name: string;
   introduction: string;
@@ -121,6 +143,8 @@ export type AgentUpdate = Partial<{
   has_suggested_questions: boolean;
   is_memory_enabled: boolean;
   knowledge_base_ids: string[];
+  // Sent so the server can refuse a save that would overwrite another editor.
+  draft_revision: number;
 }>;
 export type DocumentEvent = {id: number; stage: string; message: string; done: number; total: number; created_at: string};
 export type ProcessedDocumentChunk = {chunk_index: number; section: string; page: string; text: string};
@@ -275,6 +299,10 @@ export const api = {
     request<void>(`/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PUT', body: JSON.stringify({mime, data})}),
   deleteAgentAvatar: (agentID: string, workspaceID?: string) =>
     request<void>(`/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
+  publishAgent: (agentID: string, changelog: string, workspaceID?: string) =>
+    request<{agent: Agent}>(`/api/agents/${encodeURIComponent(agentID)}/publish${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({changelog})}),
+  agentVersions: (agentID: string, workspaceID?: string) =>
+    request<{versions: AgentVersion[]}>(`/api/agents/${encodeURIComponent(agentID)}/versions${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   deleteAgent: (agentID: string, workspaceID?: string) =>
     request<void>(`/api/agents/${encodeURIComponent(agentID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
   knowledgeBases: (workspaceID?: string) =>

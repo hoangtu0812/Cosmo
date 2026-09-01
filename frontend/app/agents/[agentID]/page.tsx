@@ -1,9 +1,10 @@
 'use client';
 
-import {Suspense, useCallback, useEffect, useState} from 'react';
+import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
 import {ArrowLeft, Plus, SendHorizontal, Trash2} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
+import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
@@ -20,7 +21,7 @@ import {Markdown} from '@astryxdesign/core/Markdown';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {Agent, AgentUpdate, api, Conversation, KnowledgeBase, Message, streamChat} from '../../lib/api';
+import {Agent, api, APIError, Conversation, KnowledgeBase, Message, streamChat} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 const MAX_KNOWLEDGE_BASES = 5;
@@ -63,37 +64,85 @@ function AgentEditorView() {
   // never fights what is being typed.
   const patch = useCallback((changes: Partial<Agent>) => {
     setAgent((current) => (current ? {...current, ...changes} : current));
+    setIsDirty(true);
   }, []);
 
-  async function save(changes: AgentUpdate) {
-    if (!agent) return;
+  // The draft is saved for the reader rather than by them, so `dirty` tracks
+  // whether anything is still unsent and the timer restarts on every edit.
+  const [isDirty, setIsDirty] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isStale, setIsStale] = useState(false);
+  const latest = useRef<Agent | null>(null);
+  latest.current = agent;
+
+  const saveDraft = useCallback(async () => {
+    const current = latest.current;
+    if (!current || !current.is_editable) return;
     setIsSaving(true);
     setError('');
     try {
-      const result = await api.updateAgent(agent.id, changes, workspaceID);
-      setAgent(result.agent);
+      const result = await api.updateAgent(current.id, {
+        name: current.name,
+        introduction: current.introduction,
+        visibility: current.visibility,
+        model: current.model,
+        system_prompt: current.system_prompt,
+        opening_line: current.opening_line,
+        preset_questions: current.preset_questions,
+        has_suggested_questions: current.has_suggested_questions,
+        is_memory_enabled: current.is_memory_enabled,
+        knowledge_base_ids: current.knowledge_base_ids,
+        draft_revision: current.draft_revision,
+      }, workspaceID);
+      // Only the fields the server owns are taken back. Replacing the whole
+      // agent would overwrite whatever is being typed while the save is in
+      // flight, which is exactly what an autosave must never do.
+      setAgent((live) => live ? {
+        ...live,
+        draft_revision: result.agent.draft_revision,
+        published_version: result.agent.published_version,
+        published_version_id: result.agent.published_version_id,
+        has_unpublished_changes: result.agent.has_unpublished_changes,
+        updated_at: result.agent.updated_at,
+      } : live);
+      setIsDirty(false);
       setSavedAt(Date.now());
     } catch (caught) {
+      // A conflict means someone else saved; the draft on screen is no longer
+      // built on what is stored, so saving again would clobber their work.
+      if (caught instanceof APIError && caught.status === 409) setIsStale(true);
       setError(caught instanceof Error ? caught.message : t('agent.saveFailed'));
     } finally {
       setIsSaving(false);
     }
-  }
+  }, [t, workspaceID]);
 
-  function saveAll() {
+  useEffect(() => {
+    if (!isDirty || isStale) return;
+    const timer = setTimeout(() => void saveDraft(), 1200);
+    return () => clearTimeout(timer);
+  }, [agent, isDirty, isStale, saveDraft]);
+
+  async function publish() {
     if (!agent) return;
-    void save({
-      name: agent.name,
-      introduction: agent.introduction,
-      visibility: agent.visibility,
-      model: agent.model,
-      system_prompt: agent.system_prompt,
-      opening_line: agent.opening_line,
-      preset_questions: agent.preset_questions,
-      has_suggested_questions: agent.has_suggested_questions,
-      is_memory_enabled: agent.is_memory_enabled,
-      knowledge_base_ids: agent.knowledge_base_ids,
-    });
+    setIsPublishing(true);
+    setError('');
+    try {
+      // Anything unsent is written first, so what gets frozen is what is on
+      // screen rather than the last autosave.
+      if (isDirty) await saveDraft();
+      const result = await api.publishAgent(agent.id, '', workspaceID);
+      setAgent((live) => live ? {
+        ...live,
+        published_version: result.agent.published_version,
+        published_version_id: result.agent.published_version_id,
+        has_unpublished_changes: result.agent.has_unpublished_changes,
+      } : live);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('agent.publishFailed'));
+    } finally {
+      setIsPublishing(false);
+    }
   }
 
   function setPresetQuestion(index: number, value: string) {
@@ -113,6 +162,13 @@ function AgentEditorView() {
   }
 
   const isReadOnly = !agent.is_editable;
+  // Three states, in the order a reader meets them: saving now, saved a moment
+  // ago, or nothing written yet this session.
+  const draftStatus = isSaving
+    ? t('agent.saving')
+    : savedAt > 0
+      ? t('agent.autoSaved')
+      : '';
   const modelOptions = models.map((model) => ({label: model, value: model}));
   const isAtKnowledgeLimit = agent.knowledge_base_ids.length >= MAX_KNOWLEDGE_BASES;
 
@@ -124,7 +180,22 @@ function AgentEditorView() {
           <Toolbar
             endContent={
               isReadOnly ? null : (
-                <Button isLoading={isSaving} label={t('common.save')} onClick={saveAll} size="sm" variant="primary" />
+                <HStack gap={3} vAlign="center">
+                  <Text color="secondary" type="supporting">{draftStatus}</Text>
+                  {agent.has_unpublished_changes ? (
+                    <Badge label={t('agent.unpublished')} variant="warning" />
+                  ) : (
+                    <Badge label={t('agent.publishedVersion', {version: String(agent.published_version)})} variant="neutral" />
+                  )}
+                  <Button
+                    isDisabled={!agent.has_unpublished_changes || isStale}
+                    isLoading={isPublishing}
+                    label={t('agent.publish')}
+                    onClick={() => void publish()}
+                    size="sm"
+                    variant="primary"
+                  />
+                </HStack>
               )
             }
             label={agent.name}
@@ -139,7 +210,6 @@ function AgentEditorView() {
                 />
                 <Avatar name={agent.avatar || agent.name} size="sm" />
                 <Text type="label">{agent.name}</Text>
-                {savedAt > 0 && !isSaving ? <Text color="secondary" type="supporting">{t('agent.saved')}</Text> : null}
               </HStack>
             }
           />
@@ -150,7 +220,14 @@ function AgentEditorView() {
       content={
         <LayoutContent padding={6}>
           <VStack gap={5}>
-            {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
+            {isStale ? (
+              <Banner
+                endContent={<Button label={t('agent.reload')} onClick={() => window.location.reload()} size="sm" variant="secondary" />}
+                status="warning"
+                title={t('agent.staleDraft')}
+              />
+            ) : null}
+            {error && !isStale ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
             {isReadOnly ? <Banner status="info" title={t('agent.readOnly')} /> : null}
 
             <HStack gap={4} vAlign="center" width="100%">

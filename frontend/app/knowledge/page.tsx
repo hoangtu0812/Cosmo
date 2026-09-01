@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {Trash2} from 'lucide-react';
+import {BookOpen, Trash2} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -10,17 +10,22 @@ import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
 import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Grid} from '@astryxdesign/core/Grid';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {Link} from '@astryxdesign/core/Link';
 import {Section} from '@astryxdesign/core/Section';
 import {Selector} from '@astryxdesign/core/Selector';
+import {Skeleton} from '@astryxdesign/core/Skeleton';
+import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Text} from '@astryxdesign/core/Text';
+import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {api, APIError, KnowledgeBase, Workspace, WorkspaceRef} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
+import {KnowledgeIconPicker} from './KnowledgeIconPicker';
 
 type Translate = ReturnType<typeof useTranslation>;
 
@@ -38,25 +43,39 @@ export default function KnowledgePage() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
+	const [newIcon, setNewIcon] = useState('📚');
+	const [newTags, setNewTags] = useState('');
   const [deleting, setDeleting] = useState<KnowledgeBase | null>(null);
   const [pending, setPending] = useState('');
   const [busy, setBusy] = useState(false);
+	const [loading, setLoading] = useState(true);
+	const [query, setQuery] = useState('');
+	const [scope, setScope] = useState('all');
 
   // The owner sees its KBs in a dedicated management area. Only published
   // bases shared from another workspace appear as something to install.
   // A draft is never mountable, even in the workspace that owns it.
-  const managed = useMemo(() => bases.filter((base) => base.access === 'owner'), [bases]);
-  const available = useMemo(() => bases.filter((base) => base.access !== 'owner' && base.version > 0), [bases]);
   const workspace = workspaces.find((item) => item.id === workspaceID);
   const canInstall = workspace?.role === 'owner' || workspace?.role === 'admin';
+	const visibleBases = useMemo(() => {
+		const needle = query.trim().toLocaleLowerCase();
+		return bases.filter((base) => {
+			if (scope === 'owned' && base.access !== 'owner') return false;
+			if (scope === 'installed' && !base.is_mounted) return false;
+			if (scope === 'shared' && base.access === 'owner') return false;
+			return !needle || `${base.name} ${base.description} ${base.tags.join(' ')}`.toLocaleLowerCase().includes(needle);
+		});
+	}, [bases, query, scope]);
 
   const load = useCallback((targetWorkspace: string) => {
+		setLoading(true);
     api.knowledgeBases(targetWorkspace || undefined)
       .then((result) => setBases(result.knowledge_bases))
       .catch((caught) => {
         if (caught instanceof APIError && caught.status === 401) router.replace('/');
         else setError(caught instanceof Error ? caught.message : t('kb.loadFailed'));
-      });
+		})
+		.finally(() => setLoading(false));
   }, [router, t]);
 
   useEffect(() => {
@@ -71,18 +90,29 @@ export default function KnowledgePage() {
       });
   }, [requestedWorkspaceID, router]);
 
-  useEffect(() => { load(workspaceID); }, [load, workspaceID]);
+  useEffect(() => {
+    const loadTimer = window.setTimeout(() => load(workspaceID), 0);
+    return () => window.clearTimeout(loadTimer);
+  }, [load, workspaceID]);
 
   async function create() {
     setBusy(true);
     setError('');
     try {
-      const result = await api.createKnowledgeBase(newName, newDescription, workspaceID);
+		const result = await api.createKnowledgeBase({
+			name: newName,
+			description: newDescription,
+			workspace_id: workspaceID,
+			icon: newIcon,
+			tags: newTags.split(',').map((tag) => tag.trim()).filter(Boolean),
+		});
       setBases((current) => [result.knowledge_base, ...current]);
       setNewName('');
       setNewDescription('');
+		setNewIcon('📚');
+		setNewTags('');
       setCreating(false);
-      router.push(`/knowledge/${result.knowledge_base.id}`);
+		router.push(`/knowledge/${result.knowledge_base.id}?workspace=${encodeURIComponent(workspaceID)}`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('kb.saveFailed'));
     } finally {
@@ -158,7 +188,7 @@ export default function KnowledgePage() {
   return (
     <>
       <Layout
-        contentWidth={1120}
+        contentWidth={1180}
         height="fill"
         header={
           <LayoutHeader hasDivider>
@@ -171,62 +201,82 @@ export default function KnowledgePage() {
         }
         content={
           <LayoutContent padding={6}>
-            <VStack gap={6}>
+            <VStack gap={4}>
               {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
 
-              <VStack gap={3}>
-                <Text type="label">{t('kb.managed')}</Text>
-                {managed.length === 0 ? (
-                  <Text color="secondary" type="supporting">{t('kb.managedEmpty')}</Text>
-                ) : (
-                  <Grid columns={{minWidth: 320, max: 3}} gap={4} width="100%">
-                    {managed.map((base) => (
-                      <KnowledgeCard
-                        base={base}
-                        key={base.id}
-                        primary={installationAction(base)}
-                        secondary={managementActions(base)}
-                        t={t}
-                      />
-                    ))}
-                  </Grid>
-                )}
-              </VStack>
+				<HStack gap={3} vAlign="end" wrap="wrap">
+					<Selector
+						label="Phạm vi"
+						onChange={setScope}
+						options={[
+							{value: 'all', label: 'Tất cả'},
+							{value: 'owned', label: 'Do workspace quản lý'},
+							{value: 'installed', label: 'Đã cài đặt'},
+							{value: 'shared', label: 'Được chia sẻ'},
+						]}
+						value={scope}
+						width={220}
+					/>
+					<TextInput
+						isLabelHidden
+						label="Tìm knowledge base"
+						onChange={setQuery}
+						placeholder="Tìm knowledge base"
+						value={query}
+						width={320}
+					/>
+				</HStack>
 
-              <VStack gap={3}>
-                <HStack gap={3} hAlign="between" vAlign="center">
-                  <VStack gap={0}>
-                    <Text type="label">{t('kb.available')}</Text>
-                    <Text color="secondary" type="supporting">{t('kb.workspaceScope', {name: workspace?.name ?? ''})}</Text>
-                  </VStack>
-                </HStack>
-                {available.length === 0 ? (
-                  <Text color="secondary" type="supporting">{t('kb.availableEmpty')}</Text>
-                ) : (
-                  <Grid columns={{minWidth: 320, max: 3}} gap={4} width="100%">
-                    {available.map((base) => (
-                      <KnowledgeCard
-                        base={base}
-                        key={base.id}
-                        primary={installationAction(base)}
-                        t={t}
-                      />
-                    ))}
-                  </Grid>
-                )}
-              </VStack>
+				{loading ? (
+					<Grid columns={{minWidth: 280, max: 3}} gap={4} width="100%">
+						{[0, 1, 2].map((index) => (
+							<Card key={index} padding={4} width="100%">
+								<VStack gap={3}>
+									<Skeleton height={44} index={index} radius="rounded" width={44} />
+									<Skeleton height={18} index={index + 1} width="55%" />
+									<Skeleton height={14} index={index + 2} width="85%" />
+									<Skeleton height={14} index={index + 3} width="45%" />
+								</VStack>
+							</Card>
+						))}
+					</Grid>
+				) : visibleBases.length === 0 ? (
+					<EmptyState
+						actions={<Button label={t('kb.create')} onClick={() => setCreating(true)} variant="primary" />}
+						description={query ? 'Không có knowledge base phù hợp.' : t('kb.managedEmpty')}
+						icon={<BookOpen size={56} strokeWidth={1} />}
+						title={query ? 'Không tìm thấy kết quả' : t('kb.title')}
+					/>
+				) : (
+					<Grid columns={{minWidth: 280, max: 3}} gap={4} width="100%">
+						{visibleBases.map((base) => (
+							<KnowledgeCard
+								base={base}
+								key={base.id}
+								primary={installationAction(base)}
+								secondary={base.access === 'owner' ? managementActions(base) : undefined}
+								t={t}
+								workspaceID={workspaceID}
+							/>
+						))}
+					</Grid>
+				)}
             </VStack>
           </LayoutContent>
         }
       />
 
-      <Dialog isOpen={creating} onOpenChange={setCreating} purpose="form">
+		<Dialog isOpen={creating} onOpenChange={setCreating} purpose="form" width={520}>
         <Layout
           content={
             <LayoutContent>
               <VStack gap={4}>
-                <TextInput label={t('kb.name')} onChange={setNewName} value={newName} width="100%" />
-                <TextInput label={t('kb.description')} onChange={setNewDescription} value={newDescription} width="100%" />
+						<HStack gap={2} vAlign="end">
+							<KnowledgeIconPicker onChange={setNewIcon} value={newIcon} />
+							<TextInput label={t('kb.name')} onChange={setNewName} value={newName} width="100%" />
+						</HStack>
+						<TextArea label={t('kb.description')} maxLength={500} onChange={setNewDescription} rows={4} value={newDescription} width="100%" />
+						<TextInput label="Tags" onChange={setNewTags} placeholder="quy trình, vận hành, an toàn" value={newTags} width="100%" />
               </VStack>
             </LayoutContent>
           }
@@ -270,23 +320,40 @@ export default function KnowledgePage() {
  * One knowledge base as a card: what it is, how big it is, which release it is
  * on, and the single action that matters for it here.
  */
-function KnowledgeCard({base, primary, secondary, t}: {
+function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
   base: KnowledgeBase;
   primary: React.ReactNode;
   secondary?: React.ReactNode;
   t: Translate;
+	workspaceID: string;
 }) {
   return (
     <Card padding={0} width="100%">
       <VStack gap={0} height="100%">
         <Section padding={4}>
-          <VStack gap={2}>
-            <Link href={`/knowledge/${base.id}`}>
-              <Text type="body" weight="semibold">{base.name}</Text>
-            </Link>
+					<VStack gap={3}>
+						<HStack gap={3} vAlign="center">
+							<Text type="large">{base.icon || '📚'}</Text>
+							<VStack gap={1}>
+								<Link href={`/knowledge/${base.id}?workspace=${encodeURIComponent(workspaceID)}`}>
+									<Text type="body" weight="semibold">{base.name}</Text>
+								</Link>
+								{base.processing_count > 0 ? (
+									<HStack gap={1} vAlign="center">
+										<StatusDot isPulsing label="Đang xử lý" variant="accent" />
+										<Text color="secondary" type="supporting">{base.processing_count} đang xử lý</Text>
+									</HStack>
+								) : null}
+							</VStack>
+						</HStack>
             <Text color="secondary" type="supporting">
               {base.description || t('kb.noDescription')}
             </Text>
+						{base.tags.length > 0 ? (
+							<HStack gap={1} wrap="wrap">
+								{base.tags.slice(0, 3).map((tag) => <Badge key={tag} label={tag} variant="neutral" />)}
+							</HStack>
+						) : null}
           </VStack>
         </Section>
 
@@ -296,6 +363,7 @@ function KnowledgeCard({base, primary, secondary, t}: {
               <Text color="secondary" type="supporting">
                 {base.document_count === 1 ? t('kb.docCountOne') : t('kb.docCount', {count: base.document_count})}
               </Text>
+							<Text color="secondary" type="supporting">{base.shared_count} chia sẻ</Text>
               <Badge
                 label={base.version === 0 ? t('kb.draft') : t('kb.version', {version: base.version})}
                 variant={base.version === 0 ? 'warning' : 'neutral'}

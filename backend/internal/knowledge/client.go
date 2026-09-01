@@ -52,6 +52,8 @@ type IngestRequest struct {
 	LayoutMode      string `json:"layout_mode,omitempty"`
 	EmbeddingModel  string `json:"embedding_model,omitempty"`
 	RerankerModel   string `json:"reranker_model,omitempty"`
+	ChunkSize       int    `json:"chunk_size,omitempty"`
+	ChunkOverlap    int    `json:"chunk_overlap,omitempty"`
 }
 
 // ModelSettings selects the models used for an individual knowledge job. The
@@ -62,6 +64,12 @@ type ModelSettings struct {
 	RerankerModel  string
 	GatewayBaseURL string
 	GatewayAPIKey  string
+	RetrievalMode  string
+	RerankEnabled  bool
+	ScoreThreshold float64
+	TopK           int
+	ChunkSize      int
+	ChunkOverlap   int
 }
 
 func (m ModelSettings) applyGatewayHeaders(request *http.Request) {
@@ -164,6 +172,8 @@ func (c *Client) Ingest(ctx context.Context, job IngestJob, models ModelSettings
 		DocumentVersion: job.Version,
 		EmbeddingModel:  models.EmbeddingModel,
 		RerankerModel:   models.RerankerModel,
+		ChunkSize:       models.ChunkSize,
+		ChunkOverlap:    models.ChunkOverlap,
 	}
 	if job.StorageKey == "" {
 		body.ContentBase64 = base64.StdEncoding.EncodeToString(job.Content)
@@ -233,7 +243,15 @@ func (c *Client) Search(ctx context.Context, query string, kbIDs []string, limit
 	if len(kbIDs) == 0 || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	body := map[string]any{"query": query, "kb_ids": kbIDs, "embedding_model": models.EmbeddingModel, "reranker_model": models.RerankerModel}
+	body := map[string]any{
+		"query": query, "kb_ids": kbIDs,
+		"embedding_model": models.EmbeddingModel, "reranker_model": models.RerankerModel,
+		"retrieval_mode": models.RetrievalMode, "rerank_enabled": models.RerankEnabled,
+		"score_threshold": models.ScoreThreshold,
+	}
+	if models.TopK > 0 {
+		body["limit"] = models.TopK
+	}
 	if limit > 0 {
 		body["limit"] = limit
 	}

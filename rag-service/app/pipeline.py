@@ -50,8 +50,11 @@ def run(
     title: str,
     document_version: int,
     effective_date: str | None,
+    gateway: ml.GatewaySettings,
     layout_mode: str | None = None,
     storage_key: str | None = None,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
 ) -> Iterator[dict]:
     """Ingest one document, yielding an event per stage.
 
@@ -84,18 +87,20 @@ def run(
             title=title,
             effective_date=effective_date,
             layout_mode=layout_mode,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
         ))
         if not chunks:
             yield _event("error", "No readable text found in the document")
             return
         yield _event("chunked", f"Split into {len(chunks)} chunks", chunks=len(chunks))
 
-        yield _event("embedding", "Embedding chunks through the system model gateway")
+        yield _event("embedding", "Embedding chunks through the workspace model gateway")
 
         encoded = []
         for start in range(0, len(chunks), EMBED_BATCH):
             batch = chunks[start : start + EMBED_BATCH]
-            encoded.extend(ml.encode([chunk["text"] for chunk in batch]))
+            encoded.extend(ml.encode([chunk["text"] for chunk in batch], gateway))
             done = len(encoded)
             yield _event(
                 "embedding",

@@ -133,7 +133,16 @@ def _deduplicate(candidates: list[Candidate]) -> list[Candidate]:
     return unique
 
 
-def search(query: str, kb_ids: Sequence[str], limit: int | None = None) -> list[dict]:
+def search(
+    query: str,
+    kb_ids: Sequence[str],
+    limit: int | None = None,
+    *,
+    gateway: ml.GatewaySettings | None = None,
+    retrieval_mode: str = "hybrid",
+    rerank_enabled: bool = True,
+    score_threshold: float = 0.2,
+) -> list[dict]:
     """Retrieve the passages that answer a query across authorised KBs.
 
     `kb_ids` is the effective allow-list resolved by the control plane. An
@@ -142,11 +151,15 @@ def search(query: str, kb_ids: Sequence[str], limit: int | None = None) -> list[
     """
     if not kb_ids or not query.strip():
         return []
+    if gateway is None:
+        raise RuntimeError("Workspace Model Gateway is required")
 
     limit = limit or settings.rerank_output
     allowed = set(kb_ids)
 
-    encoded = ml.encode([query])[0]
+    use_dense = retrieval_mode in {"semantic", "hybrid"}
+    use_sparse = retrieval_mode in {"keyword", "hybrid"}
+    encoded = ml.encode([query], gateway)[0] if use_dense else None
     # The lexical half runs here rather than at the gateway: it is a
     # tokeniser and a hash, and sending it out of the process would buy
     # nothing but a round trip.
@@ -155,8 +168,12 @@ def search(query: str, kb_ids: Sequence[str], limit: int | None = None) -> list[
     # Each KB is searched on its own so no single large KB can crowd the
     # others out before fusion has a chance to weigh them.
     def retrieve(kb_id: str) -> list[tuple[str, list]]:
-        found = [(f"dense:{kb_id}", store.search_dense([kb_id], encoded.dense, settings.candidates_per_kb))]
-        if terms:
+        found = []
+        if use_dense and encoded is not None:
+            found.append((f"dense:{kb_id}", store.search_dense(
+                [kb_id], encoded.dense, settings.candidates_per_kb, score_threshold,
+            )))
+        if use_sparse and terms:
             found.append((f"sparse:{kb_id}", store.search_sparse([kb_id], terms, settings.candidates_per_kb)))
         return found
 
@@ -172,10 +189,14 @@ def search(query: str, kb_ids: Sequence[str], limit: int | None = None) -> list[
     candidates.sort(key=lambda item: item.fused, reverse=True)
     candidates = _deduplicate(candidates)[: settings.rerank_input]
 
-    scores = ml.rerank(query, [str(item.payload.get("text", "")) for item in candidates])
-    for candidate, score in zip(candidates, scores):
-        candidate.rerank = score
-        candidate.final = score * _authority(candidate.payload)
+    if rerank_enabled:
+        scores = ml.rerank(query, [str(item.payload.get("text", "")) for item in candidates], gateway)
+        for candidate, score in zip(candidates, scores):
+            candidate.rerank = score
+            candidate.final = score * _authority(candidate.payload)
+    else:
+        for candidate in candidates:
+            candidate.final = candidate.fused * _authority(candidate.payload)
 
     candidates.sort(key=lambda item: item.final, reverse=True)
     candidates = _diversify(candidates, limit, settings.max_chunks_per_document)

@@ -452,11 +452,6 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusServiceUnavailable, "Dịch vụ tri thức chưa được cấu hình.")
 		return
 	}
-	if _, err := s.knowledgeModelSettings(r.Context()); err != nil {
-		writeError(w, http.StatusBadRequest, "Cần cấu hình system model gateway trước khi re-index.")
-		return
-	}
-
 	var activeCount int
 	if err := s.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM knowledge_documents WHERE status IN ('pending', 'processing')`).Scan(&activeCount); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể kiểm tra trạng thái tài liệu.")

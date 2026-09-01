@@ -25,7 +25,7 @@ def stub(monkeypatch):
     monkeypatch.setattr(pipeline.store, "delete_document", lambda document_id: None)
     monkeypatch.setattr(pipeline.store, "upsert", lambda chunks, encoded: upserted.update(n=len(chunks)))
     monkeypatch.setattr(pipeline.ml, "is_cold", lambda: False)
-    monkeypatch.setattr(pipeline.ml, "encode", lambda texts: [object() for _ in texts])
+    monkeypatch.setattr(pipeline.ml, "encode", lambda texts, gateway: [object() for _ in texts])
     return {"stored": stored, "upserted": upserted}
 
 
@@ -39,6 +39,7 @@ def run(**overrides):
         "title": "Note",
         "document_version": 1,
         "effective_date": None,
+        "gateway": pipeline.ml.GatewaySettings("https://gateway.example/v1", "", "embed", "rerank"),
     }
     arguments.update(overrides)
     return list(pipeline.run(**arguments))

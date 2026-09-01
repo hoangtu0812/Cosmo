@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -275,16 +276,19 @@ func (s *Server) ingestDocument(job knowledge.IngestJob) {
 
 	record(knowledge.Event{Stage: "queued", Message: "Queued for ingestion"})
 
-	// Read at ingestion time rather than passed in: both callers already know
-	// the knowledge base, and looking it up here means a mode changed between
+	// Read at ingestion time rather than passed in: a setting changed between
 	// upload and re-index takes effect without a second plumbing route.
 	if err := s.db.QueryRow(ctx, `SELECT layout_mode FROM knowledge_bases WHERE id = $1`, job.KBID).Scan(&job.LayoutMode); err != nil {
 		slog.Error("could not read knowledge base layout mode", "kb", job.KBID, "error", err)
 	}
 
-	models, settingsErr := s.knowledgeModelSettings(ctx)
+	models, settingsErr := s.knowledgeModelSettingsForKB(ctx, job.KBID)
 	if settingsErr != nil {
-		slog.Error("could not load knowledge model settings", "document", documentID, "error", settingsErr)
+		message := ingestionErrorMessage(settingsErr)
+		slog.Error("could not load workspace knowledge settings", "document", documentID, "error", settingsErr)
+		record(knowledge.Event{Stage: "error", Message: message})
+		_, _ = s.db.Exec(context.Background(), `UPDATE knowledge_documents SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`, documentID, message)
+		return
 	}
 	result, err := s.knowledge.Ingest(ctx, job, models, record)
 	if err != nil {
@@ -544,13 +548,29 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 		return nil, nil
 	}
 
-	models, settingsErr := s.knowledgeModelSettings(ctx)
-	if settingsErr != nil {
-		return nil, settingsErr
+	// A shared workspace may mount bases owned by different workspaces. Each
+	// base is queried with the gateway and model that produced its vectors;
+	// using the chat workspace's embedding model would make those vectors
+	// incomparable and could also send source content to the wrong provider.
+	passages := make([]knowledge.Passage, 0)
+	globalLimit := 0
+	for _, kbID := range kbIDs {
+		models, settingsErr := s.knowledgeModelSettingsForKB(ctx, kbID)
+		if settingsErr != nil {
+			return nil, settingsErr
+		}
+		found, searchErr := s.knowledge.Search(ctx, query, []string{kbID}, 0, models)
+		if searchErr != nil {
+			return nil, searchErr
+		}
+		passages = append(passages, found...)
+		if models.TopK > globalLimit {
+			globalLimit = models.TopK
+		}
 	}
-	passages, err := s.knowledge.Search(ctx, query, kbIDs, 0, models)
-	if err != nil {
-		return nil, err
+	sort.SliceStable(passages, func(i, j int) bool { return passages[i].Score > passages[j].Score })
+	if globalLimit > 0 && len(passages) > globalLimit {
+		passages = passages[:globalLimit]
 	}
 	s.logRetrieval(ctx, workspaceID, query, kbIDs, passages)
 

@@ -185,6 +185,7 @@ func (s *Server) Router() http.Handler {
 		protected.Delete("/api/workspaces/{workspaceID}/icon", s.deleteWorkspaceIcon)
 		protected.Get("/api/workspaces/{workspaceID}/members", s.listMembers)
 		protected.Get("/api/workspaces/{workspaceID}/models", s.listWorkspaceModels)
+		protected.Get("/api/workspaces/{workspaceID}/knowledge/models", s.listWorkspaceKnowledgeModels)
 		protected.Get("/api/workspaces/{workspaceID}/settings/llm", s.getLLMSettings)
 		protected.Put("/api/workspaces/{workspaceID}/settings/llm", s.putLLMSettings)
 		protected.Post("/api/workspaces/{workspaceID}/settings/llm/models", s.listGatewayModels)

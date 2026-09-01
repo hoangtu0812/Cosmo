@@ -43,6 +43,8 @@ class IngestRequest(BaseModel):
     layout_mode: str | None = Field(default=None, max_length=20)
     embedding_model: str | None = Field(default=None, max_length=200)
     reranker_model: str | None = Field(default=None, max_length=200)
+    chunk_size: int | None = Field(default=None, ge=256, le=4096)
+    chunk_overlap: int | None = Field(default=None, ge=0, le=2048)
 
 
 class SearchRequest(BaseModel):
@@ -51,6 +53,9 @@ class SearchRequest(BaseModel):
     limit: int | None = None
     embedding_model: str | None = Field(default=None, max_length=200)
     reranker_model: str | None = Field(default=None, max_length=200)
+    retrieval_mode: str = Field(default="hybrid", pattern="^(semantic|keyword|hybrid)$")
+    rerank_enabled: bool = True
+    score_threshold: float = Field(default=0.2, ge=0, le=1)
 
 
 class SearchResponse(BaseModel):
@@ -91,7 +96,7 @@ def ingest_document(
     happening during the minutes this takes, and a stream lets it forward each
     stage without holding the whole pipeline in memory.
     """
-    ml.configure(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
+    gateway = ml.gateway_settings(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
 
     if request.storage_key:
         # A re-index names the original rather than resending it: the control
@@ -122,6 +127,9 @@ def ingest_document(
             effective_date=request.effective_date,
             layout_mode=request.layout_mode,
             storage_key=request.storage_key,
+            gateway=gateway,
+            chunk_size=request.chunk_size,
+            chunk_overlap=request.chunk_overlap,
         ):
             yield json.dumps(event, ensure_ascii=False) + "\n"
 
@@ -134,8 +142,16 @@ def search(
     gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
     gateway_api_key: str | None = Header(default=None, alias="X-Cosmo-Gateway-API-Key"),
 ) -> SearchResponse:
-    ml.configure(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
-    return SearchResponse(results=retrieve.search(request.query, request.kb_ids, request.limit))
+    gateway = ml.gateway_settings(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
+    return SearchResponse(results=retrieve.search(
+        request.query,
+        request.kb_ids,
+        request.limit,
+        gateway=gateway,
+        retrieval_mode=request.retrieval_mode,
+        rerank_enabled=request.rerank_enabled,
+        score_threshold=request.score_threshold,
+    ))
 
 
 @app.post("/collections/reset")

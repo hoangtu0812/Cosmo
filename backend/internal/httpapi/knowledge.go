@@ -2,13 +2,52 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"cosmo/backend/internal/knowledge"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 )
+
+// knowledgeModelSettingsForKB resolves a corpus' model choices against the
+// gateway owned by its workspace. API keys never move into the knowledge base
+// row; they are decrypted only for the outbound data-plane request.
+func (s *Server) knowledgeModelSettingsForKB(ctx context.Context, kbID string) (knowledge.ModelSettings, error) {
+	var workspaceID string
+	var settings knowledge.ModelSettings
+	err := s.db.QueryRow(ctx, `
+		SELECT owner_workspace_id, embedding_model, reranker_model, retrieval_mode,
+		       rerank_enabled, score_threshold, retrieval_top_k, chunk_size, chunk_overlap
+		FROM knowledge_bases WHERE id = $1`, kbID).Scan(
+		&workspaceID, &settings.EmbeddingModel, &settings.RerankerModel, &settings.RetrievalMode,
+		&settings.RerankEnabled, &settings.ScoreThreshold, &settings.TopK,
+		&settings.ChunkSize, &settings.ChunkOverlap,
+	)
+	if err != nil {
+		return settings, err
+	}
+	baseURL, _, apiKey, _, _, err := s.workspaceLLM(ctx, workspaceID)
+	if err != nil {
+		return settings, err
+	}
+	if strings.TrimSpace(baseURL) == "" {
+		return settings, fmt.Errorf("workspace %s has no model gateway", workspaceID)
+	}
+	if strings.TrimSpace(settings.EmbeddingModel) == "" {
+		return settings, fmt.Errorf("knowledge base %s has no embedding model", kbID)
+	}
+	if settings.RerankEnabled && strings.TrimSpace(settings.RerankerModel) == "" {
+		return settings, fmt.Errorf("knowledge base %s has no reranker model", kbID)
+	}
+	settings.GatewayBaseURL = baseURL
+	settings.GatewayAPIKey = apiKey
+	return settings, nil
+}
 
 // Visibility decides which workspaces may install a knowledge base. Everyone
 // already belongs to a workspace, so a workspace is the unit of sharing;
@@ -47,6 +86,16 @@ type KnowledgeBase struct {
 	OwnerWorkspaceID string    `json:"owner_workspace_id,omitempty"`
 	Visibility       string    `json:"visibility"`
 	LayoutMode       string    `json:"layout_mode"`
+	Icon             string    `json:"icon"`
+	Tags             []string  `json:"tags"`
+	RetrievalMode    string    `json:"retrieval_mode"`
+	EmbeddingModel   string    `json:"embedding_model"`
+	RerankerModel    string    `json:"reranker_model"`
+	RerankEnabled    bool      `json:"rerank_enabled"`
+	ScoreThreshold   float64   `json:"score_threshold"`
+	RetrievalTopK    int       `json:"retrieval_top_k"`
+	ChunkSize        int       `json:"chunk_size"`
+	ChunkOverlap     int       `json:"chunk_overlap"`
 	CreatedAt        time.Time `json:"created_at"`
 	// Access is what the caller may do: owner or viewer.
 	Access string `json:"access"`
@@ -66,8 +115,10 @@ type KnowledgeBase struct {
 	// the owner telling installers that something changed.
 	UpdateAvailable bool `json:"update_available"`
 
-	DocumentCount int `json:"document_count"`
-	SharedCount   int `json:"shared_count"`
+	DocumentCount   int `json:"document_count"`
+	ProcessingCount int `json:"processing_count"`
+	FailedCount     int `json:"failed_count"`
+	SharedCount     int `json:"shared_count"`
 }
 
 // workspaceVisibleKnowledgeSQL is the single definition of what a workspace
@@ -156,23 +207,32 @@ func (s *Server) knowledgeAccess(ctx context.Context, userID, kbID string) strin
 // workspace the answer is framed against (empty string when none).
 const knowledgeColumns = `
 	kb.id, kb.name, kb.description, COALESCE(kb.owner_user_id, ''), COALESCE(u.name, ''),
-	COALESCE(kb.owner_workspace_id, ''), kb.visibility, kb.layout_mode, kb.created_at, kb.version,
+	COALESCE(kb.owner_workspace_id, ''), kb.visibility, kb.layout_mode, kb.icon, kb.tags,
+	kb.retrieval_mode, kb.embedding_model, kb.reranker_model, kb.rerank_enabled,
+	kb.score_threshold, kb.retrieval_top_k, kb.chunk_size, kb.chunk_overlap,
+	kb.created_at, kb.version,
 	` + accessSQL + `,
 	` + unpublishedSQL + `,
 	COALESCE((SELECT km.installed_version FROM knowledge_mounts km
 	          WHERE km.kb_id = kb.id AND km.target_type = 'workspace' AND km.target_id = $2), -1),
 	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status = 'ready'),
+	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status IN ('pending', 'processing')),
+	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status = 'failed'),
 	(SELECT COUNT(*) FROM knowledge_shares sh WHERE sh.kb_id = kb.id)`
 
 func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 	var item KnowledgeBase
+	var tags []byte
 	// A mount that does not exist comes back as -1, which is how the query
 	// distinguishes "not installed" from "installed at version 0".
 	installed := -1
 	err := scan(&item.ID, &item.Name, &item.Description, &item.CreatedByUserID, &item.CreatedByName,
-		&item.OwnerWorkspaceID, &item.Visibility, &item.LayoutMode, &item.CreatedAt, &item.Version,
+		&item.OwnerWorkspaceID, &item.Visibility, &item.LayoutMode, &item.Icon, &tags,
+		&item.RetrievalMode, &item.EmbeddingModel, &item.RerankerModel, &item.RerankEnabled,
+		&item.ScoreThreshold, &item.RetrievalTopK, &item.ChunkSize, &item.ChunkOverlap,
+		&item.CreatedAt, &item.Version,
 		&item.Access, &item.HasUnpublishedChanges, &installed,
-		&item.DocumentCount, &item.SharedCount)
+		&item.DocumentCount, &item.ProcessingCount, &item.FailedCount, &item.SharedCount)
 	if err != nil {
 		return item, err
 	}
@@ -181,6 +241,7 @@ func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 		item.InstalledVersion = installed
 		item.UpdateAvailable = item.Version > installed
 	}
+	item.Tags = decodeStringList(tags)
 	return item, nil
 }
 
@@ -218,9 +279,11 @@ func (s *Server) listKnowledgeBases(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	var input struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		WorkspaceID string `json:"workspace_id"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		WorkspaceID string   `json:"workspace_id"`
+		Icon        string   `json:"icon"`
+		Tags        []string `json:"tags"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -244,10 +307,19 @@ func (s *Server) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kbID := "kb_" + randomID(18)
+	input.Icon = strings.TrimSpace(input.Icon)
+	if input.Icon == "" {
+		input.Icon = "📚"
+	}
+	if len(input.Icon) > 40 {
+		writeError(w, http.StatusBadRequest, "Biểu tượng knowledge base không hợp lệ.")
+		return
+	}
+	tags, _ := json.Marshal(cleanStringList(input.Tags, 10, 40))
 	if _, err := s.db.Exec(r.Context(), `
-		INSERT INTO knowledge_bases(id, name, description, owner_user_id, owner_workspace_id, visibility, version)
-		VALUES($1, $2, $3, $4, $5, $6, 0)`,
-		kbID, input.Name, strings.TrimSpace(input.Description), user.ID, workspaceID, visibilityWorkspace); err != nil {
+		INSERT INTO knowledge_bases(id, name, description, owner_user_id, owner_workspace_id, visibility, icon, tags, version)
+		VALUES($1, $2, $3, $4, $5, $6, $7, $8, 0)`,
+		kbID, input.Name, strings.TrimSpace(input.Description), user.ID, workspaceID, visibilityWorkspace, input.Icon, tags); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tạo knowledge base.")
 		return
 	}
@@ -262,11 +334,21 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Name        *string   `json:"name"`
-		Description *string   `json:"description"`
-		Visibility  *string   `json:"visibility"`
-		LayoutMode  *string   `json:"layout_mode"`
-		Workspaces  *[]string `json:"workspaces"`
+		Name           *string   `json:"name"`
+		Description    *string   `json:"description"`
+		Visibility     *string   `json:"visibility"`
+		LayoutMode     *string   `json:"layout_mode"`
+		Workspaces     *[]string `json:"workspaces"`
+		Icon           *string   `json:"icon"`
+		Tags           *[]string `json:"tags"`
+		RetrievalMode  *string   `json:"retrieval_mode"`
+		EmbeddingModel *string   `json:"embedding_model"`
+		RerankerModel  *string   `json:"reranker_model"`
+		RerankEnabled  *bool     `json:"rerank_enabled"`
+		ScoreThreshold *float64  `json:"score_threshold"`
+		RetrievalTopK  *int      `json:"retrieval_top_k"`
+		ChunkSize      *int      `json:"chunk_size"`
+		ChunkOverlap   *int      `json:"chunk_overlap"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -304,6 +386,97 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		// not re-read what is already indexed, which is what re-index is for.
 		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET layout_mode = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.LayoutMode); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu thay đổi.")
+			return
+		}
+	}
+	if input.Icon != nil {
+		icon := strings.TrimSpace(*input.Icon)
+		if icon == "" || len(icon) > 40 {
+			writeError(w, http.StatusBadRequest, "Biểu tượng knowledge base không hợp lệ.")
+			return
+		}
+		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET icon = $2, updated_at = NOW() WHERE id = $1`, kbID, icon); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu biểu tượng.")
+			return
+		}
+	}
+	if input.Tags != nil {
+		tags, _ := json.Marshal(cleanStringList(*input.Tags, 10, 40))
+		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET tags = $2, updated_at = NOW() WHERE id = $1`, kbID, tags); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu tags.")
+			return
+		}
+	}
+	if input.RetrievalMode != nil {
+		mode := strings.TrimSpace(*input.RetrievalMode)
+		if mode != "semantic" && mode != "keyword" && mode != "hybrid" {
+			writeError(w, http.StatusBadRequest, "Chế độ truy xuất không hợp lệ.")
+			return
+		}
+		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET retrieval_mode = $2, updated_at = NOW() WHERE id = $1`, kbID, mode); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu chế độ truy xuất.")
+			return
+		}
+	}
+	for label, value := range map[string]*string{"embedding_model": input.EmbeddingModel, "reranker_model": input.RerankerModel} {
+		if value == nil {
+			continue
+		}
+		model := strings.TrimSpace(*value)
+		if len(model) > 200 {
+			writeError(w, http.StatusBadRequest, "Tên model không hợp lệ.")
+			return
+		}
+		query := `UPDATE knowledge_bases SET ` + label + ` = $2, updated_at = NOW() WHERE id = $1`
+		if _, err := s.db.Exec(r.Context(), query, kbID, model); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu model knowledge.")
+			return
+		}
+	}
+	if input.RerankEnabled != nil {
+		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET rerank_enabled = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.RerankEnabled); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình rerank.")
+			return
+		}
+	}
+	if input.ScoreThreshold != nil {
+		if *input.ScoreThreshold < 0 || *input.ScoreThreshold > 1 {
+			writeError(w, http.StatusBadRequest, "Ngưỡng vector phải nằm trong khoảng 0 đến 1.")
+			return
+		}
+		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET score_threshold = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.ScoreThreshold); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu ngưỡng vector.")
+			return
+		}
+	}
+	if input.RetrievalTopK != nil {
+		if *input.RetrievalTopK < 1 || *input.RetrievalTopK > 50 {
+			writeError(w, http.StatusBadRequest, "Top K phải nằm trong khoảng 1 đến 50.")
+			return
+		}
+		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET retrieval_top_k = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.RetrievalTopK); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu Top K.")
+			return
+		}
+	}
+	if input.ChunkSize != nil || input.ChunkOverlap != nil {
+		chunkSize, overlap := 900, 150
+		if err := s.db.QueryRow(r.Context(), `SELECT chunk_size, chunk_overlap FROM knowledge_bases WHERE id = $1`, kbID).Scan(&chunkSize, &overlap); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể đọc cấu hình chunking.")
+			return
+		}
+		if input.ChunkSize != nil {
+			chunkSize = *input.ChunkSize
+		}
+		if input.ChunkOverlap != nil {
+			overlap = *input.ChunkOverlap
+		}
+		if chunkSize < 256 || chunkSize > 4096 || overlap < 0 || overlap >= chunkSize {
+			writeError(w, http.StatusBadRequest, "Chunk size phải từ 256 đến 4096 và overlap phải nhỏ hơn chunk size.")
+			return
+		}
+		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET chunk_size = $2, chunk_overlap = $3, updated_at = NOW() WHERE id = $1`, kbID, chunkSize, overlap); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình chunking.")
 			return
 		}
 	}

@@ -2,13 +2,15 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ExternalLink, FileText, SlidersHorizontal, Trash2, Upload, X} from 'lucide-react';
+import {ExternalLink, FileText, Search, SlidersHorizontal, Trash2, Upload, X} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
+import {Card} from '@astryxdesign/core/Card';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
+import {Grid} from '@astryxdesign/core/Grid';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
@@ -22,7 +24,13 @@ import {proportional, Table, TableColumn, toSearchFilters, useTableFiltering, us
 import {Text} from '@astryxdesign/core/Text';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
-import {api, APIError, DocumentEvent, KnowledgeBase, KnowledgeDocument, KnowledgeDocumentDetail} from '../../lib/api';
+import {NumberInput} from '@astryxdesign/core/NumberInput';
+import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
+import {SelectableCard} from '@astryxdesign/core/SelectableCard';
+import {Skeleton} from '@astryxdesign/core/Skeleton';
+import {Slider} from '@astryxdesign/core/Slider';
+import {StatusDot} from '@astryxdesign/core/StatusDot';
+import {api, APIError, DocumentEvent, GatewayModel, KnowledgeBase, KnowledgeDocument, KnowledgeDocumentDetail} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 // Ingestion is asynchronous, so a document that is still being parsed is
@@ -53,6 +61,7 @@ export default function KnowledgeDetailPage() {
   const workspaceID = search.get('workspace') ?? '';
 
   const [base, setBase] = useState<KnowledgeBase | null>(null);
+	const [baseLoading, setBaseLoading] = useState(true);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -70,12 +79,14 @@ export default function KnowledgeDetailPage() {
 
   const canEdit = base?.access === 'owner';
 
-  const statusLabel = (status: KnowledgeDocument['status']) => {
+  const statusLabel = useCallback((status: KnowledgeDocument['status']) => {
     if (status === 'ready') return t('kb.statusReady');
     if (status === 'failed') return t('kb.statusFailed');
     return t('kb.statusProcessing');
-  };
+  }, [t]);
   const isSettling = documents.some((item) => item.status === 'processing' || item.status === 'pending');
+	const processingCount = documents.filter((item) => item.status === 'processing' || item.status === 'pending').length;
+	const failedCount = documents.filter((item) => item.status === 'failed').length;
 
   const rows = useMemo<DocumentRow[]>(
     () => documents.map((document) => ({...document, name: document.title || document.filename})),
@@ -151,7 +162,7 @@ export default function KnowledgeDetailPage() {
         ),
       },
     ],
-    [canEdit, kbID, openDocument, t],
+    [canEdit, kbID, openDocument, statusLabel, t],
   );
   const filterPlugin = useTableFiltering<DocumentRow>({
     filters: tableFilters,
@@ -173,7 +184,8 @@ export default function KnowledgeDetailPage() {
       })
       .catch((caught) => {
         if (caught instanceof APIError && caught.status === 401) router.replace('/');
-      });
+		})
+		.finally(() => setBaseLoading(false));
   }, [kbID, router, workspaceID]);
 
   useEffect(() => {
@@ -272,7 +284,7 @@ export default function KnowledgeDetailPage() {
                     />
                     <Button
                       icon={<Upload size={14} />}
-                      isDisabled={uploading}
+										isDisabled={uploading || !base?.embedding_model}
                       isLoading={uploading}
                       label={t('kb.uploadMany')}
                       onClick={() => fileRef.current?.click()}
@@ -299,6 +311,21 @@ export default function KnowledgeDetailPage() {
           <LayoutContent padding={6}>
             <VStack gap={4}>
               {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
+						{base && !base.embedding_model ? (
+							<Banner status="warning" title="Hãy chọn embedding model từ Model Gateway của workspace trước khi import tài liệu." />
+						) : null}
+
+						{baseLoading ? (
+							<Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
+								{[0, 1, 2].map((index) => <Skeleton height={88} index={index} key={index} width="100%" />)}
+							</Grid>
+						) : (
+							<Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
+								<MetricCard label="Tổng tài liệu" value={documents.length} />
+								<MetricCard isActive={processingCount > 0} label="Đang xử lý" value={processingCount} />
+								<MetricCard isError={failedCount > 0} label="Thất bại" value={failedCount} />
+							</Grid>
+						)}
 
               <input
                 accept=".txt,.md,.markdown,.csv,.json,.pdf,.docx,.pptx,.html,.htm"
@@ -367,30 +394,99 @@ export default function KnowledgeDetailPage() {
           onClose={() => setSettingsOpen(false)}
           onError={setError}
           onSaved={(next) => { setBase(next); setSettingsOpen(false); }}
+					workspaceID={workspaceID || base.owner_workspace_id}
         />
       ) : null}
     </>
   );
 }
 
+function MetricCard({label, value, isActive = false, isError = false}: {
+	label: string;
+	value: number;
+	isActive?: boolean;
+	isError?: boolean;
+}) {
+	return (
+		<Card padding={4} width="100%">
+			<VStack gap={2}>
+				<HStack gap={2} vAlign="center">
+					{isActive ? <StatusDot isPulsing label={label} variant="accent" /> : null}
+					{isError ? <StatusDot label={label} variant="error" /> : null}
+					<Text color="secondary" type="supporting">{label}</Text>
+				</HStack>
+				<Text type="large" weight="semibold">{value}</Text>
+			</VStack>
+		</Card>
+	);
+}
+
 // Layout analysis is billed per page, so which documents are worth it belongs
 // to the owner of the corpus rather than to the deployment. It applies to
 // documents ingested from here on; what is already indexed is only re-read by
 // a re-index.
-function LayoutDialog({base, onClose, onError, onSaved}: {
+function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
   base: KnowledgeBase;
   onClose: () => void;
   onError: (value: string) => void;
   onSaved: (base: KnowledgeBase) => void;
+	workspaceID: string;
 }) {
   const t = useTranslation();
-  const [mode, setMode] = useState(base.layout_mode);
+	const router = useRouter();
+	const [layoutMode, setLayoutMode] = useState(base.layout_mode);
+	const [retrievalMode, setRetrievalMode] = useState(base.retrieval_mode);
+	const [embeddingModel, setEmbeddingModel] = useState(base.embedding_model);
+	const [rerankerModel, setRerankerModel] = useState(base.reranker_model);
+	const [rerankEnabled, setRerankEnabled] = useState(base.rerank_enabled);
+	const [scoreThreshold, setScoreThreshold] = useState(base.score_threshold);
+	const [topK, setTopK] = useState(base.retrieval_top_k);
+	const [chunkSize, setChunkSize] = useState(base.chunk_size);
+	const [chunkOverlap, setChunkOverlap] = useState(base.chunk_overlap);
+	const [gatewayModels, setGatewayModels] = useState<GatewayModel[]>([]);
+	const [gatewayConfigured, setGatewayConfigured] = useState(true);
+	const [modelMessage, setModelMessage] = useState('');
+	const [modelsLoading, setModelsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+
+	useEffect(() => {
+		api.workspaceKnowledgeModels(workspaceID)
+			.then((result) => {
+				setGatewayConfigured(result.configured);
+				setGatewayModels(result.models);
+				setModelMessage(result.message ?? '');
+			})
+			.catch((caught) => setModelMessage(caught instanceof Error ? caught.message : 'Không tải được danh sách model.'))
+			.finally(() => setModelsLoading(false));
+	}, [workspaceID]);
+
+	function modelOptions(kind: 'embedding' | 'rerank', current: string) {
+		const matches = gatewayModels.filter((model) => {
+			const mode = (model.mode ?? '').toLowerCase();
+			return !mode || mode.includes(kind);
+		});
+		const ids = matches.map((model) => model.id);
+		if (current && !ids.includes(current)) ids.unshift(current);
+		return ids.map((id) => ({label: id, value: id}));
+	}
+
+	const embeddingOptions = modelOptions('embedding', embeddingModel);
+	const rerankerOptions = modelOptions('rerank', rerankerModel);
 
   async function save() {
     setBusy(true);
     try {
-      const result = await api.updateKnowledgeBase(base.id, {layout_mode: mode});
+			const result = await api.updateKnowledgeBase(base.id, {
+				layout_mode: layoutMode,
+				retrieval_mode: retrievalMode,
+				embedding_model: embeddingModel,
+				reranker_model: rerankerModel,
+				rerank_enabled: rerankEnabled,
+				score_threshold: scoreThreshold,
+				retrieval_top_k: topK,
+				chunk_size: chunkSize,
+				chunk_overlap: chunkOverlap,
+			});
       onSaved(result.knowledge_base);
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : t('kb.saveFailed'));
@@ -400,32 +496,110 @@ function LayoutDialog({base, onClose, onError, onSaved}: {
   }
 
   return (
-    <Dialog isOpen onOpenChange={onClose} purpose="form" width={480}>
+		<Dialog isOpen maxHeight="90dvh" onOpenChange={onClose} purpose="form" width={760}>
       <Layout
         content={
           <LayoutContent>
-            <Selector
-              label={t('kb.layoutMode')}
-              onChange={(value) => setMode(value as KnowledgeBase['layout_mode'])}
-              options={[
-                {value: 'auto', label: t('kb.layoutAuto')},
-                {value: 'always', label: t('kb.layoutAlways')},
-                {value: 'off', label: t('kb.layoutOff')},
-              ]}
-              value={mode}
-              width="100%"
-            />
+						<VStack gap={6}>
+							<VStack gap={3}>
+								<VStack gap={1}>
+									<Text type="label">Tìm nội dung</Text>
+									<Text color="secondary" type="supporting">Cách Cosmo tìm đoạn văn phù hợp để trả lời câu hỏi.</Text>
+								</VStack>
+								<Grid columns={{minWidth: 180, max: 3}} gap={2} width="100%">
+									<SelectableCard isSelected={retrievalMode === 'semantic'} label="Semantic Search" onChange={(selected) => { if (selected) setRetrievalMode('semantic'); }}>
+										<VStack gap={2}><Search size={20} /><Text weight="semibold">Semantic Search</Text><Text color="secondary" type="supporting">Tìm theo ý nghĩa.</Text></VStack>
+									</SelectableCard>
+									<SelectableCard isSelected={retrievalMode === 'keyword'} label="Keyword Search" onChange={(selected) => { if (selected) setRetrievalMode('keyword'); }}>
+										<VStack gap={2}><FileText size={20} /><Text weight="semibold">Keyword Search</Text><Text color="secondary" type="supporting">Tìm theo từ khóa chính xác.</Text></VStack>
+									</SelectableCard>
+									<SelectableCard isSelected={retrievalMode === 'hybrid'} label="Smart Search" onChange={(selected) => { if (selected) setRetrievalMode('hybrid'); }}>
+										<VStack gap={2}><SlidersHorizontal size={20} /><Text weight="semibold">Smart Search</Text><Text color="secondary" type="supporting">Kết hợp semantic và keyword.</Text></VStack>
+									</SelectableCard>
+								</Grid>
+
+								{!gatewayConfigured || modelMessage ? (
+									<Banner
+										status={gatewayConfigured ? 'warning' : 'error'}
+										title={modelMessage || 'Workspace chưa cấu hình Model Gateway.'}
+									/>
+								) : null}
+								{!gatewayConfigured ? <Button label="Mở cài đặt workspace" onClick={() => router.push('/settings?section=model')} variant="secondary" /> : null}
+
+								<Selector
+									isDisabled={modelsLoading || embeddingOptions.length === 0}
+									label="Embedding model"
+									onChange={setEmbeddingModel}
+									options={embeddingOptions}
+									placeholder={modelsLoading ? 'Đang tải model…' : 'Chọn embedding model'}
+									value={embeddingModel}
+									width="100%"
+								/>
+								<Slider
+									description="Bỏ qua kết quả vector có độ tương đồng thấp hơn ngưỡng này."
+									isDisabled={retrievalMode === 'keyword'}
+									label="Ngưỡng vector"
+									max={1}
+									min={0}
+									onChange={(value) => setScoreThreshold(value as number)}
+									step={0.05}
+									value={scoreThreshold}
+									valueDisplay="text"
+									width="100%"
+								/>
+								<NumberInput isIntegerOnly label="Số đoạn trả về" max={50} min={1} onChange={setTopK} value={topK} width="100%" />
+								<SegmentedControl label="Sắp xếp kết quả" layout="fill" onChange={(value) => setRerankEnabled(value === 'rerank')} value={rerankEnabled ? 'rerank' : 'none'}>
+									<SegmentedControlItem label="Không rerank" value="none" />
+									<SegmentedControlItem label="Dùng reranker" value="rerank" />
+								</SegmentedControl>
+								{rerankEnabled ? (
+									<Selector
+										isDisabled={modelsLoading || rerankerOptions.length === 0}
+										label="Reranker model"
+										onChange={setRerankerModel}
+										options={rerankerOptions}
+										placeholder={modelsLoading ? 'Đang tải model…' : 'Chọn reranker model'}
+										value={rerankerModel}
+										width="100%"
+									/>
+								) : null}
+							</VStack>
+
+							<Section dividers={['top']} padding={0}>
+								<VStack gap={3} padding={4}>
+									<VStack gap={1}>
+										<Text type="label">Tách tài liệu mới</Text>
+										<Text color="secondary" type="supporting">Chỉ áp dụng cho tài liệu import sau khi lưu.</Text>
+									</VStack>
+									<Grid columns={{minWidth: 220, max: 2}} gap={3} width="100%">
+										<NumberInput isIntegerOnly label="Chunk size" max={4096} min={256} onChange={setChunkSize} units="tokens" value={chunkSize} width="100%" />
+										<NumberInput isIntegerOnly label="Chunk overlap" max={Math.max(0, chunkSize - 1)} min={0} onChange={setChunkOverlap} units="tokens" value={chunkOverlap} width="100%" />
+									</Grid>
+									<Selector
+										label={t('kb.layoutMode')}
+										onChange={(value) => setLayoutMode(value as KnowledgeBase['layout_mode'])}
+										options={[
+											{value: 'auto', label: t('kb.layoutAuto')},
+											{value: 'always', label: t('kb.layoutAlways')},
+											{value: 'off', label: t('kb.layoutOff')},
+										]}
+										value={layoutMode}
+										width="100%"
+									/>
+								</VStack>
+							</Section>
+						</VStack>
           </LayoutContent>
         }
         footer={
           <LayoutFooter>
             <HStack gap={2} hAlign="end">
               <Button label={t('common.cancel')} onClick={onClose} variant="secondary" />
-              <Button isDisabled={busy} isLoading={busy} label={t('common.save')} onClick={() => void save()} variant="primary" />
+						<Button isDisabled={busy || !gatewayConfigured || !embeddingModel || (rerankEnabled && !rerankerModel)} isLoading={busy} label={t('common.save')} onClick={() => void save()} variant="primary" />
             </HStack>
           </LayoutFooter>
         }
-        header={<DialogHeader onOpenChange={onClose} subtitle={base.name} title={t('kb.layoutMode')} />}
+			header={<DialogHeader onOpenChange={onClose} subtitle={base.name} title="Knowledge settings" />}
       />
     </Dialog>
   );

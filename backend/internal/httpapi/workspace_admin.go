@@ -306,6 +306,46 @@ func (s *Server) listWorkspaceModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"models": models, "default": model})
 }
 
+// listWorkspaceKnowledgeModels exposes the same saved workspace gateway to a
+// Knowledge Base editor, enriched with model modes when the gateway reports
+// them. No caller-supplied URL is accepted here: an editor can only inspect
+// the gateway already approved for this workspace.
+func (s *Server) listWorkspaceKnowledgeModels(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := s.requireWorkspaceAdmin(w, r)
+	if !ok {
+		return
+	}
+	baseURL, _, apiKey, _, _, err := s.workspaceLLM(r.Context(), workspaceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể đọc cấu hình model của workspace.")
+		return
+	}
+	if baseURL == "" {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"configured": false,
+			"message":    "Workspace chưa cấu hình Model Gateway.",
+			"models":     []gatewayModel{},
+		})
+		return
+	}
+	models, probeErr := fetchGatewayModels(r.Context(), baseURL, apiKey)
+	if probeErr != nil {
+		s.logger.Warn("list workspace knowledge models", "workspace_id", workspaceID, "error", probeErr)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"configured": true,
+			"message":    "Không kết nối được tới Model Gateway của workspace.",
+			"models":     []gatewayModel{},
+		})
+		return
+	}
+	modes := fetchGatewayModelModes(r.Context(), baseURL, apiKey)
+	items := make([]gatewayModel, 0, len(models))
+	for _, id := range models {
+		items = append(items, gatewayModel{ID: id, Mode: modes[id]})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"configured": true, "models": items})
+}
+
 // fetchGatewayModels asks an OpenAI-compatible gateway for its model list.
 func fetchGatewayModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)

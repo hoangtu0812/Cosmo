@@ -192,7 +192,12 @@ def _authorized_filter(kb_ids: Iterable[str]) -> models.Filter:
     )
 
 
-def search_dense(kb_ids: Sequence[str], vector: list[float], limit: int) -> list[models.ScoredPoint]:
+def search_dense(
+    kb_ids: Sequence[str],
+    vector: list[float],
+    limit: int,
+    score_threshold: float | None = None,
+) -> list[models.ScoredPoint]:
     if not client().collection_exists(settings.collection):
         return []
     return client().query_points(
@@ -201,6 +206,7 @@ def search_dense(kb_ids: Sequence[str], vector: list[float], limit: int) -> list
         using=DENSE,
         query_filter=_authorized_filter(kb_ids),
         limit=limit,
+        score_threshold=score_threshold,
         with_payload=True,
     ).points
 

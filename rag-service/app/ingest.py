@@ -139,8 +139,8 @@ def _parse(path: Path, content: bytes, filename: str, mode: str) -> Iterator[dic
     return _tag(_read(path), filename), False
 
 
-def _nodes(documents: list[Document], structured: bool) -> list:
-    splitter = SentenceSplitter(chunk_size=settings.chunk_size, chunk_overlap=settings.chunk_overlap)
+def _nodes(documents: list[Document], structured: bool, chunk_size: int, chunk_overlap: int) -> list:
+    splitter = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     if not structured:
         return splitter.get_nodes_from_documents(documents)
 
@@ -164,6 +164,8 @@ def parse(
     title: str,
     effective_date: str | None,
     layout_mode: str | None = None,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
 ) -> Iterator[dict]:
     """Parse one document, yielding a stage as it starts and returning chunks.
 
@@ -184,7 +186,11 @@ def parse(
         # reader is driven from within the block rather than before it.
         documents, structured = yield from _parse(path, content, filename, _layout_mode(layout_mode))
 
-    nodes = _nodes(documents, structured)
+    resolved_chunk_size = chunk_size or settings.chunk_size
+    resolved_overlap = settings.chunk_overlap if chunk_overlap is None else chunk_overlap
+    if resolved_overlap >= resolved_chunk_size:
+        raise RuntimeError("Chunk overlap must be smaller than chunk size")
+    nodes = _nodes(documents, structured, resolved_chunk_size, resolved_overlap)
 
     ingested_at = datetime.now(timezone.utc).isoformat()
     chunks: list[dict] = []

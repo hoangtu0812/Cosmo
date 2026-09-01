@@ -91,10 +91,10 @@ def load(path: Path) -> list[Question]:
     return questions
 
 
-def measure(question: Question, k: int) -> Outcome:
+def measure(question: Question, k: int, gateway: ml.GatewaySettings | None = None) -> Outcome:
     """Ask one question and score what came back."""
     try:
-        passages = retrieve.search(question.query, question.kb_ids, limit=k)
+        passages = retrieve.search(question.query, question.kb_ids, limit=k, gateway=gateway)
     except Exception as error:  # noqa: BLE001 - one bad question must not end the run
         return Outcome(question=question, retrieved=[], error=str(error))
 
@@ -184,7 +184,7 @@ def render(report: dict, baseline: dict | None) -> str:
     return "\n".join(lines)
 
 
-def _guard_dimensions() -> None:
+def _guard_dimensions(gateway: ml.GatewaySettings) -> None:
     """Refuse to score an index the configured model did not build.
 
     A mismatch here does not fail loudly on its own — it returns neighbours of
@@ -192,7 +192,7 @@ def _guard_dimensions() -> None:
     as a misconfiguration.
     """
     try:
-        probe = ml.encode(["kiểm tra cấu hình"])[0]
+        probe = ml.encode(["kiểm tra cấu hình"], gateway)[0]
     except Exception as error:  # noqa: BLE001 - a traceback helps nobody here
         raise SystemExit(f"could not reach the model gateway: {error}") from error
     qdrant = store.client()
@@ -225,16 +225,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             "pass them as flags or set GATEWAY_BASE_URL, EMBEDDING_MODEL and RERANKER_MODEL"
         )
 
-    ml.configure(
+    gateway = ml.gateway_settings(
         arguments.embedding_model,
         arguments.reranker_model,
         arguments.gateway_base_url,
         arguments.gateway_api_key,
     )
-    _guard_dimensions()
+    _guard_dimensions(gateway)
 
     questions = load(Path(arguments.questions))
-    report = summarise([measure(question, arguments.k) for question in questions], arguments.k)
+    report = summarise([measure(question, arguments.k, gateway) for question in questions], arguments.k)
 
     baseline = None
     if arguments.baseline:

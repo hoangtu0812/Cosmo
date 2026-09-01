@@ -24,7 +24,7 @@ class Response:
 
 
 def configure():
-    models.configure("qwen3-embedding", "qwen3-reranker", "https://gateway.example/v1", "secret")
+    return models.gateway_settings("qwen3-embedding", "qwen3-reranker", "https://gateway.example/v1", "secret")
 
 
 def test_embeddings_use_system_gateway(monkeypatch):
@@ -36,10 +36,10 @@ def test_embeddings_use_system_gateway(monkeypatch):
         captured["body"] = json.loads(request.data)
         return Response({"data": [{"index": 1, "embedding": [3, 4]}, {"index": 0, "embedding": [1, 2]}]})
 
-    configure()
+    gateway = configure()
     monkeypatch.setattr(models.urllib.request, "urlopen", request)
 
-    encoded = models.encode(["first", "second"])
+    encoded = models.encode(["first", "second"], gateway)
 
     assert captured["url"] == "https://gateway.example/v1/embeddings"
     assert captured["authorization"] == "Bearer secret"
@@ -58,10 +58,10 @@ def test_reranker_uses_system_gateway(monkeypatch):
         captured["body"] = json.loads(request.data)
         return Response({"results": [{"index": 1, "relevance_score": 0.9}, {"index": 0, "relevance_score": 0.2}]})
 
-    configure()
+    gateway = configure()
     monkeypatch.setattr(models.urllib.request, "urlopen", request)
 
-    assert models.rerank("question", ["first", "second"]) == [0.2, 0.9]
+    assert models.rerank("question", ["first", "second"], gateway) == [0.2, 0.9]
     assert captured["url"] == "https://gateway.example/v1/rerank"
     assert captured["body"] == {
         "model": "qwen3-reranker",

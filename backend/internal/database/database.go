@@ -249,6 +249,20 @@ var migrations = []string{
 	// differs per corpus: a base of scanned drawings is worth paying layout
 	// analysis for on every document, a base of typed memos is not.
 	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS layout_mode TEXT NOT NULL DEFAULT 'auto'`,
+	// Retrieval belongs to the knowledge base, while the gateway address and
+	// credential belong to its workspace. Keeping the model identifiers here
+	// lets two bases in the same workspace tune retrieval independently without
+	// ever copying an API key into corpus metadata.
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT '📚'`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS retrieval_mode TEXT NOT NULL DEFAULT 'hybrid'`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS embedding_model TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS reranker_model TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS rerank_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS score_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.2`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS retrieval_top_k INTEGER NOT NULL DEFAULT 12`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS chunk_size INTEGER NOT NULL DEFAULT 900`,
+	`ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS chunk_overlap INTEGER NOT NULL DEFAULT 150`,
 	// What was asked of the knowledge plane and what came back. Retrieval
 	// tuning is otherwise argued from memory: this is where the real questions
 	// come from, and which of them the index answered badly. It only fills

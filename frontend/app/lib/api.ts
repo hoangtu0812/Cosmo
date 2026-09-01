@@ -32,6 +32,16 @@ export type KnowledgeBase = {
   owner_workspace_id?: string;
   visibility: 'workspace' | 'selected' | 'everyone';
   layout_mode: 'auto' | 'always' | 'off';
+	icon: string;
+	tags: string[];
+	retrieval_mode: 'semantic' | 'keyword' | 'hybrid';
+	embedding_model: string;
+	reranker_model: string;
+	rerank_enabled: boolean;
+	score_threshold: number;
+	retrieval_top_k: number;
+	chunk_size: number;
+	chunk_overlap: number;
   created_at: string;
   access: 'owner' | 'viewer';
   version: number;
@@ -40,6 +50,8 @@ export type KnowledgeBase = {
   installed_version: number;
   update_available: boolean;
   document_count: number;
+	processing_count: number;
+	failed_count: number;
   shared_count: number;
 };
 export type KnowledgeDocument = {
@@ -219,15 +231,19 @@ export const api = {
     request<void>(`/api/agents/${encodeURIComponent(agentID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
   knowledgeBases: (workspaceID?: string) =>
     request<{knowledge_bases: KnowledgeBase[]}>(`/api/knowledge${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
-  createKnowledgeBase: (name: string, description: string, workspaceID: string) =>
-    request<{knowledge_base: KnowledgeBase}>('/api/knowledge', {method: 'POST', body: JSON.stringify({name, description, workspace_id: workspaceID})}),
+	createKnowledgeBase: (body: {name: string; description: string; workspace_id: string; icon?: string; tags?: string[]}) =>
+		request<{knowledge_base: KnowledgeBase}>('/api/knowledge', {method: 'POST', body: JSON.stringify(body)}),
   publishKnowledgeBase: (kbID: string) =>
     request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}/publish`, {method: 'POST'}),
   knowledgeShares: (kbID: string) =>
     request<{shares: KnowledgeShare[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/shares`),
   workspaceDirectory: () =>
     request<{workspaces: WorkspaceRef[]}>('/api/workspaces/directory'),
-  updateKnowledgeBase: (kbID: string, body: {name?: string; description?: string; visibility?: string; layout_mode?: string; workspaces?: string[]}) =>
+	updateKnowledgeBase: (kbID: string, body: Partial<Pick<KnowledgeBase,
+		'name' | 'description' | 'visibility' | 'layout_mode' | 'icon' | 'tags' |
+		'retrieval_mode' | 'embedding_model' | 'reranker_model' | 'rerank_enabled' |
+		'score_threshold' | 'retrieval_top_k' | 'chunk_size' | 'chunk_overlap'
+	>> & {workspaces?: string[]}) =>
     request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
   deleteKnowledgeBase: (kbID: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
@@ -257,6 +273,8 @@ export const api = {
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
   createWorkspace: (name: string, description = '') => request<{workspace: Workspace}>('/api/workspaces', {method: 'POST', body: JSON.stringify({name, description})}),
   workspaceModels: (workspaceID: string) => request<{models: string[]; default: string}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/models`),
+	workspaceKnowledgeModels: (workspaceID: string) =>
+		request<{configured: boolean; message?: string; models: GatewayModel[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/models`),
   members: (workspaceID: string) => request<{members: Member[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/members`),
 
   llmSettings: (workspaceID: string) => request<LLMSettings>(`/api/workspaces/${encodeURIComponent(workspaceID)}/settings/llm`),

@@ -159,7 +159,9 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
 
           {hasSecondColumn ? (
           <SideNav
-            className="w-76"
+            /* The column is wider where it lists things to choose between and
+               narrower where it is only a menu, as the reference has it. */
+            className={isChatRoute || isLibraryRoute ? 'w-76' : 'w-50'}
             footer={isChatRoute || isLibraryRoute ? undefined : (
               <SideNavSection isHeaderHidden title={t('nav.operate')}>
                 <SideNavItem icon={<Icon icon={BarChart3} size="sm" />} isSelected={pathname === '/observability'} label={t('nav.observability')} onClick={() => goTo('/observability')} />

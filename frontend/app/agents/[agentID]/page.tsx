@@ -265,17 +265,7 @@ function AgentEditorView() {
             {error && !isStale ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
             {isReadOnly ? <Banner status="info" title={t('agent.readOnly')} /> : null}
 
-            <HStack gap={4} hAlign="between" vAlign="center" width="100%">
-              {/* Capabilities is the reference's fourth tab. It needs Tool and
-                  Skill, which Cosmo has not built. Tab takes no disabled prop,
-                  so the panel behind it says so plainly instead: the shape is
-                  visible and nothing pretends to work. */}
-              <TabList hasDivider onChange={setTab} value={tab}>
-                <Tab label={t('agent.tabPrompt')} value="prompt" />
-                <Tab label={t('agent.tabCapabilities')} value="capabilities" />
-                <Tab label={t('agent.tabKnowledge')} value="knowledge" />
-                <Tab label={t('agent.tabExperience')} value="experience" />
-              </TabList>
+            <HStack gap={4} vAlign="center" width="100%">
               <Selector
                 isDisabled={isReadOnly || modelOptions.length === 0}
                 isLabelHidden
@@ -287,6 +277,16 @@ function AgentEditorView() {
                 value={agent.model}
                 width={200}
               />
+              {/* Capabilities is the reference's fourth tab. It needs Tool and
+                  Skill, which Cosmo has not built. Tab takes no disabled prop,
+                  so the panel behind it says so plainly instead: the shape is
+                  visible and nothing pretends to work. */}
+              <TabList hasDivider onChange={setTab} value={tab}>
+                <Tab label={t('agent.tabPrompt')} value="prompt" />
+                <Tab label={t('agent.tabCapabilities')} value="capabilities" />
+                <Tab label={t('agent.tabKnowledge')} value="knowledge" />
+                <Tab label={t('agent.tabExperience')} value="experience" />
+              </TabList>
             </HStack>
 
             {tab === 'prompt' ? (
@@ -671,7 +671,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   }
 
   return (
-    <VStack gap={3} height="100%" padding={4} width={740}>
+    <VStack gap={3} height="100%" padding={4} width={768}>
       <HStack gap={2} hAlign="between" vAlign="center">
         <HStack gap={2} vAlign="center">
           <Text type="label">{t('agent.chat')}</Text>

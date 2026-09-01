@@ -160,6 +160,7 @@ function AgentsView() {
           <PageHeader
             actions={<Button label={t('agent.new')} onClick={() => setIsCreating(true)} size="sm" variant="primary" />}
             count={agents.length}
+            hasIntroduction
             description={t('agent.subtitle')}
             title={t('agent.title')}
           />

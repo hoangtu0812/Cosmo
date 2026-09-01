@@ -37,6 +37,7 @@ export default function WorkflowPage() {
         <PageHeader
           actions={<Button isDisabled label={t('workflow.new')} size="sm" variant="primary" />}
           count={0}
+          hasIntroduction
           description={t('workflow.subtitle')}
           title={t('nav.workflow')}
         />

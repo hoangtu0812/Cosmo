@@ -230,7 +230,7 @@ export default function KnowledgePage() {
               </HStack>
 
 				{loading ? (
-					<Grid columns={{minWidth: 280, max: 3}} gap={4} width="100%">
+					<Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
 						{[0, 1, 2].map((index) => (
 							<Card key={index} padding={4} width="100%">
 								<VStack gap={3}>
@@ -250,7 +250,7 @@ export default function KnowledgePage() {
 						title={query ? 'Không tìm thấy kết quả' : t('kb.title')}
 					/>
 				) : (
-					<Grid columns={{minWidth: 280, max: 3}} gap={4} width="100%">
+					<Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
 						{visibleBases.map((base) => (
 							<KnowledgeCard
 								base={base}
@@ -278,7 +278,7 @@ export default function KnowledgePage() {
 							<TextInput label={t('kb.name')} onChange={setNewName} value={newName} width="100%" />
 						</HStack>
 						<TextArea label={t('kb.description')} maxLength={500} onChange={setNewDescription} rows={4} value={newDescription} width="100%" />
-						<TextInput label="Tags" onChange={setNewTags} placeholder="quy trình, vận hành, an toàn" value={newTags} width="100%" />
+						<TextInput label={t('kb.tags')} onChange={setNewTags} placeholder={t('kb.tagsHint')} value={newTags} width="100%" />
               </VStack>
             </LayoutContent>
           }

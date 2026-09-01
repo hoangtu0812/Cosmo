@@ -198,7 +198,7 @@ function AgentsView() {
               ) : visible.length === 0 ? (
                 <Text color="secondary" type="supporting">{t('agent.noMatch')}</Text>
               ) : (
-                <Grid columns={{minWidth: 220, max: 5}} gap={4} width="100%">
+                <Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
                   {visible.map((agent) => (
                     // Portrait card, as the reference has it: the face on a band
                     // of its own, then the name, then what the agent is for.

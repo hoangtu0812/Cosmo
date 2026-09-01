@@ -23,6 +23,7 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Tool | `/tools` | Credential Vault, HTTP/OpenAPI tool, egress allowlist | 2 |
 | Skill | `/skills` | Skill registry, dependency lên Tool | 2 |
 | Quan sát | `/observability` | Telemetry token/cost/latency, trace, dashboard | 5 |
+| Giới thiệu khu vực | Header các trang | Nội dung hướng dẫn từng khu | chưa xếp |
 
 ## Chat
 

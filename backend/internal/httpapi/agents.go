@@ -26,7 +26,24 @@ const (
 	// A memory rides along on every turn, so it is capped to keep it from
 	// crowding out the conversation it is meant to support.
 	maxAgentMemoryRunes = 2000
+
+	// Three is what the Experience tab promises the reader.
+	maxAgentSuggestions = 3
 )
+
+// suggestionInstruction asks for bare questions, one per line. The reply is
+// split on newlines and anything that does not look like a question is
+// dropped, so a model that adds a preamble degrades to fewer suggestions
+// rather than putting prose in a button.
+const suggestionInstruction = `Dựa trên đoạn hội thoại dưới đây, hãy đề xuất 3 câu hỏi tiếp theo mà người dùng có thể muốn hỏi.
+Mỗi câu một dòng, không đánh số, không thêm lời dẫn, không dùng dấu gạch đầu dòng.
+Viết bằng ngôn ngữ mà người dùng đang dùng.
+
+Người dùng hỏi:
+%s
+
+Agent trả lời:
+%s`
 
 // agentMemoryHeader introduces the memory where it is injected into a turn.
 const agentMemoryHeader = `Điều đã biết về người dùng này:
@@ -558,4 +575,37 @@ func (s *Server) rememberExchange(agentID, userID, question, answer string, mode
 		agentID, userID, updated); err != nil {
 		s.logger.Error("save agent memory", "agent_id", agentID, "error", err)
 	}
+}
+
+// suggestFollowUps proposes what the reader might ask next. It runs inside the
+// request, because the suggestions are part of the reply the reader is waiting
+// on, but under a short timeout: a slow suggestion pass must not hold up a
+// turn that has already been answered, so it gives up and returns nothing.
+func (s *Server) suggestFollowUps(ctx context.Context, question, answer string, models *modelgateway.Client, options modelgateway.Options) []string {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+
+	reply, err := models.Complete(ctx, []modelgateway.Message{
+		{Role: "user", Content: fmt.Sprintf(suggestionInstruction, question, answer)},
+	}, options)
+	if err != nil {
+		s.logger.Error("suggest follow-up questions", "error", err)
+		return nil
+	}
+
+	suggestions := []string{}
+	for _, line := range strings.Split(reply, "\n") {
+		line = strings.TrimSpace(line)
+		// Strip the bullet or number a model adds despite being asked not to.
+		line = strings.TrimLeft(line, "-*• 0123456789.)")
+		line = strings.TrimSpace(line)
+		if line == "" || len([]rune(line)) > 200 {
+			continue
+		}
+		suggestions = append(suggestions, line)
+		if len(suggestions) == maxAgentSuggestions {
+			break
+		}
+	}
+	return suggestions
 }

@@ -328,6 +328,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [streamed, setStreamed] = useState('');
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState('');
 
@@ -349,6 +350,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     if (!id || id === conversationID) return;
     setConversationID(id);
     setStreamed('');
+    setSuggestions([]);
     setChatError('');
     try {
       const loaded = await api.messages(id);
@@ -366,6 +368,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       setConversationID(result.conversation.id);
       setMessages([]);
       setStreamed('');
+      setSuggestions([]);
     } catch (caught) {
       setChatError(caught instanceof Error ? caught.message : t('agent.chatFailed'));
     }
@@ -378,6 +381,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     setIsSending(true);
     setDraft('');
     setStreamed('');
+    setSuggestions([]);
     try {
       let target = conversationID;
       if (!target) {
@@ -389,6 +393,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       setMessages((current) => [...current, {id: `local_${Date.now()}`, conversation_id: target, role: 'user', content, created_at: new Date().toISOString()} as Message]);
       await streamChat(target, content, {}, {
         onDelta: (delta) => setStreamed((current) => current + delta),
+        onSuggestions: (data) => setSuggestions(data.questions),
         onDone: (data) => {
           setMessages((current) => [...current, data.message]);
           setStreamed('');
@@ -440,6 +445,13 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
               <Text type="body">{streamed}</Text>
             </VStack>
           </Card>
+        ) : null}
+        {suggestions.length > 0 && !isSending ? (
+          <VStack gap={2} width="100%">
+            {suggestions.map((question) => (
+              <Button key={question} label={question} onClick={() => setDraft(question)} size="sm" variant="secondary" />
+            ))}
+          </VStack>
         ) : null}
         {agent.preset_questions.length > 0 && messages.length === 0 ? (
           <VStack gap={2} width="100%">

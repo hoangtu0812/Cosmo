@@ -704,12 +704,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// former, which is what keeps its retrieval workspace-wide.
 	models := s.modelsFor(r.Context(), conversationWorkspaceID)
 	var agentKnowledge []string
-	var agentRemembers bool
+	var agentRemembers, agentSuggests bool
 	if conversationAgentID != "" {
 		if agent, err := s.loadAgentForRun(r.Context(), conversationAgentID); err == nil {
 			models = s.modelsWith(r.Context(), conversationWorkspaceID, agent.SystemPrompt, agent.Model)
 			agentKnowledge = agent.KnowledgeBaseIDs
 			agentRemembers = agent.IsMemoryEnabled
+			agentSuggests = agent.HasSuggestedQuestions
 		} else {
 			s.logger.Error("load agent for conversation", "conversation_id", conversationID, "agent_id", conversationAgentID, "error", err)
 		}
@@ -849,6 +850,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeSSE(w, "error", map[string]string{"message": "Câu trả lời đã hoàn tất nhưng chưa thể lưu lịch sử."})
 		flusher.Flush()
 		return
+	}
+	// Suggestions come after the answer is saved, so a failure here can never
+	// cost the reader the reply itself.
+	if agentSuggests {
+		if followUps := s.suggestFollowUps(r.Context(), input.Content, assistantMessage.Content, models, options); len(followUps) > 0 {
+			writeSSE(w, "suggestions", map[string]any{"questions": followUps})
+			flusher.Flush()
+		}
 	}
 	writeSSE(w, "done", map[string]any{"message": assistantMessage})
 	flusher.Flush()

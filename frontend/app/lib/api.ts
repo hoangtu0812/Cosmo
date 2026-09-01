@@ -280,6 +280,7 @@ export async function streamChat(
     onMeta?: (data: {assistant_message_id: string; model: string; citations: Citation[]}) => void;
     onSources?: (data: {citations: Citation[]}) => void;
     onStatus?: (data: {stage: string; message: string}) => void;
+    onSuggestions?: (data: {questions: string[]}) => void;
     onDelta: (content: string) => void;
     onDone?: (data: {message: Message}) => void;
   },
@@ -315,6 +316,7 @@ export async function streamChat(
       if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; citations: Citation[]});
       if (event === 'sources') handlers.onSources?.(data as {citations: Citation[]});
       if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string});
+      if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
       if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
       if (event === 'done') handlers.onDone?.(data as {message: Message});
       if (event === 'error') throw new APIError(String(data.message ?? 'Model Gateway không phản hồi.'), 502);

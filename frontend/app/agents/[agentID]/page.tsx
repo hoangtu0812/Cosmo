@@ -18,7 +18,7 @@ import {Divider} from '@astryxdesign/core/Divider';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {Agent, AgentUpdate, api, KnowledgeBase, Message, streamChat} from '../../lib/api';
+import {Agent, AgentUpdate, api, Conversation, KnowledgeBase, Message, streamChat} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 const MAX_KNOWLEDGE_BASES = 5;
@@ -323,6 +323,7 @@ export default function AgentEditorPage() {
 // reaches the model through the very endpoint the general chat uses, so a
 // reply here goes through the same retrieval, citations and streaming.
 function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<typeof useTranslation>; workspaceID: string}) {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationID, setConversationID] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
@@ -333,6 +334,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   useEffect(() => {
     api.agentConversations(agent.id, workspaceID)
       .then((result) => {
+        setConversations(result.conversations);
         const latest = result.conversations[0];
         if (!latest) return;
         setConversationID(latest.id);
@@ -341,12 +343,29 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       .catch(() => undefined);
   }, [agent.id, workspaceID]);
 
+  // Switching conversation replaces the transcript wholesale, and drops any
+  // half-streamed reply so text from the previous one cannot bleed into it.
+  async function openConversation(id: string) {
+    if (!id || id === conversationID) return;
+    setConversationID(id);
+    setStreamed('');
+    setChatError('');
+    try {
+      const loaded = await api.messages(id);
+      setMessages(loaded.messages);
+    } catch (caught) {
+      setChatError(caught instanceof Error ? caught.message : t('agent.chatFailed'));
+    }
+  }
+
   async function startNew() {
     setChatError('');
     try {
       const result = await api.startAgentConversation(agent.id, workspaceID);
+      setConversations((current) => [result.conversation, ...current]);
       setConversationID(result.conversation.id);
       setMessages([]);
+      setStreamed('');
     } catch (caught) {
       setChatError(caught instanceof Error ? caught.message : t('agent.chatFailed'));
     }
@@ -364,6 +383,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       if (!target) {
         const started = await api.startAgentConversation(agent.id, workspaceID);
         target = started.conversation.id;
+        setConversations((current) => [started.conversation, ...current]);
         setConversationID(target);
       }
       setMessages((current) => [...current, {id: `local_${Date.now()}`, conversation_id: target, role: 'user', content, created_at: new Date().toISOString()} as Message]);
@@ -387,6 +407,17 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
         <Text type="label" weight="semibold">{t('agent.chat')}</Text>
         <Button icon={<Plus size={14} />} label={t('agent.chatNew')} onClick={() => void startNew()} size="sm" variant="ghost" />
       </HStack>
+      {conversations.length > 0 ? (
+        <Selector
+          isLabelHidden
+          label={t('agent.chatHistory')}
+          onChange={(value) => void openConversation(value)}
+          options={conversations.map((item) => ({label: item.title, value: item.id}))}
+          size="sm"
+          value={conversationID}
+          width="100%"
+        />
+      ) : null}
       <Divider />
       {!agent.model ? <Banner status="warning" title={t('agent.chatNoModel')} /> : null}
       {chatError ? <Banner isDismissable onDismiss={() => setChatError('')} status="error" title={chatError} /> : null}

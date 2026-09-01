@@ -88,3 +88,21 @@ func TestDecodeStringListNeverNil(t *testing.T) {
 		t.Fatalf("valid json should decode, got %#v", got)
 	}
 }
+
+func TestCapChangelog(t *testing.T) {
+	if got := CapChangelog("  ghi chu  "); got != "ghi chu" {
+		t.Fatalf("a note should be trimmed, got %q", got)
+	}
+	// Counted by rune, so a Vietnamese note at the limit survives whole
+	// rather than being cut short by its byte length.
+	full := strings.Repeat("ế", MaxChangelogRunes)
+	if got := CapChangelog(full); len([]rune(got)) != MaxChangelogRunes {
+		t.Fatalf("a note at the limit should pass, got %d runes", len([]rune(got)))
+	}
+	if got := CapChangelog(strings.Repeat("ế", MaxChangelogRunes+50)); len([]rune(got)) != MaxChangelogRunes {
+		t.Fatalf("an overlong note should be cut to the limit, got %d runes", len([]rune(got)))
+	}
+	if got := CapChangelog("   "); got != "" {
+		t.Fatalf("a blank note should become empty, got %q", got)
+	}
+}

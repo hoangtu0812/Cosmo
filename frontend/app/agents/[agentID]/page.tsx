@@ -9,7 +9,8 @@ import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Switch} from '@astryxdesign/core/Switch';
 import {Tab, TabList} from '@astryxdesign/core/TabList';
@@ -71,6 +72,8 @@ function AgentEditorView() {
   // whether anything is still unsent and the timer restarts on every edit.
   const [isDirty, setIsDirty] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isPublishOpen, setIsPublishOpen] = useState(false);
+  const [changelog, setChangelog] = useState('');
   const [isStale, setIsStale] = useState(false);
   const latest = useRef<Agent | null>(null);
   latest.current = agent;
@@ -131,13 +134,15 @@ function AgentEditorView() {
       // Anything unsent is written first, so what gets frozen is what is on
       // screen rather than the last autosave.
       if (isDirty) await saveDraft();
-      const result = await api.publishAgent(agent.id, '', workspaceID);
+      const result = await api.publishAgent(agent.id, changelog.trim(), workspaceID);
       setAgent((live) => live ? {
         ...live,
         published_version: result.agent.published_version,
         published_version_id: result.agent.published_version_id,
         has_unpublished_changes: result.agent.has_unpublished_changes,
       } : live);
+      setIsPublishOpen(false);
+      setChangelog('');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('agent.publishFailed'));
     } finally {
@@ -173,6 +178,7 @@ function AgentEditorView() {
   const isAtKnowledgeLimit = agent.knowledge_base_ids.length >= MAX_KNOWLEDGE_BASES;
 
   return (
+    <>
     <Layout
       contentWidth={960}
       header={
@@ -191,7 +197,7 @@ function AgentEditorView() {
                     isDisabled={!agent.has_unpublished_changes || isStale}
                     isLoading={isPublishing}
                     label={t('agent.publish')}
-                    onClick={() => void publish()}
+                    onClick={() => setIsPublishOpen(true)}
                     size="sm"
                     variant="primary"
                   />
@@ -395,6 +401,41 @@ function AgentEditorView() {
         </LayoutContent>
       }
     />
+
+    <Dialog isOpen={isPublishOpen} onOpenChange={setIsPublishOpen} purpose="form">
+      <Layout
+        content={
+          <LayoutContent>
+            <VStack gap={3}>
+              <Text color="secondary" type="supporting">
+                {agent.published_version > 0
+                  ? t('agent.publishFrom', {version: String(agent.published_version)})
+                  : t('agent.publishFirst')}
+              </Text>
+              <TextArea
+                label={t('agent.changelog')}
+                maxLength={500}
+                onChange={setChangelog}
+                placeholder={t('agent.changelogPlaceholder')}
+                rows={4}
+                value={changelog}
+                width="100%"
+              />
+            </VStack>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter>
+            <HStack gap={2} hAlign="end">
+              <Button label={t('common.cancel')} onClick={() => setIsPublishOpen(false)} variant="secondary" />
+              <Button isLoading={isPublishing} label={t('agent.publish')} onClick={() => void publish()} variant="primary" />
+            </HStack>
+          </LayoutFooter>
+        }
+        header={<DialogHeader onOpenChange={setIsPublishOpen} title={t('agent.publish')} />}
+      />
+    </Dialog>
+    </>
   );
 }
 

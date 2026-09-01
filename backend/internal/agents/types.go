@@ -19,6 +19,10 @@ const (
 	MaxNameRunes       = 120
 	MaxIntroRunes      = 512
 
+	// A changelog is a note about one publish, not a document. Capping it
+	// keeps a version row from growing without bound.
+	MaxChangelogRunes = 500
+
 	// A memory rides along on every turn, so it is capped to keep it from
 	// crowding out the conversation it is meant to support.
 	MaxMemoryRunes = 2000

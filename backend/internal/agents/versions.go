@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -18,6 +19,7 @@ import (
 // detached from the draft therefore stays part of what the published version
 // was, which is the whole point of a snapshot.
 func (repository *Repository) Publish(ctx context.Context, agentID, publishedBy, changelog string) (Version, error) {
+	changelog = CapChangelog(changelog)
 	transaction, err := repository.db.Begin(ctx)
 	if err != nil {
 		return Version{}, err
@@ -150,4 +152,15 @@ func (repository *Repository) PublishedVersionID(ctx context.Context, agentID st
 		return ""
 	}
 	return versionID
+}
+
+// CapChangelog trims a publish note and cuts it to the limit by rune, so a
+// Vietnamese note is not cut short by counting bytes. It is separate from
+// Publish so the rule can be tested without a database.
+func CapChangelog(changelog string) string {
+	changelog = strings.TrimSpace(changelog)
+	if len([]rune(changelog)) > MaxChangelogRunes {
+		changelog = string([]rune(changelog)[:MaxChangelogRunes])
+	}
+	return changelog
 }

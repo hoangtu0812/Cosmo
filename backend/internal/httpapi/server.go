@@ -910,7 +910,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	writeSSE(w, "status", map[string]string{"stage": "writing", "message": "Đang soạn câu trả lời…"})
 	flusher.Flush()
-	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options)})
+	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options), "run_id": chatRun.ID})
 	flusher.Flush()
 	var generationStep runs.Step
 	if runErr == nil {
@@ -951,7 +951,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if runErr == nil {
-		_, runErr = s.runs.TransitionStep(r.Context(), generationStep.ID, runs.Succeeded, map[string]any{"message_id": assistantMessage.ID, "citation_count": len(citations)}, "", "", "")
+		_, runErr = s.runs.TransitionStep(r.Context(), generationStep.ID, runs.Succeeded, map[string]any{"message_id": assistantMessage.ID, "citation_count": len(citations), "model": models.ResolveModel(options), "answer_chars": len([]rune(assistantMessage.Content))}, "", "", "")
 		if runErr == nil {
 			_, runErr = s.runs.Transition(r.Context(), chatRun.ID, runs.Succeeded, map[string]any{"message_id": assistantMessage.ID}, "", "")
 		}

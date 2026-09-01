@@ -396,7 +396,7 @@ export async function streamChat(
   content: string,
   options: ChatOptions,
   handlers: {
-    onMeta?: (data: {assistant_message_id: string; model: string}) => void;
+    onMeta?: (data: {assistant_message_id: string; model: string; run_id?: string}) => void;
     onStatus?: (data: {stage: string; message: string}) => void;
     onSuggestions?: (data: {questions: string[]}) => void;
     onDelta: (content: string) => void;
@@ -431,7 +431,7 @@ export async function streamChat(
       const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
       if (!event || !rawData) continue;
       const data = JSON.parse(rawData) as Record<string, unknown>;
-      if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string});
+      if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; run_id?: string});
       if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string});
       if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
       if (event === 'delta') handlers.onDelta(String(data.content ?? ''));

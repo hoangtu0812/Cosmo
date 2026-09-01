@@ -16,13 +16,15 @@ import {Switch} from '@astryxdesign/core/Switch';
 import {Tab, TabList} from '@astryxdesign/core/TabList';
 import {Text} from '@astryxdesign/core/Text';
 import {Card} from '@astryxdesign/core/Card';
+import {Item} from '@astryxdesign/core/Item';
+import {List} from '@astryxdesign/core/List';
 import {useEntryAnimation, useStreamingText} from '@astryxdesign/core/hooks';
 import {Divider} from '@astryxdesign/core/Divider';
 import {Markdown} from '@astryxdesign/core/Markdown';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {Agent, api, APIError, Conversation, KnowledgeBase, Message, streamChat} from '../../lib/api';
+import {Agent, AgentVersion, api, APIError, Conversation, KnowledgeBase, Message, RunStep, streamChat} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 const MAX_KNOWLEDGE_BASES = 5;
@@ -74,6 +76,8 @@ function AgentEditorView() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isPublishOpen, setIsPublishOpen] = useState(false);
   const [changelog, setChangelog] = useState('');
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [versions, setVersions] = useState<AgentVersion[]>([]);
   const [isStale, setIsStale] = useState(false);
   const latest = useRef<Agent | null>(null);
   latest.current = agent;
@@ -193,6 +197,17 @@ function AgentEditorView() {
                   ) : (
                     <Badge label={t('agent.publishedVersion', {version: String(agent.published_version)})} variant="neutral" />
                   )}
+                  <Button
+                    label={t('agent.versions')}
+                    onClick={() => {
+                      setIsHistoryOpen(true);
+                      api.agentVersions(agent.id, workspaceID)
+                        .then((result) => setVersions(result.versions))
+                        .catch(() => setVersions([]));
+                    }}
+                    size="sm"
+                    variant="ghost"
+                  />
                   <Button
                     isDisabled={!agent.has_unpublished_changes || isStale}
                     isLoading={isPublishing}
@@ -402,6 +417,33 @@ function AgentEditorView() {
       }
     />
 
+    <Dialog isOpen={isHistoryOpen} onOpenChange={setIsHistoryOpen} purpose="info">
+      <Layout
+        content={
+          <LayoutContent>
+            {versions.length === 0 ? (
+              <Text color="secondary" type="supporting">{t('agent.versionsEmpty')}</Text>
+            ) : (
+              <List>
+                {versions.map((version) => (
+                  <Item
+                    as="li"
+                    description={`${version.changelog || t('agent.versionNoChangelog')} · ${new Date(version.created_at).toLocaleString()}`}
+                    endContent={version.id === agent.published_version_id
+                      ? <Badge label={t('agent.versionCurrent')} variant="success" />
+                      : undefined}
+                    key={version.id}
+                    label={t('agent.publishedVersion', {version: String(version.version_number)})}
+                  />
+                ))}
+              </List>
+            )}
+          </LayoutContent>
+        }
+        header={<DialogHeader onOpenChange={setIsHistoryOpen} title={t('agent.versions')} />}
+      />
+    </Dialog>
+
     <Dialog isOpen={isPublishOpen} onOpenChange={setIsPublishOpen} purpose="form">
       <Layout
         content={
@@ -450,6 +492,24 @@ export default function AgentEditorPage() {
 }
 
 
+
+// stepDetail says what a step did, using only what the run actually records.
+// Duration comes from the step's own timestamps; token counts are absent
+// because nothing measures them yet.
+function stepDetail(step: RunStep, t: ReturnType<typeof useTranslation>): string {
+  const parts: string[] = [];
+  if (step.started_at && step.finished_at) {
+    const ms = new Date(step.finished_at).getTime() - new Date(step.started_at).getTime();
+    parts.push(t('agent.stepDuration', {ms: String(ms)}));
+  }
+  const output = step.output ?? {};
+  if (typeof output.passage_count === 'number') parts.push(t('agent.stepPassages', {count: String(output.passage_count)}));
+  if (typeof output.citation_count === 'number') parts.push(t('agent.stepCitations', {count: String(output.citation_count)}));
+  if (typeof output.model === 'string') parts.push(output.model);
+  if (step.error_code) parts.push(step.error_code);
+  return parts.join(' · ');
+}
+
 // The agent's own chat. It writes conversations stamped with the agent id, and
 // reaches the model through the very endpoint the general chat uses, so a
 // reply here goes through the same retrieval, citations and streaming.
@@ -460,8 +520,12 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   const [draft, setDraft] = useState('');
   const [streamed, setStreamed] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  // What the last turn actually did, read back from the run the chat recorded.
+  const [steps, setSteps] = useState<RunStep[]>([]);
+  const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState('');
+  const runID = useRef('');
   // Deltas arrive in bursts, which reads as stuttering. This decouples the
   // display rate from the arrival rate and advances on word and syntax
   // boundaries, so the markdown renderer never sees a half-written token.
@@ -529,12 +593,23 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       setMessages((current) => [...current, {id: `local_${Date.now()}`, conversation_id: target, role: 'user', content, created_at: new Date().toISOString()} as Message]);
       await streamChat(target, content, {}, {
         onDelta: (delta) => setStreamed((current) => current + delta),
+        onMeta: (data) => { if (data.run_id) runID.current = data.run_id; },
         onSuggestions: (data) => setSuggestions(data.questions),
         onDone: (data) => {
           setMessages((current) => [...current, data.message]);
           setStreamed('');
         },
       });
+      // Read after the reply, so inspecting never delays the answer.
+      if (runID.current) {
+        try {
+          const result = await api.runSteps(runID.current);
+          setSteps(result.steps);
+        } catch {
+          // The inspector is a convenience; failing to load it is not an error
+          // worth putting in front of someone who just got their answer.
+        }
+      }
     } catch (caught) {
       setChatError(caught instanceof Error ? caught.message : t('agent.chatFailed'));
     } finally {
@@ -602,6 +677,32 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
           </VStack>
         ) : null}
       </VStack>
+      {steps.length > 0 ? (
+        <VStack gap={2} width="100%">
+          <HStack gap={2} hAlign="between" vAlign="center">
+            <Text color="secondary" type="supporting">{t('agent.lastTurn')}</Text>
+            <Button
+              label={isInspectorOpen ? t('agent.hideDetail') : t('agent.showDetail')}
+              onClick={() => setIsInspectorOpen(!isInspectorOpen)}
+              size="sm"
+              variant="ghost"
+            />
+          </HStack>
+          {isInspectorOpen ? (
+            <List>
+              {steps.map((step) => (
+                <Item
+                  as="li"
+                  description={stepDetail(step, t)}
+                  endContent={<Badge label={step.status} variant={step.status === 'succeeded' ? 'success' : step.status === 'failed' ? 'error' : 'neutral'} />}
+                  key={step.id}
+                  label={step.name || step.type}
+                />
+              ))}
+            </List>
+          ) : null}
+        </VStack>
+      ) : null}
       <HStack gap={2} vAlign="end" width="100%">
         <TextArea
           isLabelHidden

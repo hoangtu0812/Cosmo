@@ -92,7 +92,7 @@ export default function Home() {
                     <span className="brand-symbol" aria-hidden="true">
                       <Image alt="" height={40} priority src="/cosmo-logo.png" width={40} />
                     </span>
-                    <Text type="label" weight="semibold">Cosmo</Text>
+                    <Text type="label">Cosmo</Text>
                   </HStack>
                   <Heading level={1} type="display-3">
                     {mode === 'signin' ? t('auth.welcome') : t('auth.create')}

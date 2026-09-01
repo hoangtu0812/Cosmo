@@ -14,6 +14,7 @@ import {Switch} from '@astryxdesign/core/Switch';
 import {Tab, TabList} from '@astryxdesign/core/TabList';
 import {Text} from '@astryxdesign/core/Text';
 import {Card} from '@astryxdesign/core/Card';
+import {useEntryAnimation, useStreamingText} from '@astryxdesign/core/hooks';
 import {Divider} from '@astryxdesign/core/Divider';
 import {Markdown} from '@astryxdesign/core/Markdown';
 import {TextArea} from '@astryxdesign/core/TextArea';
@@ -137,7 +138,7 @@ function AgentEditorView() {
                   variant="ghost"
                 />
                 <Avatar name={agent.avatar || agent.name} size="sm" />
-                <Text type="label" weight="semibold">{agent.name}</Text>
+                <Text type="label">{agent.name}</Text>
                 {savedAt > 0 && !isSaving ? <Text color="secondary" type="supporting">{t('agent.saved')}</Text> : null}
               </HStack>
             }
@@ -218,7 +219,7 @@ function AgentEditorView() {
                 />
                 <VStack gap={2}>
                   <HStack gap={2} hAlign="between" vAlign="center">
-                    <Text type="label" weight="semibold">{t('agent.knowledgeBases')}</Text>
+                    <Text type="label">{t('agent.knowledgeBases')}</Text>
                     <Text color="secondary" type="supporting">
                       {`${agent.knowledge_base_ids.length}/${MAX_KNOWLEDGE_BASES}`}
                     </Text>
@@ -261,7 +262,7 @@ function AgentEditorView() {
                 />
                 <VStack gap={2}>
                   <HStack gap={2} hAlign="between" vAlign="center">
-                    <Text type="label" weight="semibold">{t('agent.presetQuestions')}</Text>
+                    <Text type="label">{t('agent.presetQuestions')}</Text>
                     <Text color="secondary" type="supporting">{`${agent.preset_questions.length}/10`}</Text>
                   </HStack>
                   {agent.preset_questions.map((question, index) => (
@@ -332,6 +333,11 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState('');
+  // Deltas arrive in bursts, which reads as stuttering. This decouples the
+  // display rate from the arrival rate and advances on word and syntax
+  // boundaries, so the markdown renderer never sees a half-written token.
+  const revealed = useStreamingText(streamed, isSending);
+  const entry = useEntryAnimation('slideUp');
 
   useEffect(() => {
     api.agentConversations(agent.id, workspaceID)
@@ -410,7 +416,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   return (
     <VStack gap={3} height="100%" padding={4} width={420}>
       <HStack gap={2} hAlign="between" vAlign="center">
-        <Text type="label" weight="semibold">{t('agent.chat')}</Text>
+        <Text type="label">{t('agent.chat')}</Text>
         <Button icon={<Plus size={14} />} label={t('agent.chatNew')} onClick={() => void startNew()} size="sm" variant="ghost" />
       </HStack>
       {conversations.length > 0 ? (
@@ -432,7 +438,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
           <Card padding={3} width="100%"><Markdown headingLevelStart={3}>{agent.opening_line}</Markdown></Card>
         ) : null}
         {messages.map((message) => (
-          <Card key={message.id} padding={3} width="100%">
+          <Card key={message.id} padding={3} width="100%" xstyle={entry}>
             <VStack gap={1}>
               <Text color="secondary" type="supporting">{message.role === 'user' ? agent.owner_name || 'You' : agent.name}</Text>
               {message.role === 'assistant'
@@ -445,7 +451,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
           <Card padding={3} width="100%">
             <VStack gap={1}>
               <Text color="secondary" type="supporting">{agent.name}</Text>
-              <Markdown headingLevelStart={3} isStreaming>{streamed}</Markdown>
+              <Markdown headingLevelStart={3} isStreaming>{revealed}</Markdown>
             </VStack>
           </Card>
         ) : null}

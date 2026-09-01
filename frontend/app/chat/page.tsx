@@ -577,7 +577,7 @@ function CitationList({citations, showEmpty = false}: {citations: Citation[]; sh
   }
   return (
     <VStack gap={2}>
-      <Text type="label" weight="semibold">Nguồn Knowledge Base</Text>
+      <Text type="label">Nguồn Knowledge Base</Text>
       <List>
         {citations.map((citation) => (
           <Item

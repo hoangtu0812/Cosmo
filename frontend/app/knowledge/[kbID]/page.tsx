@@ -291,7 +291,7 @@ export default function KnowledgeDetailPage() {
                 ) : undefined
               }
               label={base?.name ?? ''}
-              startContent={<Text type="label" weight="semibold">{base?.name ?? ''}</Text>}
+              startContent={<Text type="label">{base?.name ?? ''}</Text>}
             />
           </LayoutHeader>
         }
@@ -451,7 +451,7 @@ function DocumentDetailPanel({
   return (
     <VStack gap={4}>
       <HStack hAlign="between" vAlign="center">
-        <Text type="large" weight="semibold">{document.title || document.filename}</Text>
+        <Text type="large">{document.title || document.filename}</Text>
         <IconButton icon={<X size={16} />} label="Đóng chi tiết" onClick={onClose} size="sm" variant="ghost" />
       </HStack>
       <Button
@@ -463,7 +463,7 @@ function DocumentDetailPanel({
       {isLoading ? <Text color="secondary">Đang tải chi tiết…</Text> : null}
       <Section dividers={['top', 'bottom']} padding={3}>
         <VStack gap={2}>
-          <Text type="label" weight="semibold">Metadata</Text>
+          <Text type="label">Metadata</Text>
           <List>
             <Item label="Tệp" description={document.filename} />
             <Item label="Loại" description={document.content_type || 'Không xác định'} />
@@ -474,7 +474,7 @@ function DocumentDetailPanel({
       </Section>
       <Section dividers={['bottom']} padding={3}>
         <VStack gap={2}>
-          <Text type="label" weight="semibold">Qdrant</Text>
+          <Text type="label">Qdrant</Text>
           <List>
             <Item label="Trạng thái" description={inspection?.indexed ? 'Đã lập chỉ mục' : 'Chưa có dữ liệu chỉ mục'} />
             <Item label="Chunks đã đọc" description={String(inspection?.total ?? 0)} />
@@ -484,7 +484,7 @@ function DocumentDetailPanel({
       </Section>
       <Section dividers={['bottom']} padding={3}>
         <VStack gap={2}>
-          <Text type="label" weight="semibold">Dữ liệu đã xử lý</Text>
+          <Text type="label">Dữ liệu đã xử lý</Text>
           {inspection?.chunks.length ? (
             <List>
               {inspection.chunks.map((chunk) => (

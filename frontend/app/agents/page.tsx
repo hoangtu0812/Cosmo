@@ -9,6 +9,7 @@ import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
+import {useEntryAnimation} from '@astryxdesign/core/hooks';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Grid} from '@astryxdesign/core/Grid';
@@ -56,6 +57,9 @@ function AgentsView() {
   const [newTags, setNewTags] = useState('');
   // Held until the agent exists: the upload endpoint needs an id to attach to.
   const [newAvatarFile, setNewAvatarFile] = useState<File | null>(null);
+  // Only animates cards inserted after the first paint, so arriving on the
+  // page stays still and a newly created agent is the thing that moves.
+  const entry = useEntryAnimation('scaleIn');
 
   const load = useCallback(() => {
     api.agents(workspaceID)
@@ -135,7 +139,7 @@ function AgentsView() {
             <Toolbar
               endContent={<Button label={t('agent.new')} onClick={() => setIsCreating(true)} size="sm" variant="primary" />}
               label={t('agent.title')}
-              startContent={<Text type="label" weight="semibold">{t('agent.title')}</Text>}
+              startContent={<Text type="label">{t('agent.title')}</Text>}
             />
           </LayoutHeader>
         }
@@ -153,13 +157,13 @@ function AgentsView() {
               ) : (
                 <Grid columns={{minWidth: 320, max: 3}} gap={4} width="100%">
                   {agents.map((agent) => (
-                    <Card key={agent.id} onClick={() => openAgent(agent)} width="100%">
+                    <Card key={agent.id} onClick={() => openAgent(agent)} width="100%" xstyle={entry}>
                       <VStack gap={3}>
                         <HStack gap={3} hAlign="between" vAlign="start">
                           <HStack gap={3} vAlign="center">
                             <Avatar name={agent.avatar || agent.name} size="md" />
                             <VStack gap={0}>
-                              <Text type="label" weight="semibold">{agent.name}</Text>
+                              <Text type="label">{agent.name}</Text>
                               <Text color="secondary" type="supporting">{agent.owner_name}</Text>
                             </VStack>
                           </HStack>
@@ -197,12 +201,12 @@ function AgentsView() {
             <LayoutContent>
               <VStack gap={4}>
                 <VStack gap={2}>
-                  <Text type="label" weight="semibold">{t('agent.type')}</Text>
+                  <Text type="label">{t('agent.type')}</Text>
                   <HStack gap={3} width="100%">
                     <SelectableCard isSelected label={t('agent.typePrompt')} onChange={() => undefined} width="100%">
                       <HStack gap={2} vAlign="center">
                         <Bot size={18} />
-                        <Text type="label" weight="semibold">{t('agent.typePrompt')}</Text>
+                        <Text type="label">{t('agent.typePrompt')}</Text>
                       </HStack>
                     </SelectableCard>
                     {/* Flow needs a workflow engine Cosmo does not have yet. It
@@ -218,7 +222,7 @@ function AgentsView() {
                       <VStack gap={1}>
                         <HStack gap={2} vAlign="center">
                           <Workflow size={18} />
-                          <Text type="label" weight="semibold">{t('agent.typeFlow')}</Text>
+                          <Text type="label">{t('agent.typeFlow')}</Text>
                         </HStack>
                         <Text color="secondary" type="supporting">{t('agent.typeFlowUnavailable')}</Text>
                       </VStack>

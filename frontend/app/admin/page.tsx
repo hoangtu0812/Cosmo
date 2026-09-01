@@ -295,7 +295,7 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
       </Card>
       {system && <Card width="100%">
         <VStack gap={4}>
-          <Text type="label" weight="semibold">{t('admin.gateway')}</Text>
+          <Text type="label">{t('admin.gateway')}</Text>
           <TextInput label={t('admin.gatewayBaseURL')} onChange={setGatewayBaseURL} value={gatewayBaseURL} />
           <TextInput label={system.system_gateway.has_api_key ? t('admin.gatewayKeyStored', {hint: system.system_gateway.api_key_hint ?? ''}) : t('admin.gatewayApiKey')} onChange={setGatewayAPIKey} placeholder="sk-..." type="password" value={gatewayAPIKey} />
           <HStack hAlign="end">
@@ -337,7 +337,7 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
       {system && <Card width="100%">
         <VStack gap={3}>
           <HStack hAlign="between" vAlign="center">
-            <Text type="label" weight="semibold">{t('admin.reindex')}</Text>
+            <Text type="label">{t('admin.reindex')}</Text>
             <Button isDisabled={isReindexing || indexStatus?.running || !system.system_gateway.configured} isLoading={isReindexing} label={t('admin.reindexAction')} onClick={() => setIsReindexDialogOpen(true)} variant="secondary" />
           </HStack>
           {indexStatus && indexStatus.total > 0 ? (

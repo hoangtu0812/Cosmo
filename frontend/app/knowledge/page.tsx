@@ -165,7 +165,7 @@ export default function KnowledgePage() {
             <Toolbar
               endContent={<Button label={t('kb.create')} onClick={() => setCreating(true)} size="sm" variant="primary" />}
               label={t('kb.title')}
-              startContent={<Text type="label" weight="semibold">{t('kb.title')}</Text>}
+              startContent={<Text type="label">{t('kb.title')}</Text>}
             />
           </LayoutHeader>
         }
@@ -175,7 +175,7 @@ export default function KnowledgePage() {
               {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
 
               <VStack gap={3}>
-                <Text type="label" weight="semibold">{t('kb.managed')}</Text>
+                <Text type="label">{t('kb.managed')}</Text>
                 {managed.length === 0 ? (
                   <Text color="secondary" type="supporting">{t('kb.managedEmpty')}</Text>
                 ) : (
@@ -196,7 +196,7 @@ export default function KnowledgePage() {
               <VStack gap={3}>
                 <HStack gap={3} hAlign="between" vAlign="center">
                   <VStack gap={0}>
-                    <Text type="label" weight="semibold">{t('kb.available')}</Text>
+                    <Text type="label">{t('kb.available')}</Text>
                     <Text color="secondary" type="supporting">{t('kb.workspaceScope', {name: workspace?.name ?? ''})}</Text>
                   </VStack>
                 </HStack>
@@ -381,7 +381,7 @@ function ShareDialog({base, directory, onClose, onError, onSaved}: {
               {visibility === 'selected' ? (
                 <Card padding={0} width="100%">
                   <Section dividers={['bottom']} padding={3}>
-                    <Text type="label" weight="semibold">{t('kb.sharedWorkspaces')}</Text>
+                    <Text type="label">{t('kb.sharedWorkspaces')}</Text>
                   </Section>
                   <Section padding={3}>
                     <CheckboxList

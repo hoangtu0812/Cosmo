@@ -350,7 +350,7 @@ function MemberSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: b
 
       <Card padding={0} width="100%">
         <Section dividers={['bottom']} padding={4}>
-          <Text type="label" weight="semibold">{t('members.list', {count: members.length})}</Text>
+          <Text type="label">{t('members.list', {count: members.length})}</Text>
         </Section>
         <List>
           {members.map((member) => (
@@ -369,7 +369,7 @@ function MemberSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: b
       {canAdmin && invitations.length > 0 && (
         <Card padding={0} width="100%">
           <Section dividers={['bottom']} padding={4}>
-            <Text type="label" weight="semibold">{t('members.pending', {count: invitations.length})}</Text>
+            <Text type="label">{t('members.pending', {count: invitations.length})}</Text>
           </Section>
           <List>
             {invitations.map((invitation) => (
@@ -476,7 +476,7 @@ function WorkspaceSettings({onError, onNotice, onUpdated, workspace}: {
       {workspace && canEdit && (
         <Card padding={4} width="100%">
           <VStack gap={3}>
-            <Text type="label" weight="semibold">{t('workspace.identity')}</Text>
+            <Text type="label">{t('workspace.identity')}</Text>
             <HStack gap={3} vAlign="end">
               <Avatar
                 name={identityIcon || workspace.name}

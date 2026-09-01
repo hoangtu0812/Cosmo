@@ -272,7 +272,7 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
   useEffect(() => {
     if (isGatewayConfigured && savedBaseURL) loadGatewayModels(savedBaseURL, '');
   }, [isGatewayConfigured, savedBaseURL, loadGatewayModels]);
-  const rows = system ? [
+  const rows: [string, boolean][] = system ? [
     [t('admin.entra'), system.entra_enabled],
     [t('admin.gateway'), system.system_gateway.configured],
     [t('admin.knowledge'), system.knowledge_enabled],

@@ -4,6 +4,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {ArrowLeft, Building2, Copy, KeyRound, Trash2, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
+import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';

@@ -451,7 +451,7 @@ function DocumentDetailPanel({
   return (
     <VStack gap={4}>
       <HStack hAlign="between" vAlign="center">
-        <Text type="heading" weight="semibold">{document.title || document.filename}</Text>
+        <Text type="large" weight="semibold">{document.title || document.filename}</Text>
         <IconButton icon={<X size={16} />} label="Đóng chi tiết" onClick={onClose} size="sm" variant="ghost" />
       </HStack>
       <Button

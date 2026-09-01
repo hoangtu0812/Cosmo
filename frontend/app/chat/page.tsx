@@ -558,7 +558,7 @@ export default function ChatPage() {
           footer={
             <LayoutFooter>
               <HStack gap={2} hAlign="end">
-                <Button label={t('common.cancel')} onClick={closeCreateWorkspace} variant="secondary" />
+                <Button label={t('common.cancel')} onClick={() => closeCreateWorkspace()} variant="secondary" />
                 <Button isDisabled={!workspaceName.trim() || isCreatingWorkspace} isLoading={isCreatingWorkspace} label={t('workspace.create')} onClick={() => void createWorkspace()} variant="primary" />
               </HStack>
             </LayoutFooter>

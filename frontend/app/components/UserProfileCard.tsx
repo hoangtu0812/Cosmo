@@ -32,9 +32,9 @@ export function UserProfileCard({user}: {user: User}) {
       <Card padding={3} width="100%">
         <HStack gap={2} hAlign="between" vAlign="center">
           <Avatar name={user.name} size="md" src={user.has_avatar ? api.userAvatarURL() : undefined} />
-          <VStack gap={0} minWidth={0}>
-            <Text truncate type="label" weight="semibold">{user.name}</Text>
-            <Text color="secondary" truncate type="supporting">{user.email}</Text>
+          <VStack className="min-w-0" gap={0}>
+            <Text maxLines={1} type="label" weight="semibold">{user.name}</Text>
+            <Text color="secondary" maxLines={1} type="supporting">{user.email}</Text>
           </VStack>
           <MoreMenu
             items={[

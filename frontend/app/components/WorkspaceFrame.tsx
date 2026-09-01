@@ -118,8 +118,13 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
         >
           <SideNavSection isHeaderHidden title={t('chat.actions')}>
             <SideNavItem icon={<Icon icon={SquarePen} size="sm" />} isSelected={pathname === '/chat' && search.get('conversation') === 'new'} label={t('chat.newChat')} onClick={() => goTo('/chat')} />
-            <SideNavItem icon={<Icon icon={Library} size="sm" />} isSelected={pathname.startsWith('/knowledge')} label={t('kb.title')} onClick={() => goTo('/knowledge')} />
+          </SideNavSection>
+          {/* Agents and the knowledge they read belong together: building one
+              is the reason to open the other. They sit above Recent so a long
+              conversation list cannot push them out of view. */}
+          <SideNavSection title={t('nav.workspace')}>
             <SideNavItem icon={<Icon icon={Bot} size="sm" />} isSelected={pathname.startsWith('/agents')} label={t('agent.title')} onClick={() => goTo('/agents')} />
+            <SideNavItem icon={<Icon icon={Library} size="sm" />} isSelected={pathname.startsWith('/knowledge')} label={t('kb.title')} onClick={() => goTo('/knowledge')} />
           </SideNavSection>
           <SideNavSection title={t('chat.recent')}>
             {conversations.map((item) => (

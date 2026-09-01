@@ -156,7 +156,18 @@ export type KnowledgeDocumentDetail = {
 };
 export type Member = {user_id: string; email: string; name: string; role: string; joined_at: string};
 export type Invitation = {id: string; email: string; role: string; expires_at: string; created_at: string; invite_url?: string};
-export type Conversation = {id: string; workspace_id: string; agent_id?: string; title: string; created_at: string; updated_at: string};
+export type Conversation = {
+  id: string;
+  workspace_id: string;
+  agent_id?: string;
+  title: string;
+  // Empty when the conversation follows the draft rather than a frozen
+  // version, and version_number is then 0.
+  agent_version_id?: string;
+  version_number?: number;
+  created_at: string;
+  updated_at: string;
+};
 export type Citation = {index: number; kb_id: string; document_id: string; title: string; source: string; section?: string; page?: string};
 export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; created_at: string};
 export type RunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
@@ -291,8 +302,10 @@ export const api = {
   // so messages and streaming reuse the general chat endpoints untouched.
   agentConversations: (agentID: string, workspaceID?: string) =>
     request<{conversations: Conversation[]}>(`/api/agents/${encodeURIComponent(agentID)}/conversations${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
-  startAgentConversation: (agentID: string, workspaceID?: string) =>
-    request<{conversation: Conversation}>(`/api/agents/${encodeURIComponent(agentID)}/conversations${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
+  // target 'draft' follows the working copy, which is what the editor's debug
+  // panel wants; omitting it pins the conversation to the published version.
+  startAgentConversation: (agentID: string, target: 'draft' | 'published', workspaceID?: string) =>
+    request<{conversation: Conversation}>(`/api/agents/${encodeURIComponent(agentID)}/conversations${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({target})}),
   agentAvatarURL: (agentID: string, workspaceID?: string) =>
     `${API_BASE}/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
   uploadAgentAvatar: (agentID: string, mime: string, data: string, workspaceID?: string) =>

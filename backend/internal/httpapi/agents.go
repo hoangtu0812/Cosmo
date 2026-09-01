@@ -209,7 +209,23 @@ func (s *Server) startAgentConversation(w http.ResponseWriter, r *http.Request) 
 		writeAgentError(w, err)
 		return
 	}
-	conversation, err := s.agents.StartConversation(r.Context(), agentID, user.ID, workspaceID, agent.Name)
+	var input struct {
+		// "draft" follows the working copy; anything else pins to what is
+		// published. The default is deliberately the published version: a
+		// caller that forgets to choose gets the stable configuration rather
+		// than one that changes under its readers.
+		Target string `json:"target"`
+	}
+	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
+		return
+	}
+	versionID := ""
+	if input.Target != "draft" {
+		// Empty when the agent has never been published, which leaves the
+		// conversation on the draft because there is nothing else to run.
+		versionID = s.agents.PublishedVersionID(r.Context(), agentID)
+	}
+	conversation, err := s.agents.StartConversation(r.Context(), agentID, user.ID, workspaceID, agent.Name, versionID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tạo hội thoại.")
 		return

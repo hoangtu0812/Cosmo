@@ -293,7 +293,7 @@ export default function ChatPage() {
     let targetID = conversationID;
     if (!targetID) {
       const result = selectedAgentID
-        ? await api.startAgentConversation(selectedAgentID, workspace.id)
+        ? await api.startAgentConversation(selectedAgentID, 'published', workspace.id)
         : await api.createConversation(workspace.id, trimmed.slice(0, 100));
       targetID = result.conversation.id;
       // The optimistic bubbles below are the freshest view of this

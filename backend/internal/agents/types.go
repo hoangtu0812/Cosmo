@@ -126,11 +126,15 @@ type Version struct {
 // Conversation is an agent's own chat history, kept in the same table the
 // general chat uses and told apart by the agent id stamped on it.
 type Conversation struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	Title       string    `json:"title"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	Title       string `json:"title"`
+	// Empty means the conversation follows the draft rather than a frozen
+	// version, and VersionNumber is then 0.
+	AgentVersionID string    `json:"agent_version_id"`
+	VersionNumber  int       `json:"version_number"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Runtime is the configuration a conversation actually runs on: only the

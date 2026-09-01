@@ -714,8 +714,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
-	var conversationWorkspaceID, conversationAgentID string
-	if err := s.db.QueryRow(r.Context(), `SELECT workspace_id, COALESCE(agent_id, '') FROM conversations WHERE id = $1`, conversationID).Scan(&conversationWorkspaceID, &conversationAgentID); err != nil {
+	var conversationWorkspaceID, conversationAgentID, conversationVersionID string
+	if err := s.db.QueryRow(r.Context(), `
+		SELECT workspace_id, COALESCE(agent_id, ''), COALESCE(agent_version_id, '')
+		FROM conversations WHERE id = $1`, conversationID).Scan(
+		&conversationWorkspaceID, &conversationAgentID, &conversationVersionID); err != nil {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
@@ -727,7 +730,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	var agentKnowledge []string
 	var agentRemembers, agentSuggests bool
 	if conversationAgentID != "" {
-		agent, err := s.agents.Runtime(r.Context(), conversationAgentID)
+		// A conversation pinned to a version keeps answering from that frozen
+		// snapshot; one with no pin is a draft conversation, which is what the
+		// editor's own debug panel wants so a change can be tried before it is
+		// published.
+		agent, err := s.agentRuntime(r.Context(), conversationAgentID, conversationVersionID)
 		if err != nil {
 			s.logger.Error("load agent for conversation", "conversation_id", conversationID, "agent_id", conversationAgentID, "error", err)
 			writeError(w, http.StatusConflict, "Agent không còn khả dụng trong workspace này.")
@@ -1141,4 +1148,13 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func writeSSE(w http.ResponseWriter, event string, value any) {
 	data, _ := json.Marshal(value)
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+}
+
+// agentRuntime resolves what a conversation runs on. An empty version means
+// the draft, which is the live configuration rather than a snapshot.
+func (s *Server) agentRuntime(ctx context.Context, agentID, versionID string) (agents.Runtime, error) {
+	if versionID != "" {
+		return s.agents.RuntimeForVersion(ctx, versionID)
+	}
+	return s.agents.Runtime(ctx, agentID)
 }

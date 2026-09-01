@@ -351,10 +351,12 @@ func (repository *Repository) Runtime(ctx context.Context, agentID string) (Runt
 // sharing a list.
 func (repository *Repository) Conversations(ctx context.Context, agentID, userID, workspaceID string) ([]Conversation, error) {
 	rows, err := repository.db.Query(ctx, `
-		SELECT id, workspace_id, title, created_at, updated_at
-		FROM conversations
-		WHERE user_id = $1 AND workspace_id = $2 AND agent_id = $3
-		ORDER BY updated_at DESC LIMIT 100`, userID, workspaceID, agentID)
+		SELECT c.id, c.workspace_id, c.title, COALESCE(c.agent_version_id, ''),
+			COALESCE(v.version_number, 0), c.created_at, c.updated_at
+		FROM conversations c
+		LEFT JOIN agent_versions v ON v.id = c.agent_version_id
+		WHERE c.user_id = $1 AND c.workspace_id = $2 AND c.agent_id = $3
+		ORDER BY c.updated_at DESC LIMIT 100`, userID, workspaceID, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -362,21 +364,31 @@ func (repository *Repository) Conversations(ctx context.Context, agentID, userID
 	items := []Conversation{}
 	for rows.Next() {
 		var item Conversation
-		if rows.Scan(&item.ID, &item.WorkspaceID, &item.Title, &item.CreatedAt, &item.UpdatedAt) == nil {
+		if rows.Scan(&item.ID, &item.WorkspaceID, &item.Title, &item.AgentVersionID,
+			&item.VersionNumber, &item.CreatedAt, &item.UpdatedAt) == nil {
 			items = append(items, item)
 		}
 	}
 	return items, rows.Err()
 }
 
-func (repository *Repository) StartConversation(ctx context.Context, agentID, userID, workspaceID, title string) (Conversation, error) {
+// StartConversation pins the conversation to a version. An empty versionID
+// pins it to nothing, which means it follows the draft - what the editor's
+// debug panel wants, so a change can be tried before it is published.
+func (repository *Repository) StartConversation(ctx context.Context, agentID, userID, workspaceID, title, versionID string) (Conversation, error) {
 	conversationID := newID("cnv_")
+	// An empty string is not a version id, and the column is a foreign key, so
+	// it has to go in as NULL rather than as ''.
+	var pinned any
+	if versionID != "" {
+		pinned = versionID
+	}
 	if _, err := repository.db.Exec(ctx, `
-		INSERT INTO conversations(id, user_id, workspace_id, title, agent_id)
-		VALUES($1, $2, $3, $4, $5)`, conversationID, userID, workspaceID, title, agentID); err != nil {
+		INSERT INTO conversations(id, user_id, workspace_id, title, agent_id, agent_version_id)
+		VALUES($1, $2, $3, $4, $5, $6)`, conversationID, userID, workspaceID, title, agentID, pinned); err != nil {
 		return Conversation{}, err
 	}
-	return Conversation{ID: conversationID, WorkspaceID: workspaceID, Title: title}, nil
+	return Conversation{ID: conversationID, WorkspaceID: workspaceID, Title: title, AgentVersionID: versionID}, nil
 }
 
 func (repository *Repository) Avatar(ctx context.Context, agentID string) ([]byte, string, error) {

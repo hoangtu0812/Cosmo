@@ -499,7 +499,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   async function startNew() {
     setChatError('');
     try {
-      const result = await api.startAgentConversation(agent.id, workspaceID);
+      const result = await api.startAgentConversation(agent.id, 'draft', workspaceID);
       setConversations((current) => [result.conversation, ...current]);
       setConversationID(result.conversation.id);
       setMessages([]);
@@ -521,7 +521,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     try {
       let target = conversationID;
       if (!target) {
-        const started = await api.startAgentConversation(agent.id, workspaceID);
+        const started = await api.startAgentConversation(agent.id, 'draft', workspaceID);
         target = started.conversation.id;
         setConversations((current) => [started.conversation, ...current]);
         setConversationID(target);
@@ -545,7 +545,10 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   return (
     <VStack gap={3} height="100%" padding={4} width={420}>
       <HStack gap={2} hAlign="between" vAlign="center">
-        <Text type="label">{t('agent.chat')}</Text>
+        <HStack gap={2} vAlign="center">
+          <Text type="label">{t('agent.chat')}</Text>
+          <Badge label={t('agent.runsDraft')} variant="neutral" />
+        </HStack>
         <Button icon={<Plus size={14} />} label={t('agent.chatNew')} onClick={() => void startNew()} size="sm" variant="ghost" />
       </HStack>
       {conversations.length > 0 ? (

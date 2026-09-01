@@ -263,6 +263,41 @@ var migrations = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_knowledge_retrieval_log_created ON knowledge_retrieval_log(created_at DESC)`,
+	// ---------------------------------------------------------------- agents
+	// An agent is a named, reusable configuration of the chat: a system prompt,
+	// the model that runs it, the knowledge it may read and the opening a
+	// reader sees. It lives in the workspace it was made in; visibility decides
+	// whether the rest of that workspace sees it or only its author.
+	`CREATE TABLE IF NOT EXISTS agents (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		introduction TEXT NOT NULL DEFAULT '',
+		avatar TEXT NOT NULL DEFAULT '',
+		tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+		owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+		owner_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		visibility TEXT NOT NULL DEFAULT 'private',
+		model TEXT NOT NULL DEFAULT '',
+		system_prompt TEXT NOT NULL DEFAULT '',
+		opening_line TEXT NOT NULL DEFAULT '',
+		preset_questions JSONB NOT NULL DEFAULT '[]'::jsonb,
+		has_suggested_questions BOOLEAN NOT NULL DEFAULT FALSE,
+		is_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_agents_workspace ON agents(owner_workspace_id)`,
+	// Which knowledge bases an agent may read. Its own table, so deleting a
+	// base withdraws it from every agent that read it.
+	`CREATE TABLE IF NOT EXISTS agent_knowledge_bases (
+		agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+		kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (agent_id, kb_id)
+	)`,
+	// A conversation remembers the agent it was started with, so reopening it
+	// keeps answering as that agent rather than the workspace default.
+	`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL`,
 }
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

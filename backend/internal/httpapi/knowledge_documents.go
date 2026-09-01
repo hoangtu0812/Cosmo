@@ -492,6 +492,16 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 // passed explicitly. Retrieval never starts from "everything" and narrows
 // afterwards: unauthorised chunks are not read, not scored and not logged.
 func (s *Server) retrievalContext(ctx context.Context, workspaceID, query string) ([]knowledgePassage, error) {
+	return s.retrievalContextFor(ctx, workspaceID, query, nil)
+}
+
+// retrievalContextFor is the same search narrowed to a chosen set of bases - an
+// agent's reading list. Narrowing is all it can do: the workspace conditions
+// below are applied first, so naming a base the workspace has not installed
+// selects nothing rather than reaching outside the workspace. A non-nil but
+// empty list therefore means "this agent reads no knowledge", which is
+// different from nil, meaning "everything the workspace installed".
+func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query string, only []string) ([]knowledgePassage, error) {
 	if s.knowledge == nil || strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
@@ -516,6 +526,19 @@ func (s *Server) retrievalContext(ctx context.Context, workspaceID, query string
 			return nil, err
 		}
 		kbIDs = append(kbIDs, id)
+	}
+	if only != nil {
+		chosen := make(map[string]bool, len(only))
+		for _, id := range only {
+			chosen[id] = true
+		}
+		narrowed := make([]string, 0, len(kbIDs))
+		for _, id := range kbIDs {
+			if chosen[id] {
+				narrowed = append(narrowed, id)
+			}
+		}
+		kbIDs = narrowed
 	}
 	if len(kbIDs) == 0 {
 		return nil, nil

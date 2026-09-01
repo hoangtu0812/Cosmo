@@ -137,7 +137,7 @@ const unpublishedSQL = `
 // knowledgeAccess reports the caller's role in their currently selected
 // workspace, or an empty string when that workspace cannot see the KB.
 func (s *Server) knowledgeAccess(ctx context.Context, userID, kbID string) string {
-	workspaceID := s.knowledgeWorkspace(ctx, userID, "")
+	workspaceID := s.memberWorkspace(ctx, userID, "")
 	if workspaceID == "" {
 		return ""
 	}
@@ -188,7 +188,7 @@ func (s *Server) listKnowledgeBases(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	// An optional workspace frames the answer: what is installed there, and
 	// whether an update is waiting.
-	workspaceID := s.knowledgeWorkspace(r.Context(), user.ID, r.URL.Query().Get("workspace"))
+	workspaceID := s.memberWorkspace(r.Context(), user.ID, r.URL.Query().Get("workspace"))
 	if workspaceID == "" {
 		writeError(w, http.StatusForbidden, "Bạn không có quyền truy cập workspace này.")
 		return
@@ -237,7 +237,7 @@ func (s *Server) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 
 	// A KB belongs to the workspace it is made in. Creating one changes shared
 	// workspace data, so only its administrators can do it.
-	workspaceID := s.knowledgeWorkspace(r.Context(), user.ID, input.WorkspaceID)
+	workspaceID := s.memberWorkspace(r.Context(), user.ID, input.WorkspaceID)
 	if workspaceID == "" || !s.isWorkspaceAdmin(r.Context(), user, workspaceID) {
 		writeError(w, http.StatusForbidden, "Bạn cần quyền quản trị workspace để tạo knowledge base.")
 		return
@@ -459,7 +459,7 @@ func (s *Server) publishKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) writeKnowledgeBase(w http.ResponseWriter, r *http.Request, kbID string, status int) {
 	user := currentUser(r.Context())
-	workspaceID := s.knowledgeWorkspace(r.Context(), user.ID, r.URL.Query().Get("workspace"))
+	workspaceID := s.memberWorkspace(r.Context(), user.ID, r.URL.Query().Get("workspace"))
 	item, err := scanKnowledgeBase(s.db.QueryRow(r.Context(), `
 		SELECT `+knowledgeColumns+`
 		FROM knowledge_bases kb LEFT JOIN users u ON u.id = kb.owner_user_id
@@ -600,10 +600,10 @@ func (s *Server) unmountKnowledge(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// knowledgeWorkspace resolves an explicitly framed workspace or the user's
+// memberWorkspace resolves an explicitly framed workspace or the user's
 // current workspace. It always verifies membership: a query parameter can
 // choose a context, but can never grant access to another workspace.
-func (s *Server) knowledgeWorkspace(ctx context.Context, userID, requested string) string {
+func (s *Server) memberWorkspace(ctx context.Context, userID, requested string) string {
 	workspaceID := strings.TrimSpace(requested)
 	if workspaceID == "" {
 		if err := s.db.QueryRow(ctx, `SELECT COALESCE(last_workspace_id, '') FROM users WHERE id = $1`, userID).Scan(&workspaceID); err != nil {

@@ -62,6 +62,46 @@ export type WorkspaceRef = {id: string; name: string};
 // mode is what the gateway says a model is for ('embedding', 'rerank', 'chat').
 // It is absent on gateways that do not report one.
 export type GatewayModel = {id: string; mode?: string};
+
+export type Agent = {
+  id: string;
+  name: string;
+  introduction: string;
+  avatar: string;
+  tags: string[];
+  owner_user_id: string;
+  owner_name: string;
+  workspace_id: string;
+  visibility: 'private' | 'workspace';
+  model: string;
+  system_prompt: string;
+  opening_line: string;
+  preset_questions: string[];
+  has_suggested_questions: boolean;
+  is_memory_enabled: boolean;
+  knowledge_base_ids: string[];
+  // Whether this viewer may edit the agent: its author, or a workspace admin.
+  is_editable: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+// Every field is optional so the editor can save one tab without resending the
+// rest; the server keeps what it is not sent.
+export type AgentUpdate = Partial<{
+  name: string;
+  introduction: string;
+  avatar: string;
+  tags: string[];
+  visibility: 'private' | 'workspace';
+  model: string;
+  system_prompt: string;
+  opening_line: string;
+  preset_questions: string[];
+  has_suggested_questions: boolean;
+  is_memory_enabled: boolean;
+  knowledge_base_ids: string[];
+}>;
 export type DocumentEvent = {id: number; stage: string; message: string; done: number; total: number; created_at: string};
 export type ProcessedDocumentChunk = {chunk_index: number; section: string; page: string; text: string};
 export type KnowledgeDocumentDetail = {
@@ -154,6 +194,22 @@ export const api = {
   deleteWorkspaceIcon: (workspaceID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'DELETE'}),
   workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
+  agents: (workspaceID?: string) =>
+    request<{agents: Agent[]}>(`/api/agents${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  agent: (agentID: string, workspaceID?: string) =>
+    request<{agent: Agent}>(`/api/agents/${encodeURIComponent(agentID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  createAgent: (body: {name: string; introduction: string; avatar: string; tags: string[]; visibility: string; workspace_id: string}) =>
+    request<{agent: Agent}>('/api/agents', {method: 'POST', body: JSON.stringify(body)}),
+  updateAgent: (agentID: string, body: AgentUpdate, workspaceID?: string) =>
+    request<{agent: Agent}>(`/api/agents/${encodeURIComponent(agentID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PATCH', body: JSON.stringify(body)}),
+  // An agent's conversations are ordinary conversations stamped with its id,
+  // so messages and streaming reuse the general chat endpoints untouched.
+  agentConversations: (agentID: string, workspaceID?: string) =>
+    request<{conversations: Conversation[]}>(`/api/agents/${encodeURIComponent(agentID)}/conversations${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  startAgentConversation: (agentID: string, workspaceID?: string) =>
+    request<{conversation: Conversation}>(`/api/agents/${encodeURIComponent(agentID)}/conversations${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
+  deleteAgent: (agentID: string, workspaceID?: string) =>
+    request<void>(`/api/agents/${encodeURIComponent(agentID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
   knowledgeBases: (workspaceID?: string) =>
     request<{knowledge_bases: KnowledgeBase[]}>(`/api/knowledge${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   createKnowledgeBase: (name: string, description: string, workspaceID: string) =>

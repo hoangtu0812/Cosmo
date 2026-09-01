@@ -193,6 +193,13 @@ func (s *Server) Router() http.Handler {
 		protected.Delete("/api/workspaces/{workspaceID}/invitations/{invitationID}", s.revokeInvitation)
 		protected.Post("/api/invitations/accept", s.acceptInvitation)
 
+		protected.Get("/api/agents", s.listAgents)
+		protected.Post("/api/agents", s.createAgent)
+		protected.Get("/api/agents/{agentID}", s.getAgent)
+		protected.Patch("/api/agents/{agentID}", s.updateAgent)
+		protected.Delete("/api/agents/{agentID}", s.deleteAgent)
+		protected.Get("/api/agents/{agentID}/conversations", s.listAgentConversations)
+		protected.Post("/api/agents/{agentID}/conversations", s.startAgentConversation)
 		protected.Get("/api/knowledge", s.listKnowledgeBases)
 		protected.Post("/api/knowledge", s.createKnowledgeBase)
 		protected.Patch("/api/knowledge/{kbID}", s.updateKnowledgeBase)
@@ -606,7 +613,10 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Bạn không có quyền truy cập workspace này.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id, workspace_id, title, created_at, updated_at FROM conversations WHERE user_id = $1 AND workspace_id = $2 ORDER BY updated_at DESC LIMIT 100`, user.ID, workspaceID)
+	// Chat is the general surface: its own conversations and knowledge ones.
+	// An agent keeps its conversations in its own place, so they are excluded
+	// here rather than filtered in the sidebar - the two lists never mix.
+	rows, err := s.db.Query(r.Context(), `SELECT id, workspace_id, title, created_at, updated_at FROM conversations WHERE user_id = $1 AND workspace_id = $2 AND agent_id IS NULL ORDER BY updated_at DESC LIMIT 100`, user.ID, workspaceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải hội thoại.")
 		return
@@ -683,12 +693,25 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
-	var conversationWorkspaceID string
-	if err := s.db.QueryRow(r.Context(), `SELECT workspace_id FROM conversations WHERE id = $1`, conversationID).Scan(&conversationWorkspaceID); err != nil {
+	var conversationWorkspaceID, conversationAgentID string
+	if err := s.db.QueryRow(r.Context(), `SELECT workspace_id, COALESCE(agent_id, '') FROM conversations WHERE id = $1`, conversationID).Scan(&conversationWorkspaceID, &conversationAgentID); err != nil {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
+	// One pipeline serves both doors. A plain conversation runs on the
+	// workspace defaults; one started from an agent runs on that agent's
+	// instructions, model and reading list. `agentKnowledge` stays nil for the
+	// former, which is what keeps its retrieval workspace-wide.
 	models := s.modelsFor(r.Context(), conversationWorkspaceID)
+	var agentKnowledge []string
+	if conversationAgentID != "" {
+		if agent, err := s.loadAgentForRun(r.Context(), conversationAgentID); err == nil {
+			models = s.modelsWith(r.Context(), conversationWorkspaceID, agent.SystemPrompt, agent.Model)
+			agentKnowledge = agent.KnowledgeBaseIDs
+		} else {
+			s.logger.Error("load agent for conversation", "conversation_id", conversationID, "agent_id", conversationAgentID, "error", err)
+		}
+	}
 	var input struct {
 		Content         string `json:"content"`
 		Model           string `json:"model"`
@@ -765,7 +788,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 	var citations []Citation
 	retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
-	passages, retrievalErr := s.retrievalContext(retrievalCtx, conversationWorkspaceID, input.Content)
+	passages, retrievalErr := s.retrievalContextFor(retrievalCtx, conversationWorkspaceID, input.Content, agentKnowledge)
 	cancelRetrieval()
 	if retrievalErr != nil {
 		s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)

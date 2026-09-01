@@ -84,6 +84,14 @@ func (s *Server) workspaceLLM(ctx context.Context, workspaceID string) (baseURL,
 // without their own settings fall back to the process-wide client from .env so
 // existing installations keep working.
 func (s *Server) modelsFor(ctx context.Context, workspaceID string) *modelgateway.Client {
+	return s.modelsWith(ctx, workspaceID, "", "")
+}
+
+// modelsWith is modelsFor with an agent's own instructions and model put in
+// front of the workspace defaults. Only the prompt and the model are the
+// agent's to choose: the gateway address and key stay the workspace's, so an
+// agent can never send its conversation somewhere else.
+func (s *Server) modelsWith(ctx context.Context, workspaceID, systemPrompt, defaultModel string) *modelgateway.Client {
 	baseURL, model, apiKey, _, _, err := s.workspaceLLM(ctx, workspaceID)
 	if err != nil {
 		s.logger.Error("read workspace model settings", "workspace_id", workspaceID, "error", err)
@@ -92,7 +100,14 @@ func (s *Server) modelsFor(ctx context.Context, workspaceID string) *modelgatewa
 	if baseURL == "" {
 		return s.models
 	}
-	return modelgateway.New(baseURL, apiKey, model, s.cfg.LLMSystemPrompt, s.cfg.LLMRequestTimeout)
+	if strings.TrimSpace(defaultModel) != "" {
+		model = defaultModel
+	}
+	prompt := s.cfg.LLMSystemPrompt
+	if strings.TrimSpace(systemPrompt) != "" {
+		prompt = systemPrompt
+	}
+	return modelgateway.New(baseURL, apiKey, model, prompt, s.cfg.LLMRequestTimeout)
 }
 
 // isWorkspaceAdmin reports whether the user may change workspace settings.

@@ -1,8 +1,8 @@
 'use client';
 
-import {useEffect, useState} from 'react';
+import {Suspense, useEffect, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {Building2, Check, Library, MessageSquare, MoreHorizontal, Settings, SquarePen, Trash2, UserPlus, UserRound} from 'lucide-react';
+import {Bot, Building2, Check, Library, MessageSquare, MoreHorizontal, Settings, SquarePen, Trash2, UserPlus, UserRound} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
@@ -19,8 +19,15 @@ import {UserProfileCard} from './UserProfileCard';
 // context, conversation list and profile card never turn into a second page.
 export function WorkspaceFrame({children}: {children: React.ReactNode}) {
   const pathname = usePathname();
-  if (pathname !== '/chat' && !pathname.startsWith('/knowledge')) return <>{children}</>;
-  return <WorkspaceShell>{children}</WorkspaceShell>;
+  if (pathname !== '/chat' && !pathname.startsWith('/knowledge') && !pathname.startsWith('/agents')) return <>{children}</>;
+  // The shell and every page it frames read the request URL through
+  // useSearchParams, which a prerender has no answer for. One boundary here
+  // covers the shell and its children together.
+  return (
+    <Suspense fallback={null}>
+      <WorkspaceShell>{children}</WorkspaceShell>
+    </Suspense>
+  );
 }
 
 function WorkspaceShell({children}: {children: React.ReactNode}) {
@@ -112,6 +119,7 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           <SideNavSection isHeaderHidden title={t('chat.actions')}>
             <SideNavItem icon={<Icon icon={SquarePen} size="sm" />} isSelected={pathname === '/chat' && search.get('conversation') === 'new'} label={t('chat.newChat')} onClick={() => goTo('/chat')} />
             <SideNavItem icon={<Icon icon={Library} size="sm" />} isSelected={pathname.startsWith('/knowledge')} label={t('kb.title')} onClick={() => goTo('/knowledge')} />
+            <SideNavItem icon={<Icon icon={Bot} size="sm" />} isSelected={pathname.startsWith('/agents')} label={t('agent.title')} onClick={() => goTo('/agents')} />
           </SideNavSection>
           <SideNavSection title={t('chat.recent')}>
             {conversations.map((item) => (

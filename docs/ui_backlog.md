@@ -22,6 +22,18 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Quan sát | Sidebar › Vận hành | Telemetry token/cost/latency, trace, dashboard | 5 |
 | Thông báo | Sidebar › Vận hành | Alert, incident, dedupe window | 5 |
 
+## Knowledge base
+
+| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
+|---|---|---|---|
+| Kiểm tra truy xuất | Chi tiết KB | Đưa `rag-service/app/evaluate.py` thành API và màn hình | 5 |
+
+## Workspace
+
+| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
+|---|---|---|---|
+| Xoá workspace | Settings › Workspace | Endpoint xoá, dọn KB/agent/hội thoại liên quan | chưa xếp |
+
 ## Agent
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |

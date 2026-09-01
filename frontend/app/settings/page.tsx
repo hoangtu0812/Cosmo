@@ -127,12 +127,32 @@ export default function SettingsPage() {
                 <MemberSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
               )}
               {workspaceID && section === 'workspace' && (
-                <WorkspaceSettings
-                  onError={setError}
-                  onNotice={setNotice}
-                  onUpdated={(updated) => setWorkspaces((current) => current.map((item) => item.id === updated.id ? {...item, ...updated} : item))}
-                  workspace={workspace}
-                />
+                <>
+                  <WorkspaceSettings
+                    onError={setError}
+                    onNotice={setNotice}
+                    onUpdated={(updated) => setWorkspaces((current) => current.map((item) => item.id === updated.id ? {...item, ...updated} : item))}
+                    workspace={workspace}
+                  />
+                  {/* The reference closes its settings with this. Cosmo has no
+                      endpoint to delete a workspace, so the section shows what
+                      is coming and the button stays disabled. Tracked in
+                      docs/ui_backlog.md. */}
+                  <Card width="100%">
+                    <VStack gap={3}>
+                      <Text type="label">{t('workspace.deleteTitle')}</Text>
+                      <Text color="secondary" type="supporting">{t('workspace.deleteBody')}</Text>
+                      <HStack hAlign="start">
+                        <Button
+                          icon={<Trash2 size={14} />}
+                          isDisabled
+                          label={t('workspace.deleteAction')}
+                          variant="secondary"
+                        />
+                      </HStack>
+                    </VStack>
+                  </Card>
+                </>
               )}
             </VStack>
           </LayoutContent>

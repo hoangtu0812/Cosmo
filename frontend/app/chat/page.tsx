@@ -26,6 +26,7 @@ import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from 
 import {Link} from '@astryxdesign/core/Link';
 import {List} from '@astryxdesign/core/List';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
+import {Token} from '@astryxdesign/core/Token';
 import {Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
@@ -108,6 +109,9 @@ export default function ChatPage() {
   const selectedAgent = useMemo(() => agents.find((item) => item.id === selectedAgentID), [agents, selectedAgentID]);
   const selectedModelID = chatTarget.startsWith('model:') ? chatTarget.slice(6) : '';
   const effectiveModelID = selectedAgent?.model || selectedModelID || defaultModel;
+  // The agent answers as itself; otherwise the model does, and its name is
+  // what a reader needs to see.
+  const chatTargetLabel = selectedAgent?.name || effectiveModelID || workspace?.model_alias || '';
   const effectiveModel = useMemo(() => availableModels.find((item) => item.id === effectiveModelID), [availableModels, effectiveModelID]);
   const reasoningEfforts = useMemo(() => effectiveModel?.reasoning_efforts ?? [], [effectiveModel]);
   const reasoningLabels: Record<string, string> = {
@@ -500,7 +504,7 @@ export default function ChatPage() {
             <Toolbar
               label={t('chat.toolbar')}
               startContent={
-                <>
+                <HStack gap={2} vAlign="center">
                   <DropdownMenu
                     alignment="start"
                     button={{label: activeConversation?.title ?? t('chat.newChat'), size: 'sm', variant: 'ghost'}}
@@ -508,7 +512,11 @@ export default function ChatPage() {
                     items={conversationMenu}
                     menuWidth={264}
                   />
-                </>
+                  {/* What you are talking to belongs where you can see it. It
+                      was only in the composer footer, so the answer's author
+                      was out of view for the whole conversation. */}
+                  {chatTargetLabel ? <Token label={chatTargetLabel} size="sm" /> : null}
+                </HStack>
               }
             />
           </LayoutHeader>

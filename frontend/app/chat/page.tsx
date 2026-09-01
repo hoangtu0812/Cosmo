@@ -424,16 +424,27 @@ export default function ChatPage() {
   ];
   const promptSuggestions = selectedAgent?.preset_questions.length ? selectedAgent.preset_questions : suggestions;
 
+  // An empty conversation greets you and puts the question where your eyes
+  // already are, rather than at the bottom edge - the reference's arrangement.
   const emptyState = (
     <VStack gap={6} hAlign="center" width="100%">
-      <EmptyState
-        description={selectedAgent?.introduction || t('chat.greetingBody')}
-        headingLevel={1}
-        icon={selectedAgent
-          ? <Avatar name={selectedAgent.name} size="xl" src={selectedAgent.has_avatar_image && workspace ? api.agentAvatarURL(selectedAgent.id, workspace.id) : undefined} tooltip={false} />
-          : <Bot size={72} strokeWidth={1} />}
-        title={selectedAgent?.name || t('chat.greeting')}
-      />
+      {selectedAgent ? (
+        <EmptyState
+          description={selectedAgent.introduction || t('chat.greetingBody')}
+          headingLevel={1}
+          icon={<Avatar name={selectedAgent.name} size="xl" src={selectedAgent.has_avatar_image && workspace ? api.agentAvatarURL(selectedAgent.id, workspace.id) : undefined} tooltip={false} />}
+          title={selectedAgent.name}
+        />
+      ) : (
+        <VStack gap={1} hAlign="center">
+          {user?.name ? <Text color="secondary" type="supporting">{t('chat.hello', {name: user.name})}</Text> : null}
+          <Text type="large">{t('chat.greeting')}</Text>
+        </VStack>
+      )}
+    </VStack>
+  );
+
+  const promptCards = (
       <VStack gap={2} width="100%">
         {promptSuggestions.map((suggestion) => (
           <ClickableCard
@@ -447,7 +458,6 @@ export default function ChatPage() {
           </ClickableCard>
         ))}
       </VStack>
-    </VStack>
   );
 
   const composer = (
@@ -559,8 +569,17 @@ export default function ChatPage() {
                   title={t('chat.modelMissingTitle')}
                 />
               )}
-              <ChatLayout composer={composer} emptyState={emptyState}>
-                {messages.length === 0 ? null : (
+              {messages.length === 0 ? (
+                <VStack gap={6} hAlign="center" height="100%" padding={6} vAlign="center" width="100%">
+                  {emptyState}
+                  <VStack gap={6} width="100%">
+                    {composer}
+                    {promptCards}
+                  </VStack>
+                </VStack>
+              ) : (
+              <ChatLayout composer={composer}>
+                {(
                   <ChatMessageList isStreaming={streaming}>
                     {messages.map((message) => message.role === 'user' ? (
                       <ChatMessage key={message.id} sender="user">
@@ -605,6 +624,7 @@ export default function ChatPage() {
                   </ChatMessageList>
                 )}
               </ChatLayout>
+              )}
                 </VStack>
               </LayoutContent>
             }

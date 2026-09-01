@@ -13,6 +13,7 @@ import {HStack} from '@astryxdesign/core/Layout';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {api, Conversation, User, Workspace} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
+import {ChatTargetFilters, ChatTargetList, useChatTargets} from './ChatTargetNav';
 import {UserProfileCard} from './UserProfileCard';
 
 // Chat and Knowledge are one workspace application. Keeping the frame above
@@ -121,6 +122,8 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
 
   // The agent editor is a focused surface, so it runs without the rail while
   // keeping everything else the frame does - resolving the workspace above all.
+  const isChatRoute = pathname === '/chat';
+  const chatTargets = useChatTargets(workspace);
   const isFocusedRoute = /^\/agents\/[^/]+$/.test(pathname);
 
   return (
@@ -134,25 +137,43 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
            SideNavs side by side rather than hand-rolled layout. */
         <HStack gap={0} height="100%">
           <SideNav
+            className="w-60"
             footer={user ? <UserProfileCard user={user} /> : undefined}
             header={<SideNavHeading heading="Cosmo" icon={<Icon icon={Bot} size="sm" />} />}
-            xstyle={undefined}
           >
             <SideNavSection isHeaderHidden title={t('nav.product')}>
-              <SideNavItem icon={<Icon icon={MessageSquare} size="sm" />} isSelected={pathname === '/chat'} label={t('nav.chat')} onClick={() => goTo('/chat')} />
-              <SideNavItem icon={<Icon icon={FolderKanban} size="sm" />} isDisabled label={t('nav.projects')} />
-              <SideNavItem icon={<Icon icon={Clock} size="sm" />} isDisabled label={t('nav.schedule')} />
-              <SideNavItem icon={<Icon icon={Archive} size="sm" />} isDisabled label={t('nav.library')} />
-              <SideNavItem icon={<Icon icon={Bell} size="sm" />} isDisabled label={t('nav.notification')} />
+              <SideNavItem icon={<Icon icon={MessageSquare} size="sm" />} isSelected={pathname === '/chat'} label={t('nav.chat')} size="md" onClick={() => goTo('/chat')} />
+              <SideNavItem icon={<Icon icon={FolderKanban} size="sm" />} isDisabled label={t('nav.projects')} size="md" />
+              <SideNavItem icon={<Icon icon={Clock} size="sm" />} isDisabled label={t('nav.schedule')} size="md" />
+              <SideNavItem icon={<Icon icon={Archive} size="sm" />} isDisabled label={t('nav.library')} size="md" />
+              <SideNavItem icon={<Icon icon={Bell} size="sm" />} isDisabled label={t('nav.notification')} size="md" />
             </SideNavSection>
           </SideNav>
 
           <SideNav
-            header={<SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} subheading={user?.email} />}
+            className="w-76"
+            topContent={isChatRoute ? <ChatTargetFilters t={t} targets={chatTargets} /> : undefined}
+            header={isChatRoute
+              ? <SideNavHeading heading={t('nav.chat')} />
+              : <SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} subheading={user?.email} />}
           >
-          <SideNavSection isHeaderHidden title={t('chat.actions')}>
-            <SideNavItem icon={<Icon icon={SquarePen} size="sm" />} isSelected={pathname === '/chat' && search.get('conversation') === 'new'} label={t('chat.newChat')} onClick={() => goTo('/chat')} />
-          </SideNavSection>
+          {isChatRoute ? null : (
+            <SideNavSection isHeaderHidden title={t('chat.actions')}>
+              <SideNavItem icon={<Icon icon={SquarePen} size="sm" />} isSelected={pathname === '/chat' && search.get('conversation') === 'new'} label={t('chat.newChat')} onClick={() => goTo('/chat')} />
+            </SideNavSection>
+          )}
+          {/* Chat asks a different question of this column: not where to go,
+              but who to ask. The workspace sections step aside for the list of
+              agents and models, which is how the reference arranges it. */}
+          {isChatRoute ? (
+            <ChatTargetList
+              activeTarget={search.get('target') ?? ''}
+              onPick={(target) => router.push(`/chat?workspace=${encodeURIComponent(workspace?.id ?? '')}&conversation=new&target=${encodeURIComponent(target)}`)}
+              t={t}
+              targets={chatTargets}
+              workspace={workspace}
+            />
+          ) : (<>
           {/* The sections mirror the reference's information architecture, so
               the shape of the product is visible before every part of it
               exists. An item with no feature behind it is disabled rather than
@@ -172,6 +193,7 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           <SideNavSection title={t('nav.operate')}>
             <SideNavItem icon={<Icon icon={BarChart3} size="sm" />} isDisabled label={t('nav.observability')} />
           </SideNavSection>
+          </>)}
           <SideNavSection title={t('chat.recent')}>
             {conversations.map((item) => (
               <SideNavItem

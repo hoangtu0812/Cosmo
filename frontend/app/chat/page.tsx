@@ -3,7 +3,7 @@
 import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb, type OrbState} from 'thinking-orbs';
-import {Bot, Brain, Building2, Check, Cloud, Cpu, Gem, MessageSquare, Plus, Settings, Sparkles, UserPlus, UserRound} from 'lucide-react';
+import {Bot, Brain, Building2, Check, Cloud, Cpu, FolderOpen, Gem, History, MessageSquare, Plus, Settings, Sparkles, SquarePen, UserPlus, UserRound} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -62,6 +62,7 @@ export default function ChatPage() {
   const search = useSearchParams();
   const requestedWorkspaceID = search.get('workspace');
   const requestedConversationID = search.get('conversation');
+  const requestedTarget = search.get('target') ?? '';
   const suggestions = [t('chat.suggestion1'), t('chat.suggestion2'), t('chat.suggestion3'), t('chat.suggestion4')];
   const [user, setUser] = useState<User | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -146,6 +147,9 @@ export default function ChatPage() {
         hydratedRef.current = '';
         setConversationID('');
         setMessages([]);
+        // The sidebar picks who to talk to by changing the URL, so the target
+        // has to come back out of it rather than resetting to the default.
+        if (requestedTarget) setChatTarget(requestedTarget);
         return;
       }
       const selectedConversation = conversationResult.conversations.find((item) => item.id === requestedConversationID) ?? conversationResult.conversations[0];
@@ -157,7 +161,7 @@ export default function ChatPage() {
       if (caught instanceof APIError && caught.status === 401) router.replace('/');
       else setError(caught instanceof Error ? caught.message : t('chat.loadFailed'));
     });
-  }, [requestedConversationID, requestedWorkspaceID, router, t]);
+  }, [requestedConversationID, requestedTarget, requestedWorkspaceID, router, t]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -206,7 +210,7 @@ export default function ChatPage() {
     setMessages([]);
     setError('');
     hydratedRef.current = '';
-    if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new`);
+    if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new&target=${encodeURIComponent(value)}`);
   }
 
   async function switchWorkspace(next: Workspace) {
@@ -516,6 +520,17 @@ export default function ChatPage() {
                       was only in the composer footer, so the answer's author
                       was out of view for the whole conversation. */}
                   {chatTargetLabel ? <Token label={chatTargetLabel} size="sm" /> : null}
+                </HStack>
+              }
+              endContent={
+                /* Starting a new conversation is an action on the transcript,
+                   so it sits with the transcript rather than in the column
+                   that lists who to talk to. Files and recent chats are shells
+                   for now - see docs/ui_backlog.md. */
+                <HStack gap={1} vAlign="center">
+                  <Button icon={<Icon icon={SquarePen} size="sm" />} label={t('chat.newChat')} onClick={startNewChat} size="sm" variant="ghost" />
+                  <Button icon={<Icon icon={FolderOpen} size="sm" />} isDisabled isIconOnly label={t('chat.files')} size="sm" variant="ghost" />
+                  <Button icon={<Icon icon={History} size="sm" />} isDisabled isIconOnly label={t('chat.recentChats')} size="sm" variant="ghost" />
                 </HStack>
               }
             />

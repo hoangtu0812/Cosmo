@@ -22,6 +22,13 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Quan sát | Sidebar › Vận hành | Telemetry token/cost/latency, trace, dashboard | 5 |
 | Thông báo | Sidebar › Vận hành | Alert, incident, dedupe window | 5 |
 
+## Chat
+
+| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
+|---|---|---|---|
+| Tệp | Header hội thoại | Đính kèm tệp theo hội thoại, lưu trữ và trích dẫn | chưa xếp |
+| Hội thoại gần đây | Header hội thoại | Bảng hội thoại đầy đủ, tìm kiếm và lọc | chưa xếp |
+
 ## Knowledge base
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |

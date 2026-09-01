@@ -125,7 +125,10 @@ export default function KnowledgeDetailPage() {
         renderCell: (document) => <Badge label={statusLabel(document.status)} variant={statusVariant(document.status)} />,
       },
       {
-        key: 'open', header: 'Bản gốc', align: 'end', width: proportional(1),
+        // Two controls plus cell padding need more than the 120px floor a bare
+        // proportional column gets; without the room they overflow the column
+        // and sit right of the header they are aligned to.
+        key: 'open', header: 'Bản gốc', align: 'end', width: proportional(1, {minWidth: 160}),
         renderCell: (document) => (
           <HStack gap={1} hAlign="end">
             <Button

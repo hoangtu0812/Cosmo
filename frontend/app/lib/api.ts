@@ -59,6 +59,9 @@ export type KnowledgeDocument = {
 export type KnowledgeIndexStatus = {total: number; ready: number; failed: number; pending: number; running: boolean};
 export type KnowledgeShare = {workspace_id: string; name: string};
 export type WorkspaceRef = {id: string; name: string};
+// mode is what the gateway says a model is for ('embedding', 'rerank', 'chat').
+// It is absent on gateways that do not report one.
+export type GatewayModel = {id: string; mode?: string};
 export type DocumentEvent = {id: number; stage: string; message: string; done: number; total: number; created_at: string};
 export type ProcessedDocumentChunk = {chunk_index: number; section: string; page: string; text: string};
 export type KnowledgeDocumentDetail = {
@@ -128,7 +131,7 @@ export const api = {
   auditEvents: () => request<{events: AuditEvent[]}>('/api/admin/audit-logs'),
   systemStatus: () => request<SystemStatus>('/api/admin/system'),
   updateSystemSettings: (body: {embedding_model: string; reranker_model: string; gateway_base_url: string; gateway_api_key?: string}) => request<SystemStatus>('/api/admin/system', {method: 'PUT', body: JSON.stringify(body)}),
-  systemGatewayModels: (body: {base_url?: string; api_key?: string}) => request<{ok: boolean; message?: string; models: string[]}>('/api/admin/system/models', {method: 'POST', body: JSON.stringify(body)}),
+  systemGatewayModels: (body: {base_url?: string; api_key?: string}) => request<{ok: boolean; message?: string; models: GatewayModel[]}>('/api/admin/system/models', {method: 'POST', body: JSON.stringify(body)}),
   reindexKnowledge: () => request<{queued: number}>('/api/admin/system/knowledge/reindex', {method: 'POST'}),
   knowledgeIndexStatus: () => request<KnowledgeIndexStatus>('/api/admin/system/knowledge/reindex'),
   signIn: (email: string, password: string, remember: boolean) => request<{user: User}>('/api/auth/signin', {method: 'POST', body: JSON.stringify({email, password, remember})}),

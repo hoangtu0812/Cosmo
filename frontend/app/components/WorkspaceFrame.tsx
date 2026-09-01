@@ -2,10 +2,11 @@
 
 import {useEffect, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {Building2, Check, Library, MessageSquare, Settings, SquarePen, UserPlus, UserRound} from 'lucide-react';
+import {Building2, Check, Library, MessageSquare, MoreHorizontal, Settings, SquarePen, Trash2, UserPlus, UserRound} from 'lucide-react';
+import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
-import {DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
+import {DropdownMenu, DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
@@ -32,6 +33,8 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [deleting, setDeleting] = useState<Conversation | null>(null);
+  const [isDeleteBusy, setIsDeleteBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +64,23 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
     await api.selectWorkspace(next.id);
     const target = pathname.startsWith('/knowledge') ? '/knowledge' : '/chat';
     router.push(`${target}?workspace=${encodeURIComponent(next.id)}`);
+  }
+
+  // Deleting the conversation being read leaves nothing to show, so the frame
+  // moves to a new chat rather than a dead conversation id.
+  async function deleteConversation() {
+    if (!deleting) return;
+    setIsDeleteBusy(true);
+    try {
+      await api.deleteConversation(deleting.id);
+      setConversations((current) => current.filter((item) => item.id !== deleting.id));
+      if (search.get('conversation') === deleting.id) goTo('/chat');
+      setDeleting(null);
+    } catch {
+      setDeleting(null);
+    } finally {
+      setIsDeleteBusy(false);
+    }
   }
 
   const workspaceMenu = (
@@ -96,6 +116,14 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           <SideNavSection title={t('chat.recent')}>
             {conversations.map((item) => (
               <SideNavItem
+                endContent={
+                  <DropdownMenu
+                    alignment="end"
+                    button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('conv.options'), size: 'sm', variant: 'ghost'}}
+                    hasChevron={false}
+                    items={[{icon: <Trash2 size={15} />, label: t('conv.delete'), onClick: () => setDeleting(item), variant: 'destructive'}]}
+                  />
+                }
                 icon={<Icon icon={MessageSquare} size="sm" />}
                 isSelected={pathname === '/chat' && search.get('conversation') === item.id}
                 key={item.id}
@@ -109,6 +137,16 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
       }
     >
       {children}
+      <AlertDialog
+        actionLabel={t('conv.delete')}
+        cancelLabel={t('common.cancel')}
+        description={t('conv.deleteBody')}
+        isActionLoading={isDeleteBusy}
+        isOpen={deleting !== null}
+        onAction={() => void deleteConversation()}
+        onOpenChange={(open) => { if (!open) setDeleting(null); }}
+        title={t('conv.deleteTitle')}
+      />
     </AppShell>
   );
 }

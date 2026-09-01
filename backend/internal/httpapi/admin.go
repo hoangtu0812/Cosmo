@@ -411,16 +411,23 @@ func (s *Server) listSystemGatewayModels(w http.ResponseWriter, r *http.Request)
 		apiKey = candidate
 	}
 	if baseURL == "" {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": "Chưa có Base URL.", "models": []string{}})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": "Chưa có Base URL.", "models": []gatewayModel{}})
 		return
 	}
 	models, probeErr := fetchGatewayModels(r.Context(), baseURL, apiKey)
 	if probeErr != nil {
 		s.logger.Warn("list system gateway models", "error", probeErr)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": "Không kết nối được tới gateway.", "models": []string{}})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": "Không kết nối được tới gateway.", "models": []gatewayModel{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": models})
+	// The mode is what lets the console offer embedding models and rerankers
+	// separately. A gateway that does not report one still lists every model.
+	modes := fetchGatewayModelModes(r.Context(), baseURL, apiKey)
+	described := make([]gatewayModel, 0, len(models))
+	for _, id := range models {
+		described = append(described, gatewayModel{ID: id, Mode: modes[id]})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": described})
 }
 
 type reindexDocument struct {

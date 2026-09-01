@@ -328,6 +328,56 @@ func fetchGatewayModels(ctx context.Context, baseURL, apiKey string) ([]string, 
 	return models, nil
 }
 
+// gatewayModel pairs a model id with what the gateway says the model is for.
+type gatewayModel struct {
+	ID   string `json:"id"`
+	Mode string `json:"mode,omitempty"`
+}
+
+// fetchGatewayModelModes asks a LiteLLM-style gateway what each model is for,
+// so a picker can offer embedding models where an embedding model belongs and
+// rerankers where a reranker belongs. It is best effort: a plain
+// OpenAI-compatible gateway has no /model/info and simply reports no modes,
+// which leaves every model on offer rather than hiding all of them.
+func fetchGatewayModelModes(ctx context.Context, baseURL, apiKey string) map[string]string {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/model/info", nil)
+	if err != nil {
+		return nil
+	}
+	if apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	if err != nil {
+		return nil
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= 400 {
+		return nil
+	}
+	var payload struct {
+		Data []struct {
+			ModelName string `json:"model_name"`
+			ModelInfo struct {
+				Mode string `json:"mode"`
+			} `json:"model_info"`
+		} `json:"data"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	modes := make(map[string]string, len(payload.Data))
+	for _, item := range payload.Data {
+		if item.ModelName != "" && item.ModelInfo.Mode != "" {
+			modes[item.ModelName] = item.ModelInfo.Mode
+		}
+	}
+	return modes
+}
+
 // ------------------------------------------------------------ workspace CRUD
 
 func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {

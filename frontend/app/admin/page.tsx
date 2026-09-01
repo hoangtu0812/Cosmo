@@ -1,6 +1,6 @@
 'use client';
 
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {ArrowLeft, ClipboardList, ServerCog, ShieldCheck, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
@@ -23,7 +23,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {AdminUser, api, APIError, AuditEvent, KnowledgeIndexStatus, SystemStatus, User} from '../lib/api';
+import {AdminUser, api, APIError, AuditEvent, GatewayModel, KnowledgeIndexStatus, SystemStatus, User} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {UserProfileCard} from '../components/UserProfileCard';
 
@@ -233,12 +233,23 @@ function AuditPanel({events, t}: {events: AuditEvent[]; t: ReturnType<typeof use
   );
 }
 
+// modelOptions narrows the gateway's models to the kind a field takes. A
+// gateway that reports no mode for anything yields no match, and then every
+// model stays on offer rather than leaving the field with nothing to pick. The
+// saved value is always present so a stored model is never silently dropped.
+function modelOptions(models: GatewayModel[], mode: string, selected: string) {
+  const matching = models.filter((model) => model.mode === mode);
+  const offered = (matching.length > 0 ? matching : models).map((model) => model.id);
+  if (selected && !offered.includes(selected)) offered.unshift(selected);
+  return offered.map((id) => ({label: id, value: id}));
+}
+
 function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onReindex, t}: {system: SystemStatus | null; indexStatus: KnowledgeIndexStatus | null; isSaving: boolean; isReindexing: boolean; onSave: (settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) => void; onReindex: () => void; t: ReturnType<typeof useTranslation>}) {
   const [embeddingModel, setEmbeddingModel] = useState('');
   const [rerankerModel, setRerankerModel] = useState('');
   const [gatewayBaseURL, setGatewayBaseURL] = useState('');
   const [gatewayAPIKey, setGatewayAPIKey] = useState('');
-  const [gatewayModels, setGatewayModels] = useState<string[]>([]);
+  const [gatewayModels, setGatewayModels] = useState<GatewayModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isReindexDialogOpen, setIsReindexDialogOpen] = useState(false);
   useEffect(() => {
@@ -247,6 +258,20 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
     setGatewayBaseURL(system?.system_gateway.base_url ?? '');
     setGatewayAPIKey('');
   }, [system?.embedding_model, system?.reranker_model, system?.system_gateway.base_url]);
+  const loadGatewayModels = useCallback((baseURL: string, apiKey: string) => {
+    setIsLoadingModels(true);
+    api.systemGatewayModels({base_url: baseURL, ...(apiKey ? {api_key: apiKey} : {})})
+      .then((result) => setGatewayModels(result.ok ? result.models : []))
+      .catch(() => setGatewayModels([]))
+      .finally(() => setIsLoadingModels(false));
+  }, []);
+  // A gateway that is already saved has a stored key, so its models can be
+  // listed on arrival and the pickers open ready to use.
+  const savedBaseURL = system?.system_gateway.base_url ?? '';
+  const isGatewayConfigured = system?.system_gateway.configured ?? false;
+  useEffect(() => {
+    if (isGatewayConfigured && savedBaseURL) loadGatewayModels(savedBaseURL, '');
+  }, [isGatewayConfigured, savedBaseURL, loadGatewayModels]);
   const rows = system ? [
     [t('admin.entra'), system.entra_enabled],
     [t('admin.gateway'), system.system_gateway.configured],
@@ -278,13 +303,7 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
               isDisabled={!gatewayBaseURL.trim() || isLoadingModels}
               isLoading={isLoadingModels}
               label={t('admin.loadModels')}
-              onClick={() => {
-                setIsLoadingModels(true);
-                api.systemGatewayModels({base_url: gatewayBaseURL.trim(), ...(gatewayAPIKey.trim() ? {api_key: gatewayAPIKey.trim()} : {})})
-                  .then((result) => { if (result.ok) setGatewayModels(result.models); })
-                  .catch(() => setGatewayModels([]))
-                  .finally(() => setIsLoadingModels(false));
-              }}
+              onClick={() => loadGatewayModels(gatewayBaseURL.trim(), gatewayAPIKey.trim())}
               variant="secondary"
             />
           </HStack>
@@ -292,8 +311,24 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
       </Card>}
       {system && <Card width="100%">
         <VStack gap={4}>
-          {gatewayModels.length > 0 ? <Selector label={t('admin.embeddingModel')} onChange={setEmbeddingModel} options={gatewayModels.map((model) => ({label: model, value: model}))} value={embeddingModel} width="100%" /> : <TextInput label={t('admin.embeddingModel')} onChange={setEmbeddingModel} value={embeddingModel} />}
-          {gatewayModels.length > 0 ? <Selector label={t('admin.rerankerModel')} onChange={setRerankerModel} options={gatewayModels.map((model) => ({label: model, value: model}))} value={rerankerModel} width="100%" /> : <TextInput label={t('admin.rerankerModel')} onChange={setRerankerModel} value={rerankerModel} />}
+          <Selector
+            disabledMessage={t('admin.modelsUnloaded')}
+            isDisabled={gatewayModels.length === 0}
+            label={t('admin.embeddingModel')}
+            onChange={setEmbeddingModel}
+            options={modelOptions(gatewayModels, 'embedding', embeddingModel)}
+            value={embeddingModel}
+            width="100%"
+          />
+          <Selector
+            disabledMessage={t('admin.modelsUnloaded')}
+            isDisabled={gatewayModels.length === 0}
+            label={t('admin.rerankerModel')}
+            onChange={setRerankerModel}
+            options={modelOptions(gatewayModels, 'rerank', rerankerModel)}
+            value={rerankerModel}
+            width="100%"
+          />
           <HStack hAlign="end">
             <Button isDisabled={!embeddingModel.trim() || !rerankerModel.trim()} isLoading={isSaving} label={t('admin.saveSystem')} onClick={() => onSave({embeddingModel: embeddingModel.trim(), rerankerModel: rerankerModel.trim(), gatewayBaseURL: gatewayBaseURL.trim(), gatewayAPIKey: gatewayAPIKey.trim()})} variant="primary" />
           </HStack>

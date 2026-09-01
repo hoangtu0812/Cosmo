@@ -37,17 +37,22 @@ import {useTranslation} from '../../lib/i18n';
 // rather than running for as long as the page is open.
 const POLL_INTERVAL = 4000;
 
-const documentSearchFields = [
-  {key: 'name', type: 'string', label: 'Tên tài liệu'},
-  {
-    key: 'status', type: 'enum', label: 'Trạng thái', enumValues: [
-      {value: 'pending', label: 'Đang chờ'},
-      {value: 'processing', label: 'Đang xử lý'},
-      {value: 'ready', label: 'Sẵn sàng'},
-      {value: 'failed', label: 'Lỗi'},
-    ],
-  },
-] as const;
+// Built from the string table, so the filter reads in whatever language the
+// rest of the screen does. A function rather than a constant because the
+// table is only reachable from inside a component.
+function documentSearchFields(t: ReturnType<typeof useTranslation>) {
+  return [
+    {key: 'name', type: 'string', label: t('kbd.docName')},
+    {
+      key: 'status', type: 'enum', label: t('kbd.status'), enumValues: [
+        {value: 'pending', label: t('kbd.pending')},
+        {value: 'processing', label: t('kbd.processing')},
+        {value: 'ready', label: t('kbd.ready')},
+        {value: 'failed', label: t('kbd.failed')},
+      ],
+    },
+  ] as const;
+}
 
 type DocumentRow = KnowledgeDocument & Record<string, unknown> & {name: string};
 
@@ -73,7 +78,8 @@ export default function KnowledgeDetailPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [searchFilters, setSearchFilters] = useState<ReadonlyArray<PowerSearchFilter>>([]);
   const fileRef = useRef<HTMLInputElement>(null);
-  const {config: searchConfig, applyFilters} = usePowerSearchConfig(documentSearchFields, 'KnowledgeDocuments');
+  const searchFields = useMemo(() => documentSearchFields(t), [t]);
+  const {config: searchConfig, applyFilters} = usePowerSearchConfig(searchFields, 'KnowledgeDocuments');
   const {filters: tableFilters, onFilterChange} = useTableFilterState();
 
   const canEdit = base?.access === 'owner';
@@ -117,33 +123,33 @@ export default function KnowledgeDetailPage() {
   const columns = useMemo<TableColumn<DocumentRow>[]>(
     () => [
       {
-        key: 'name', header: 'Tên tài liệu', width: proportional(3), filter: 'name',
+        key: 'name', header: t('kbd.docName'), width: proportional(3), filter: 'name',
         renderCell: (document) => (
           <Button label={document.name} onClick={() => void openDocument(document)} size="sm" variant="ghost" />
         ),
       },
-      {key: 'size_bytes', header: 'Dung lượng', width: proportional(1), renderCell: (document) => <Text>{formatSize(document.size_bytes)}</Text>},
+      {key: 'size_bytes', header: t('kbd.size'), width: proportional(1), renderCell: (document) => <Text>{formatSize(document.size_bytes)}</Text>},
       {key: 'chunk_count', header: 'Chunks', align: 'end', width: proportional(1), renderCell: (document) => <Text>{document.chunk_count}</Text>},
       {
-        key: 'pipeline', header: 'Tiến trình', width: proportional(1),
+        key: 'pipeline', header: t('kbd.pipeline'), width: proportional(1),
         renderCell: (document) => (
           <Button label={t('kb.pipelineView')} onClick={() => setPipelineDocument(document)} size="sm" variant="secondary" />
         ),
       },
       {
-        key: 'status', header: 'Trạng thái', width: proportional(1), filter: 'status',
+        key: 'status', header: t('kbd.status'), width: proportional(1), filter: 'status',
         renderCell: (document) => <StatusLabel label={statusLabel(document.status)} variant={statusVariant(document.status)} />,
       },
       {
         // Two controls plus cell padding need more than the 120px floor a bare
         // proportional column gets; without the room they overflow the column
         // and sit right of the header they are aligned to.
-        key: 'open', header: 'Bản gốc', align: 'end', width: proportional(1, {minWidth: 160}),
+        key: 'open', header: t('kbd.source'), align: 'end', width: proportional(1, {minWidth: 160}),
         renderCell: (document) => (
           <HStack gap={1} hAlign="end">
             <Button
               icon={<ExternalLink size={14} />}
-              label="Mở"
+              label={t('kbd.open')}
               onClick={() => window.open(api.documentOriginalURL(kbID, document.id), '_blank', 'noopener,noreferrer')}
               size="sm"
               variant="secondary"
@@ -252,7 +258,7 @@ export default function KnowledgeDetailPage() {
     <>
       <Layout
         end={selectedDocument ? (
-          <LayoutPanel hasDivider label="Chi tiết tài liệu" padding={4} role="complementary" width={420}>
+          <LayoutPanel hasDivider label={t('kbd.detailPanel')} padding={4} role="complementary" width={420}>
             <DocumentDetailPanel
               detail={detail}
               isLoading={detailLoading}
@@ -311,7 +317,7 @@ export default function KnowledgeDetailPage() {
             <VStack gap={4}>
               {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
 						{base && !base.embedding_model ? (
-							<Banner status="warning" title="Hãy chọn embedding model từ Model Gateway của workspace trước khi import tài liệu." />
+							<Banner status="warning" title={t('kbd.needEmbedding')} />
 						) : null}
 
 						{baseLoading ? (
@@ -332,9 +338,9 @@ export default function KnowledgeDetailPage() {
 									</VStack>
 								</HStack>
 								<Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
-									<MetricCard label="Tổng tài liệu" value={documents.length} />
-									<MetricCard isActive={processingCount > 0} label="Đang xử lý" value={processingCount} />
-									<MetricCard isError={failedCount > 0} label="Thất bại" value={failedCount} />
+									<MetricCard label={t('kbd.totalDocuments')} value={documents.length} />
+									<MetricCard isActive={processingCount > 0} label={t('kbd.processingCount')} value={processingCount} />
+									<MetricCard isError={failedCount > 0} label={t('kbd.failedCount')} value={failedCount} />
 								</Grid>
 								{/* Recall test is the reference's third action. Cosmo measures
 								    retrieval from a script, not from here, so the button shows
@@ -371,9 +377,9 @@ export default function KnowledgeDetailPage() {
                   <PowerSearch
                     config={searchConfig}
                     filters={searchFilters}
-                    label="Tìm và lọc tài liệu"
+                    label={t('kbd.searchDocuments')}
                     onChange={(nextFilters) => setSearchFilters(nextFilters)}
-                    placeholder="Tìm tài liệu hoặc lọc trạng thái"
+                    placeholder={t('kbd.searchHint')}
                     resultCount={filteredDocuments.length}
                     size="sm"
                   />
@@ -480,7 +486,7 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 				setGatewayModels(result.models);
 				setModelMessage(result.message ?? '');
 			})
-			.catch((caught) => setModelMessage(caught instanceof Error ? caught.message : 'Không tải được danh sách model.'))
+			.catch((caught) => setModelMessage(caught instanceof Error ? caught.message : t('kbd.modelsFailed')))
 			.finally(() => setModelsLoading(false));
 	}, [workspaceID]);
 
@@ -545,24 +551,24 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 								{!gatewayConfigured || modelMessage ? (
 									<Banner
 										status={gatewayConfigured ? 'warning' : 'error'}
-										title={modelMessage || 'Workspace chưa cấu hình Model Gateway.'}
+										title={modelMessage || t('kbd.gatewayMissing')}
 									/>
 								) : null}
-								{!gatewayConfigured ? <Button label="Mở cài đặt workspace" onClick={() => router.push('/settings?section=model')} variant="secondary" /> : null}
+								{!gatewayConfigured ? <Button label={t('kbd.openWorkspaceSettings')} onClick={() => router.push('/settings?section=model')} variant="secondary" /> : null}
 
 								<Selector
 									isDisabled={modelsLoading || embeddingOptions.length === 0}
 									label="Embedding model"
 									onChange={setEmbeddingModel}
 									options={embeddingOptions}
-									placeholder={modelsLoading ? 'Đang tải model…' : 'Chọn embedding model'}
+									placeholder={modelsLoading ? t('kbd.loadingModels') : t('kbd.pickEmbedding')}
 									value={embeddingModel}
 									width="100%"
 								/>
 								<Slider
 									description="Bỏ qua kết quả vector có độ tương đồng thấp hơn ngưỡng này."
 									isDisabled={retrievalMode === 'keyword'}
-									label="Ngưỡng vector"
+									label={t('kbd.vectorThreshold')}
 									max={1}
 									min={0}
 									onChange={(value: number) => setScoreThreshold(value)}
@@ -571,7 +577,7 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 									valueDisplay="text"
 									width="100%"
 								/>
-								<NumberInput isIntegerOnly label="Số đoạn trả về" max={50} min={1} onChange={setTopK} value={topK} width="100%" />
+								<NumberInput isIntegerOnly label={t('kbd.topK')} max={50} min={1} onChange={setTopK} value={topK} width="100%" />
 								<SegmentedControl label="Sắp xếp kết quả" layout="fill" onChange={(value) => setRerankEnabled(value === 'rerank')} value={rerankEnabled ? 'rerank' : 'none'}>
 									<SegmentedControlItem label="Không rerank" value="none" />
 									<SegmentedControlItem label="Dùng reranker" value="rerank" />
@@ -582,7 +588,7 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 										label="Reranker model"
 										onChange={setRerankerModel}
 										options={rerankerOptions}
-										placeholder={modelsLoading ? 'Đang tải model…' : 'Chọn reranker model'}
+										placeholder={modelsLoading ? t('kbd.loadingModels') : t('kbd.pickReranker')}
 										value={rerankerModel}
 										width="100%"
 									/>
@@ -644,29 +650,30 @@ function DocumentDetailPanel({
   onSettled: () => void;
   selectedDocument: KnowledgeDocument;
 }) {
+  const t = useTranslation();
   const document = detail?.document ?? selectedDocument;
   const inspection = detail?.inspection;
   return (
     <VStack gap={4}>
       <HStack hAlign="between" vAlign="center">
         <Text type="large">{document.title || document.filename}</Text>
-        <IconButton icon={<X size={16} />} label="Đóng chi tiết" onClick={onClose} size="sm" variant="ghost" />
+        <IconButton icon={<X size={16} />} label={t('kbd.closeDetail')} onClick={onClose} size="sm" variant="ghost" />
       </HStack>
       <Button
         icon={<ExternalLink size={14} />}
-        label="Mở tài liệu gốc"
+        label={t('kbd.openOriginal')}
         onClick={() => window.open(api.documentOriginalURL(kbID, document.id), '_blank', 'noopener,noreferrer')}
         variant="secondary"
       />
-      {isLoading ? <Text color="secondary">Đang tải chi tiết…</Text> : null}
+      {isLoading ? <Text color="secondary">{t('kbd.loadingDetail')}</Text> : null}
       <Section dividers={['top', 'bottom']} padding={3}>
         <VStack gap={2}>
           <Text type="label">Metadata</Text>
           <List>
-            <Item label="Tệp" description={document.filename} />
-            <Item label="Loại" description={document.content_type || 'Không xác định'} />
-            <Item label="Dung lượng" description={formatSize(document.size_bytes)} />
-            <Item label="Phiên bản" description={`v${document.version}`} />
+            <Item label={t('kbd.file')} description={document.filename} />
+            <Item label={t('kbd.kind')} description={document.content_type || t('kbd.unknownKind')} />
+            <Item label={t('kbd.size')} description={formatSize(document.size_bytes)} />
+            <Item label={t('kbd.version')} description={`v${document.version}`} />
           </List>
         </VStack>
       </Section>
@@ -674,27 +681,27 @@ function DocumentDetailPanel({
         <VStack gap={2}>
           <Text type="label">Qdrant</Text>
           <List>
-            <Item label="Trạng thái" description={inspection?.indexed ? 'Đã lập chỉ mục' : 'Chưa có dữ liệu chỉ mục'} />
-            <Item label="Chunks đã đọc" description={String(inspection?.total ?? 0)} />
+            <Item label={t('kbd.status')} description={inspection?.indexed ? t('kbd.indexed') : t('kbd.notIndexed')} />
+            <Item label={t('kbd.chunksRead')} description={String(inspection?.total ?? 0)} />
           </List>
           {detail?.index_error ? <Banner status="error" title={detail.index_error} /> : null}
         </VStack>
       </Section>
       <Section dividers={['bottom']} padding={3}>
         <VStack gap={2}>
-          <Text type="label">Dữ liệu đã xử lý</Text>
+          <Text type="label">{t('kbd.processed')}</Text>
           {inspection?.chunks.length ? (
             <List>
               {inspection.chunks.map((chunk) => (
                 <Item
                   description={chunk.text}
                   key={chunk.chunk_index}
-                  label={`Chunk ${chunk.chunk_index + 1}${chunk.section ? ` · ${chunk.section}` : ''}${chunk.page ? ` · Trang ${chunk.page}` : ''}`}
+                  label={`Chunk ${chunk.chunk_index + 1}${chunk.section ? ` · ${chunk.section}` : ''}${chunk.page ? ` · ${t('kbd.page')} ${chunk.page}` : ''}`}
                 />
               ))}
             </List>
-          ) : <Text color="secondary" type="supporting">Chưa có dữ liệu xử lý.</Text>}
-          {inspection?.truncated ? <Text color="secondary" type="supporting">Chỉ hiển thị 25 chunks đầu tiên.</Text> : null}
+          ) : <Text color="secondary" type="supporting">{t('kbd.noProcessed')}</Text>}
+          {inspection?.truncated ? <Text color="secondary" type="supporting">{t('kbd.truncated')}</Text> : null}
         </VStack>
       </Section>
       <IngestionLog document={document} kbID={kbID} onSettled={onSettled} />

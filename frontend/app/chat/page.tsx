@@ -16,6 +16,7 @@ import {
   ChatMessageMetadata,
 } from '@astryxdesign/core/Chat';
 import {ClickableCard} from '@astryxdesign/core/ClickableCard';
+import {Collapsible} from '@astryxdesign/core/Collapsible';
 import {DropdownMenu, DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
 import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
@@ -262,12 +263,10 @@ export default function ChatPage() {
     setOrbState('working');
     try {
       await streamChat(targetID, trimmed, {model, reasoningEffort}, {
-        onMeta: ({citations}) => {
+        onMeta: () => {
           setStatus(t('chat.writing'));
           setOrbState('composing');
-          setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, citations} : item));
         },
-        onSources: ({citations}) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, citations} : item)),
         onStatus: ({stage, message}) => {
           setStatus(message);
           setOrbState(activityOrb(stage));
@@ -463,7 +462,9 @@ export default function ChatPage() {
                           {message.content}
                         </ChatMessageBubble>
                       </ChatMessage>
-                    ) : (
+                    ) : (() => {
+                      const isActiveStream = streaming && message.id.startsWith('stream-');
+                      return (
                       <ChatMessage avatar={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="md" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} key={message.id} sender="assistant">
                         <ChatMessageBubble
                           metadata={message.content ? <ChatMessageMetadata footer={message.model || workspace?.model_alias} timestamp={<Timestamp format="time" value={message.created_at} />} /> : undefined}
@@ -472,8 +473,8 @@ export default function ChatPage() {
                         >
                           {message.content
                             ? <VStack gap={3}>
-                              <Markdown isStreaming={streaming} headingLevelStart={3}>{message.content}</Markdown>
-                              <CitationList citations={message.citations ?? []} showEmpty={Boolean(message.content)} />
+                              <Markdown isStreaming={isActiveStream} headingLevelStart={3}>{message.content}</Markdown>
+                              {isActiveStream ? null : <CitationList citations={message.citations ?? []} showEmpty />}
                             </VStack>
                             : (streaming ? <VStack gap={3}>
                               <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state={orbState} /><Text color="secondary" type="supporting">{status}</Text></HStack>
@@ -481,7 +482,8 @@ export default function ChatPage() {
                             </VStack> : '')}
                         </ChatMessageBubble>
                       </ChatMessage>
-                    ))}
+                      );
+                    })())}
                   </ChatMessageList>
                 )}
               </ChatLayout>
@@ -575,25 +577,56 @@ function CitationList({citations, showEmpty = false}: {citations: Citation[]; sh
   if (citations.length === 0) {
     return showEmpty ? <Text color="secondary" type="supporting">Không tìm thấy tài liệu Knowledge Base liên quan.</Text> : null;
   }
-  return (
-    <VStack gap={2}>
-      <Text type="label">Nguồn Knowledge Base</Text>
+  const groups = groupCitations(citations);
+  const list = (
       <List>
-        {citations.map((citation) => (
+        {groups.map((group) => (
           <Item
-            description={citation.section ? `${citation.section}${citation.page ? ` · Trang ${citation.page}` : ''}` : citation.page ? `Trang ${citation.page}` : citation.source}
+            description={group.description}
             endContent={
-              <Link href={api.documentOriginalURL(citation.kb_id, citation.document_id)} isExternalLink>
+              <Link href={api.documentOriginalURL(group.kbID, group.documentID)} isExternalLink>
                 Mở tài liệu
               </Link>
             }
-            key={`${citation.kb_id}:${citation.document_id}:${citation.index}`}
-            label={`[${citation.index}] ${citation.title || citation.source}`}
+            key={`${group.kbID}:${group.documentID}`}
+            label={`${group.references} ${group.title}`}
           />
         ))}
       </List>
-    </VStack>
   );
+  if (groups.length <= 3) {
+    return <VStack gap={2}><Text type="label">Nguồn minh chứng · {groups.length} tệp</Text>{list}</VStack>;
+  }
+  return <Collapsible defaultIsOpen={false} trigger={<Text type="label">Nguồn minh chứng · {groups.length} tệp</Text>}>{list}</Collapsible>;
+}
+
+function groupCitations(citations: Citation[]) {
+  const groups = new Map<string, {kbID: string; documentID: string; title: string; indexes: number[]; pages: string[]; sections: string[]; source: string}>();
+  citations.forEach((citation) => {
+    const key = `${citation.kb_id}:${citation.document_id}`;
+    const group = groups.get(key) ?? {
+      kbID: citation.kb_id,
+      documentID: citation.document_id,
+      title: citation.title || citation.source,
+      indexes: [],
+      pages: [],
+      sections: [],
+      source: citation.source,
+    };
+    if (!group.indexes.includes(citation.index)) group.indexes.push(citation.index);
+    if (citation.page && !group.pages.includes(citation.page)) group.pages.push(citation.page);
+    if (citation.section && !group.sections.includes(citation.section)) group.sections.push(citation.section);
+    groups.set(key, group);
+  });
+  return [...groups.values()].map((group) => ({
+    ...group,
+    references: group.indexes.map((index) => `[${index}]`).join(' '),
+    description: [
+      group.sections.join(' · '),
+      group.pages.length ? `Trang ${group.pages.join(', ')}` : '',
+      !group.sections.length && !group.pages.length ? group.source : '',
+    ].filter(Boolean).join(' · '),
+  }));
 }
 
 async function resizeToSquare(file: File, size = 128): Promise<{mime: string; data: string}> {

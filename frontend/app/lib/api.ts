@@ -128,6 +128,47 @@ export type Invitation = {id: string; email: string; role: string; expires_at: s
 export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
 export type Citation = {index: number; kb_id: string; document_id: string; title: string; source: string; section?: string; page?: string};
 export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; created_at: string};
+export type RunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
+export type Run = {
+  id: string;
+  workspace_id: string;
+  project_id?: string;
+  actor_user_id?: string;
+  trigger_type: string;
+  resource_type: string;
+  resource_id: string;
+  resource_version?: string;
+  status: RunStatus;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  error_code?: string;
+  error_message?: string;
+  trace_id: string;
+  created_at: string;
+  queued_at: string;
+  started_at?: string;
+  finished_at?: string;
+  cancelled_at?: string;
+};
+export type RunStep = {
+  id: string;
+  run_id: string;
+  node_id?: string;
+  type: string;
+  name?: string;
+  attempt: number;
+  status: RunStatus;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  output_ref?: string;
+  timeout_ms: number;
+  error_code?: string;
+  error_message?: string;
+  created_at: string;
+  started_at?: string;
+  finished_at?: string;
+};
+export type RunEvent = {id: number; run_id: string; step_id?: string; sequence: number; type: string; payload: Record<string, unknown>; created_at: string};
 export type AuthConfig = {local_signup_enabled: boolean; local_auth_enabled: boolean; entra_enabled: boolean; model_configured: boolean; model_alias: string};
 export type AdminUser = {id: string; email: string; name: string; role: 'admin' | 'user'; provider: 'entra' | 'local'; workspace_count: number; created_at: string; has_avatar: boolean};
 export type AuditEvent = {id: number; actor_name: string; actor_email: string; action: string; target_type: string; target_id: string; metadata: Record<string, unknown>; created_at: string};
@@ -293,6 +334,11 @@ export const api = {
   revokeInvitation: (workspaceID: string, invitationID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/invitations/${encodeURIComponent(invitationID)}`, {method: 'DELETE'}),
   acceptInvitation: (token: string) => request<{workspace: Workspace}>('/api/invitations/accept', {method: 'POST', body: JSON.stringify({token})}),
+  runs: (workspaceID: string, limit = 50) => request<{runs: Run[]}>(`/api/runs?workspace=${encodeURIComponent(workspaceID)}&limit=${limit}`),
+  run: (runID: string) => request<{run: Run}>(`/api/runs/${encodeURIComponent(runID)}`),
+  runSteps: (runID: string) => request<{steps: RunStep[]}>(`/api/runs/${encodeURIComponent(runID)}/steps`),
+  runEvents: (runID: string, after = 0) => request<{events: RunEvent[]}>(`/api/runs/${encodeURIComponent(runID)}/events?after=${after}`),
+  cancelRun: (runID: string) => request<{run: Run}>(`/api/runs/${encodeURIComponent(runID)}/cancel`, {method: 'POST'}),
 };
 
 export type ChatOptions = {model?: string; reasoningEffort?: string};
@@ -302,8 +348,7 @@ export async function streamChat(
   content: string,
   options: ChatOptions,
   handlers: {
-    onMeta?: (data: {assistant_message_id: string; model: string; citations: Citation[]}) => void;
-    onSources?: (data: {citations: Citation[]}) => void;
+    onMeta?: (data: {assistant_message_id: string; model: string}) => void;
     onStatus?: (data: {stage: string; message: string}) => void;
     onSuggestions?: (data: {questions: string[]}) => void;
     onDelta: (content: string) => void;
@@ -338,8 +383,7 @@ export async function streamChat(
       const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
       if (!event || !rawData) continue;
       const data = JSON.parse(rawData) as Record<string, unknown>;
-      if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; citations: Citation[]});
-      if (event === 'sources') handlers.onSources?.(data as {citations: Citation[]});
+      if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string});
       if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string});
       if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
       if (event === 'delta') handlers.onDelta(String(data.content ?? ''));

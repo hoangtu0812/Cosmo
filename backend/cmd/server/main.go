@@ -14,6 +14,7 @@ import (
 	"cosmo/backend/internal/database"
 	"cosmo/backend/internal/httpapi"
 	"cosmo/backend/internal/modelgateway"
+	"cosmo/backend/internal/runs"
 )
 
 func main() {
@@ -41,6 +42,13 @@ func main() {
 		logger.Error("admin bootstrap failed", "error", err)
 		os.Exit(1)
 	}
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	worker := runs.NewWorker(db, logger, runs.WorkerOptions{})
+	go func() {
+		if err := worker.Run(workerCtx); err != nil {
+			logger.Error("run worker stopped", "error", err)
+		}
+	}()
 
 	server := &http.Server{
 		Addr:              cfg.Address,
@@ -62,6 +70,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+	stopWorker()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)

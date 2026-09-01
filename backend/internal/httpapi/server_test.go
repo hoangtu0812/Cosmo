@@ -28,3 +28,26 @@ func TestValidEmail(t *testing.T) {
 		t.Fatal("expected invalid email")
 	}
 }
+
+func TestCitationsUsedByAnswerKeepsReferencedOrder(t *testing.T) {
+	candidates := []Citation{{Index: 1, DocumentID: "a"}, {Index: 2, DocumentID: "b"}, {Index: 3, DocumentID: "c"}}
+	got := citationsUsedByAnswer("Theo quy trình [3], sau đó kiểm tra [1]. Xem lại [3].", candidates)
+	if len(got) != 2 || got[0].Index != 3 || got[1].Index != 1 {
+		t.Fatalf("unexpected citations: %#v", got)
+	}
+}
+
+func TestCitationsUsedByAnswerCapsUnreferencedFallback(t *testing.T) {
+	candidates := []Citation{{Index: 1}, {Index: 2}, {Index: 3}, {Index: 4}}
+	got := citationsUsedByAnswer("Câu trả lời không có citation inline.", candidates)
+	if len(got) != 3 {
+		t.Fatalf("fallback returned %d citations, want 3", len(got))
+	}
+}
+
+func TestCitationsUsedByAnswerIgnoresUnknownIndexes(t *testing.T) {
+	got := citationsUsedByAnswer("Không có nguồn [99].", []Citation{{Index: 1}, {Index: 2}})
+	if len(got) != 2 {
+		t.Fatalf("unknown inline index should use capped fallback: %#v", got)
+	}
+}

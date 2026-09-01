@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var migrations = []string{
+var baselineStatements = []string{
 	`CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
 		email TEXT NOT NULL UNIQUE,
@@ -337,11 +337,9 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		pool.Close()
 		return nil, fmt.Errorf("connect database: %w", err)
 	}
-	for _, statement := range migrations {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			pool.Close()
-			return nil, fmt.Errorf("database migration: %w", err)
-		}
+	if err := Migrate(ctx, pool); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("database migration: %w", err)
 	}
 	return pool, nil
 }

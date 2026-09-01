@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/mail"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -18,6 +20,7 @@ import (
 	"cosmo/backend/internal/config"
 	"cosmo/backend/internal/knowledge"
 	"cosmo/backend/internal/modelgateway"
+	"cosmo/backend/internal/runs"
 	"cosmo/backend/internal/secrets"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -38,6 +41,7 @@ type Server struct {
 	db           *pgxpool.Pool
 	models       *modelgateway.Client
 	knowledge    *knowledge.Client
+	runs         *runs.Repository
 	secrets      *secrets.Box
 	logger       *slog.Logger
 	oauthConfig  *oauth2.Config
@@ -116,6 +120,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		db:        db,
 		models:    models,
 		knowledge: knowledge.New(cfg.RAGServiceURL, cfg.RAGTimeout),
+		runs:      runs.NewRepository(db),
 		secrets:   box,
 		logger:    logger,
 	}
@@ -193,6 +198,12 @@ func (s *Server) Router() http.Handler {
 		protected.Post("/api/workspaces/{workspaceID}/invitations", s.createInvitation)
 		protected.Delete("/api/workspaces/{workspaceID}/invitations/{invitationID}", s.revokeInvitation)
 		protected.Post("/api/invitations/accept", s.acceptInvitation)
+		protected.Get("/api/runs", s.listRuns)
+		protected.Get("/api/runs/{runID}", s.getRun)
+		protected.Get("/api/runs/{runID}/steps", s.listRunSteps)
+		protected.Get("/api/runs/{runID}/events", s.listRunEvents)
+		protected.Get("/api/runs/{runID}/stream", s.streamRunEvents)
+		protected.Post("/api/runs/{runID}/cancel", s.cancelRun)
 
 		protected.Get("/api/agents", s.listAgents)
 		protected.Post("/api/agents", s.createAgent)
@@ -762,6 +773,25 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = s.db.Exec(r.Context(), `UPDATE conversations SET title = CASE WHEN title = 'Cuộc trò chuyện mới' THEN LEFT($2, 100) ELSE title END, updated_at = NOW() WHERE id = $1`, conversationID, input.Content)
 
+	// Chat is the first production path recorded through the common run model.
+	// Only identifiers and execution metadata are stored here; the user's text
+	// remains in messages and is not duplicated into operational events.
+	chatRun, _, runErr := s.runs.Create(r.Context(), runs.NewRun{
+		WorkspaceID:  conversationWorkspaceID,
+		ActorUserID:  user.ID,
+		TriggerType:  "manual",
+		ResourceType: "conversation",
+		ResourceID:   conversationID,
+		Input:        map[string]any{"message_id": userMessage.ID, "model": models.ResolveModel(options)},
+		TraceID:      middleware.GetReqID(r.Context()),
+	})
+	if runErr == nil {
+		chatRun, runErr = s.runs.Transition(r.Context(), chatRun.ID, runs.Running, nil, "", "")
+	}
+	if runErr != nil {
+		s.logger.Warn("chat run telemetry unavailable", "conversation_id", conversationID, "error", runErr)
+	}
+
 	historyRows, err := s.db.Query(r.Context(), `SELECT role, content FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC LIMIT 40`, conversationID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể chuẩn bị ngữ cảnh trò chuyện.")
@@ -797,10 +827,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	assistantID := "msg_" + randomID(18)
 
 	// Retrieval happens before model generation, but it must not look like the
-	// reply is stuck. Announce it over the same SSE stream and send the found
-	// sources as soon as they exist, ahead of the first generated token.
+	// reply is stuck. Sources deliberately remain server-side until generation
+	// finishes: showing evidence before the answer makes the evidence look like
+	// the answer and creates a large, shifting block above the streamed text.
 	writeSSE(w, "status", map[string]string{"stage": "retrieving", "message": "Đang tìm trong Knowledge Base…"})
 	flusher.Flush()
+	var retrievalStep runs.Step
+	if runErr == nil {
+		retrievalStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "retrieval", Type: "retrieval", Name: "Knowledge retrieval", TimeoutMS: 30000})
+		if runErr == nil {
+			retrievalStep, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Running, nil, "", "", "")
+		}
+	}
 
 	var citations []Citation
 	retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
@@ -810,6 +848,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
 		writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
 		flusher.Flush()
+	}
+	if runErr == nil {
+		if retrievalErr != nil {
+			_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Failed, nil, "", "retrieval_failed", retrievalErr.Error())
+		} else {
+			_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Succeeded, map[string]any{"passage_count": len(passages)}, "", "", "")
+		}
 	}
 	if len(passages) > 0 {
 		// Grounding goes in front of the conversation so the passages frame
@@ -826,13 +871,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 				Page:       passage.Page,
 			})
 		}
-		writeSSE(w, "sources", map[string]any{"citations": citations})
-		flusher.Flush()
 	}
 	writeSSE(w, "status", map[string]string{"stage": "writing", "message": "Đang soạn câu trả lời…"})
 	flusher.Flush()
-	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options), "citations": citations})
+	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options)})
 	flusher.Flush()
+	var generationStep runs.Step
+	if runErr == nil {
+		generationStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "generation", Type: "model", Name: "Answer generation", TimeoutMS: s.cfg.LLMRequestTimeout.Milliseconds()})
+		if runErr == nil {
+			generationStep, runErr = s.runs.TransitionStep(r.Context(), generationStep.ID, runs.Running, nil, "", "", "")
+		}
+	}
 
 	var assistant strings.Builder
 	err = models.Stream(r.Context(), history, options, func(delta string) error {
@@ -845,15 +895,33 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("model stream failed", "conversation_id", conversationID, "error", err)
 		writeSSE(w, "error", map[string]string{"message": "Model Gateway hiện không phản hồi. Vui lòng thử lại."})
 		flusher.Flush()
+		if runErr == nil {
+			_, _ = s.runs.TransitionStep(context.Background(), generationStep.ID, runs.Failed, nil, "", "model_gateway", err.Error())
+			_, _ = s.runs.Transition(context.Background(), chatRun.ID, runs.Failed, nil, "model_gateway", err.Error())
+		}
 		return
 	}
+	citations = citationsUsedByAnswer(assistant.String(), citations)
 	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options), Citations: citations}
 	citationsJSON, _ := json.Marshal(citations)
 	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, citations, created_at) VALUES($1, $2, $3, $4, $5, $6, $7)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, assistantMessage.CreatedAt)
 	if err != nil {
+		if runErr == nil {
+			_, _ = s.runs.TransitionStep(context.Background(), generationStep.ID, runs.Failed, nil, "", "history_write", err.Error())
+			_, _ = s.runs.Transition(context.Background(), chatRun.ID, runs.Failed, nil, "history_write", err.Error())
+		}
 		writeSSE(w, "error", map[string]string{"message": "Câu trả lời đã hoàn tất nhưng chưa thể lưu lịch sử."})
 		flusher.Flush()
 		return
+	}
+	if runErr == nil {
+		_, runErr = s.runs.TransitionStep(r.Context(), generationStep.ID, runs.Succeeded, map[string]any{"message_id": assistantMessage.ID, "citation_count": len(citations)}, "", "", "")
+		if runErr == nil {
+			_, runErr = s.runs.Transition(r.Context(), chatRun.ID, runs.Succeeded, map[string]any{"message_id": assistantMessage.ID}, "", "")
+		}
+		if runErr != nil {
+			s.logger.Warn("chat run finalization failed", "run_id", chatRun.ID, "error", runErr)
+		}
 	}
 	// Suggestions come after the answer is saved, so a failure here can never
 	// cost the reader the reply itself.
@@ -869,6 +937,43 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if agentRemembers {
 		go s.rememberExchange(conversationAgentID, user.ID, input.Content, assistantMessage.Content, models, options)
 	}
+}
+
+var inlineCitationPattern = regexp.MustCompile(`\[(\d+)]`)
+
+// citationsUsedByAnswer keeps the evidence list aligned with the answer the
+// reader actually received. Retrieval may collect many candidates, but only
+// passages cited inline are evidence for the generated claims. A model that
+// omits citations falls back to at most three candidates rather than flooding
+// the answer with the whole retrieval set.
+func citationsUsedByAnswer(answer string, candidates []Citation) []Citation {
+	if len(candidates) == 0 {
+		return []Citation{}
+	}
+	byIndex := make(map[int]Citation, len(candidates))
+	for _, citation := range candidates {
+		byIndex[citation.Index] = citation
+	}
+	used := make([]Citation, 0, len(candidates))
+	seen := map[int]bool{}
+	for _, match := range inlineCitationPattern.FindAllStringSubmatch(answer, -1) {
+		index, err := strconv.Atoi(match[1])
+		if err != nil || seen[index] {
+			continue
+		}
+		if citation, ok := byIndex[index]; ok {
+			used = append(used, citation)
+			seen[index] = true
+		}
+	}
+	if len(used) > 0 {
+		return used
+	}
+	limit := 3
+	if len(candidates) < limit {
+		limit = len(candidates)
+	}
+	return append([]Citation(nil), candidates[:limit]...)
 }
 
 func (s *Server) requireUser(next http.Handler) http.Handler {

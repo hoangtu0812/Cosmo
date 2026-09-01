@@ -284,8 +284,13 @@ function AgentEditorView() {
             </HStack>
 
             {tab === 'prompt' ? (
-              <VStack gap={1} width="100%">
+              <VStack gap={1} maxWidth={960} width="100%">
+                {/* A prompt is written, not filled in. The reference gives it a
+                    borderless surface for that reason; the border and rounding
+                    made ours read as a form field in a box. Utilities rather
+                    than component props because TextArea has no ghost variant. */}
                 <TextArea
+                  className="border-0 bg-transparent px-0"
                   isDisabled={isReadOnly}
                   isLabelHidden
                   label={t('agent.systemPrompt')}
@@ -649,7 +654,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   }
 
   return (
-    <VStack gap={3} height="100%" padding={4} width={420}>
+    <VStack gap={3} height="100%" padding={4} width={560}>
       <HStack gap={2} hAlign="between" vAlign="center">
         <HStack gap={2} vAlign="center">
           <Text type="label">{t('agent.chat')}</Text>

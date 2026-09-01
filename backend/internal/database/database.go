@@ -298,6 +298,16 @@ var migrations = []string{
 	// A conversation remembers the agent it was started with, so reopening it
 	// keeps answering as that agent rather than the workspace default.
 	`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL`,
+	// What an agent has learned about one person. Keyed by agent AND user, so
+	// a shared agent builds a separate memory for each member rather than
+	// carrying one person's details into another person's conversation.
+	`CREATE TABLE IF NOT EXISTS agent_memories (
+		agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		content TEXT NOT NULL DEFAULT '',
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (agent_id, user_id)
+	)`,
 }
 
 func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

@@ -704,10 +704,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// former, which is what keeps its retrieval workspace-wide.
 	models := s.modelsFor(r.Context(), conversationWorkspaceID)
 	var agentKnowledge []string
+	var agentRemembers bool
 	if conversationAgentID != "" {
 		if agent, err := s.loadAgentForRun(r.Context(), conversationAgentID); err == nil {
 			models = s.modelsWith(r.Context(), conversationWorkspaceID, agent.SystemPrompt, agent.Model)
 			agentKnowledge = agent.KnowledgeBaseIDs
+			agentRemembers = agent.IsMemoryEnabled
 		} else {
 			s.logger.Error("load agent for conversation", "conversation_id", conversationID, "agent_id", conversationAgentID, "error", err)
 		}
@@ -768,6 +770,15 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	historyRows.Close()
+
+	// What the agent remembers about this person joins the conversation before
+	// grounding does, so retrieved passages end up closest to the exchange
+	// they explain.
+	if agentRemembers {
+		if memory := s.agentMemory(r.Context(), conversationAgentID, user.ID); memory != "" {
+			history = append([]modelgateway.Message{{Role: "system", Content: agentMemoryHeader + memory}}, history...)
+		}
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -841,6 +852,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	writeSSE(w, "done", map[string]any{"message": assistantMessage})
 	flusher.Flush()
+
+	if agentRemembers {
+		go s.rememberExchange(conversationAgentID, user.ID, input.Content, assistantMessage.Content, models, options)
+	}
 }
 
 func (s *Server) requireUser(next http.Handler) http.Handler {

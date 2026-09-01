@@ -70,6 +70,24 @@ func (c *Client) ResolveModel(options Options) string {
 	return c.model
 }
 
+// Complete runs one request and returns the whole reply rather than streaming
+// it. The client's system prompt is deliberately left out: its callers are
+// utility passes - remembering, suggesting - that must answer in a fixed shape,
+// and an agent persona would steer them away from it.
+func (c *Client) Complete(ctx context.Context, messages []Message, options Options) (string, error) {
+	plain := *c
+	plain.systemPrompt = ""
+	var reply strings.Builder
+	err := plain.Stream(ctx, messages, options, func(delta string) error {
+		reply.WriteString(delta)
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(reply.String()), nil
+}
+
 func (c *Client) Stream(ctx context.Context, history []Message, options Options, onDelta func(string) error) error {
 	if !c.HasGateway() || c.ResolveModel(options) == "" {
 		return ErrNotConfigured

@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
+
+	"cosmo/backend/internal/modelgateway"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -19,7 +22,33 @@ const (
 
 	maxAgentKnowledgeBases  = 5
 	maxAgentPresetQuestions = 10
+
+	// A memory rides along on every turn, so it is capped to keep it from
+	// crowding out the conversation it is meant to support.
+	maxAgentMemoryRunes = 2000
 )
+
+// agentMemoryHeader introduces the memory where it is injected into a turn.
+const agentMemoryHeader = `Điều đã biết về người dùng này:
+`
+
+// memoryInstruction asks for the whole memory back rather than a diff: merging
+// is the model's job, and a diff would need a second pass to apply.
+const memoryInstruction = `Bạn đang duy trì trí nhớ dài hạn về một người dùng.
+Ghi lại những điều bền vững, hữu ích cho các lần trò chuyện sau: vai trò, lĩnh vực phụ trách,
+cách họ muốn được trả lời, các ràng buộc họ đã nêu.
+Bỏ qua nội dung nhất thời của riêng câu hỏi này.
+Trả về TOÀN BỘ trí nhớ sau khi cập nhật, mỗi ý một dòng, tối đa 15 dòng, không thêm lời dẫn.
+Nếu không có gì đáng nhớ, trả về đúng phần trí nhớ hiện có.
+
+Trí nhớ hiện có:
+%s
+
+Người dùng hỏi:
+%s
+
+Agent trả lời:
+%s`
 
 var (
 	errAgentKnowledgeSave   = errors.New("Không thể lưu knowledge base cho agent.")
@@ -403,8 +432,8 @@ func (s *Server) writeAgent(w http.ResponseWriter, r *http.Request, agentID, wor
 func (s *Server) loadAgentForRun(ctx context.Context, agentID string) (Agent, error) {
 	var item Agent
 	err := s.db.QueryRow(ctx, `
-		SELECT COALESCE(model, ''), COALESCE(system_prompt, '')
-		FROM agents WHERE id = $1`, agentID).Scan(&item.Model, &item.SystemPrompt)
+		SELECT COALESCE(model, ''), COALESCE(system_prompt, ''), is_memory_enabled, has_suggested_questions
+		FROM agents WHERE id = $1`, agentID).Scan(&item.Model, &item.SystemPrompt, &item.IsMemoryEnabled, &item.HasSuggestedQuestions)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -485,4 +514,48 @@ func (s *Server) startAgentConversation(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusCreated, map[string]any{"conversation": Conversation{
 		ID: conversationID, WorkspaceID: workspaceID, Title: title,
 	}})
+}
+
+// agentMemory is what this agent has learned about this person. A missing row
+// is normal and means nothing has been learned yet.
+func (s *Server) agentMemory(ctx context.Context, agentID, userID string) string {
+	var content string
+	if err := s.db.QueryRow(ctx, `
+		SELECT content FROM agent_memories WHERE agent_id = $1 AND user_id = $2`,
+		agentID, userID).Scan(&content); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(content)
+}
+
+// rememberExchange folds the latest question and answer into what the agent
+// knows about this person. It runs after the reply has been sent, on a context
+// of its own: the request is finished by then, so inheriting its context would
+// cancel the call every time. A failure is logged and dropped - forgetting is
+// a far smaller harm than making the reader wait on a turn already answered.
+func (s *Server) rememberExchange(agentID, userID, question, answer string, models *modelgateway.Client, options modelgateway.Options) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	existing := s.agentMemory(ctx, agentID, userID)
+	prompt := fmt.Sprintf(memoryInstruction, existing, question, answer)
+	updated, err := models.Complete(ctx, []modelgateway.Message{{Role: "user", Content: prompt}}, options)
+	if err != nil {
+		s.logger.Error("update agent memory", "agent_id", agentID, "error", err)
+		return
+	}
+	updated = strings.TrimSpace(updated)
+	if updated == "" || updated == existing {
+		return
+	}
+	if len([]rune(updated)) > maxAgentMemoryRunes {
+		updated = string([]rune(updated)[:maxAgentMemoryRunes])
+	}
+	if _, err := s.db.Exec(ctx, `
+		INSERT INTO agent_memories(agent_id, user_id, content, updated_at)
+		VALUES($1, $2, $3, NOW())
+		ON CONFLICT (agent_id, user_id) DO UPDATE SET content = EXCLUDED.content, updated_at = NOW()`,
+		agentID, userID, updated); err != nil {
+		s.logger.Error("save agent memory", "agent_id", agentID, "error", err)
+	}
 }

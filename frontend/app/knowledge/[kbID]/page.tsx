@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ExternalLink, FileText, Search, SlidersHorizontal, Trash2, Upload, X} from 'lucide-react';
+import {ExternalLink, FileText, FlaskConical, Search, SlidersHorizontal, Trash2, Upload, X} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -28,7 +28,7 @@ import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/Segment
 import {SelectableCard} from '@astryxdesign/core/SelectableCard';
 import {Skeleton} from '@astryxdesign/core/Skeleton';
 import {Slider} from '@astryxdesign/core/Slider';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
+import {StatusLabel} from '../../components/StatusLabel';
 import {api, APIError, DocumentEvent, GatewayModel, KnowledgeBase, KnowledgeDocument, KnowledgeDocumentDetail} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
@@ -132,7 +132,7 @@ export default function KnowledgeDetailPage() {
       },
       {
         key: 'status', header: 'Trạng thái', width: proportional(1), filter: 'status',
-        renderCell: (document) => <StatusDot label={statusLabel(document.status)} variant={statusVariant(document.status)} />,
+        renderCell: (document) => <StatusLabel label={statusLabel(document.status)} variant={statusVariant(document.status)} />,
       },
       {
         // Two controls plus cell padding need more than the 120px floor a bare
@@ -270,7 +270,7 @@ export default function KnowledgeDetailPage() {
               endContent={
                 canEdit ? (
                   <HStack gap={2} vAlign="center">
-                    <StatusDot
+                    <StatusLabel
                       label={base && base.version > 0 ? t('kb.published', {version: base.version}) : t('kb.draft')}
                       variant={base && base.version > 0 ? 'neutral' : 'warning'}
                     />
@@ -319,11 +319,36 @@ export default function KnowledgeDetailPage() {
 								{[0, 1, 2].map((index) => <Skeleton height={88} index={index} key={index} width="100%" />)}
 							</Grid>
 						) : (
-							<Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
-								<MetricCard label="Tổng tài liệu" value={documents.length} />
-								<MetricCard isActive={processingCount > 0} label="Đang xử lý" value={processingCount} />
-								<MetricCard isError={failedCount > 0} label="Thất bại" value={failedCount} />
-							</Grid>
+							<VStack gap={4} width="100%">
+								{/* The reference opens with what the base is before what is in
+								    it: icon, name, description, then the counts in words. */}
+								<HStack gap={3} vAlign="center">
+									<Text type="display-3">{base?.icon || '📚'}</Text>
+									<VStack gap={0}>
+										<Text type="large">{base?.name}</Text>
+										<Text color="secondary" type="supporting">
+											{base?.description || t('kb.noDescription')}
+										</Text>
+									</VStack>
+								</HStack>
+								<Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
+									<MetricCard label="Tổng tài liệu" value={documents.length} />
+									<MetricCard isActive={processingCount > 0} label="Đang xử lý" value={processingCount} />
+									<MetricCard isError={failedCount > 0} label="Thất bại" value={failedCount} />
+								</Grid>
+								{/* Recall test is the reference's third action. Cosmo measures
+								    retrieval from a script, not from here, so the button shows
+								    the shape and stays disabled. Tracked in docs/ui_backlog.md. */}
+								<HStack gap={2} vAlign="center">
+									<Button
+										icon={<FlaskConical size={14} />}
+										isDisabled
+										label={t('kb.recallTest')}
+										size="sm"
+										variant="secondary"
+									/>
+								</HStack>
+							</VStack>
 						)}
 
               <input
@@ -410,8 +435,8 @@ function MetricCard({label, value, isActive = false, isError = false}: {
 		<Card padding={4} width="100%">
 			<VStack gap={2}>
 				<HStack gap={2} vAlign="center">
-					{isActive ? <StatusDot isPulsing label={label} variant="accent" /> : null}
-					{isError ? <StatusDot label={label} variant="error" /> : null}
+					{isActive ? <StatusLabel isPulsing label={label} variant="accent" /> : null}
+					{isError ? <StatusLabel label={label} variant="error" /> : null}
 					<Text color="secondary" type="supporting">{label}</Text>
 				</HStack>
 				<Text type="large" weight="semibold">{value}</Text>

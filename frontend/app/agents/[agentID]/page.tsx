@@ -5,7 +5,6 @@ import {useParams, useRouter, useSearchParams} from 'next/navigation';
 import {ArrowLeft, History, MoreHorizontal, Pencil, Plus, SendHorizontal, Trash2, Wrench} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
 import {IconButton} from '@astryxdesign/core/IconButton';
@@ -26,6 +25,7 @@ import {Markdown} from '@astryxdesign/core/Markdown';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
+import {StatusLabel} from '../../components/StatusLabel';
 import {Agent, AgentVersion, api, APIError, Conversation, KnowledgeBase, Message, RunStep, streamChat} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
@@ -483,7 +483,7 @@ function AgentEditorView() {
                     as="li"
                     description={`${version.changelog || t('agent.versionNoChangelog')} · ${new Date(version.created_at).toLocaleString()}`}
                     endContent={version.id === agent.published_version_id
-                      ? <StatusDot label={t('agent.versionCurrent')} variant="success" />
+                      ? <StatusLabel label={t('agent.versionCurrent')} variant="success" />
                       : undefined}
                     key={version.id}
                     label={t('agent.publishedVersion', {version: String(version.version_number)})}
@@ -675,7 +675,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       <HStack gap={2} hAlign="between" vAlign="center">
         <HStack gap={2} vAlign="center">
           <Text type="label">{t('agent.chat')}</Text>
-          <StatusDot label={t('agent.runsDraft')} variant="accent" />
+          <StatusLabel label={t('agent.runsDraft')} variant="accent" />
         </HStack>
         <Button icon={<Plus size={14} />} label={t('agent.chatNew')} onClick={() => void startNew()} size="sm" variant="ghost" />
       </HStack>
@@ -755,7 +755,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
                 <Item
                   as="li"
                   description={stepDetail(step, t)}
-                  endContent={<StatusDot label={step.status} variant={step.status === 'succeeded' ? 'success' : step.status === 'failed' ? 'error' : 'neutral'} />}
+                  endContent={<StatusLabel label={step.status} variant={step.status === 'succeeded' ? 'success' : step.status === 'failed' ? 'error' : 'neutral'} />}
                   key={step.id}
                   label={step.name || step.type}
                 />

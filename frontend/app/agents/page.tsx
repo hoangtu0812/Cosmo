@@ -5,7 +5,6 @@ import {useRouter, useSearchParams} from 'next/navigation';
 import {BarChart3, Bot, Copy, ImageUp, KeyRound, MoreHorizontal, Search, Settings2, ShieldCheck, Trash2, Workflow} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -26,6 +25,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
+import {StatusLabel} from '../components/StatusLabel';
 import {Agent, api, APIError} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {AgentAvatarPicker} from './AgentAvatarPicker';
@@ -236,7 +236,7 @@ function AgentsView() {
                               {agent.introduction || agent.owner_name}
                             </Text>
                             <HStack gap={2} vAlign="center" wrap="wrap">
-                              <StatusDot
+                              <StatusLabel
                                 label={agent.visibility === 'workspace' ? t('agent.visibilityWorkspace') : t('agent.visibilityPrivate')}
                                 variant="neutral"
                               />

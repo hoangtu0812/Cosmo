@@ -25,7 +25,6 @@ import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {Link} from '@astryxdesign/core/Link';
 import {List} from '@astryxdesign/core/List';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Token} from '@astryxdesign/core/Token';
 import {Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
@@ -37,6 +36,7 @@ import {Markdown} from '@astryxdesign/core/Markdown';
 import {MoreMenu} from '@astryxdesign/core/MoreMenu';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Selector} from '@astryxdesign/core/Selector';
+import {StatusLabel} from '../components/StatusLabel';
 import {useTranslation} from '../lib/i18n';
 import {UserProfileCard} from '../components/UserProfileCard';
 
@@ -452,7 +452,7 @@ export default function ChatPage() {
       <ChatComposer
         footerActions={
           <HStack gap={2} vAlign="center">
-            <StatusDot label={workspace?.model_configured ? t('chat.modelReady') : t('chat.modelMissing')} variant={workspace?.model_configured ? 'success' : 'warning'} />
+            <StatusLabel label={workspace?.model_configured ? t('chat.modelReady') : t('chat.modelMissing')} variant={workspace?.model_configured ? 'success' : 'warning'} />
             {chatTargetOptions.length > 0 ? (
               <Selector
                 hasSearch

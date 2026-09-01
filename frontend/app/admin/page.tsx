@@ -7,7 +7,6 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -25,6 +24,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
+import {StatusLabel} from '../components/StatusLabel';
 import {AdminUser, api, APIError, AuditEvent, GatewayModel, KnowledgeIndexStatus, SystemStatus, User} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {UserProfileCard} from '../components/UserProfileCard';
@@ -289,7 +289,7 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
       <Card padding={0} width="100%">
         <List>
           {rows.map(([label, enabled]) => (
-            <Item as="li" endContent={<StatusDot label={enabled ? t('admin.enabled') : t('admin.disabled')} variant={enabled ? 'success' : 'neutral'} />} key={label} label={label} />
+            <Item as="li" endContent={<StatusLabel label={enabled ? t('admin.enabled') : t('admin.disabled')} variant={enabled ? 'success' : 'neutral'} />} key={label} label={label} />
           ))}
           {system && <Item as="li" description={system.configuration_source} label={t('admin.sessionTtl')} endContent={<Text type="label">{system.session_ttl}</Text>} />}
           {system && <Item as="li" label={t('admin.adminEmails')} endContent={<Text type="label">{String(system.admin_email_count)}</Text>} />}

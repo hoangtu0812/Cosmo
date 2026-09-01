@@ -18,11 +18,11 @@ import {Link} from '@astryxdesign/core/Link';
 import {Section} from '@astryxdesign/core/Section';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Skeleton} from '@astryxdesign/core/Skeleton';
-import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
+import {StatusLabel} from '../components/StatusLabel';
 import {api, APIError, KnowledgeBase, Workspace, WorkspaceRef} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {KnowledgeIconPicker} from './KnowledgeIconPicker';
@@ -153,7 +153,7 @@ export default function KnowledgePage() {
 
   function installationAction(base: KnowledgeBase) {
     if (base.version === 0) return null;
-    if (!canInstall) return base.is_mounted ? <StatusDot label={t('kb.installed')} variant="success" /> : null;
+    if (!canInstall) return base.is_mounted ? <StatusLabel label={t('kb.installed')} variant="success" /> : null;
     return (
       <Button
         isDisabled={pending === base.id || !workspaceID}
@@ -340,8 +340,7 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
 								</Link>
 								{base.processing_count > 0 ? (
 									<HStack gap={1} vAlign="center">
-										<StatusDot isPulsing label="Đang xử lý" variant="accent" />
-										<Text color="secondary" type="supporting">{base.processing_count} đang xử lý</Text>
+										<StatusLabel isPulsing label={`${base.processing_count} đang xử lý`} variant="accent" />
 									</HStack>
 								) : null}
 							</VStack>
@@ -364,15 +363,15 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
                 {base.document_count === 1 ? t('kb.docCountOne') : t('kb.docCount', {count: base.document_count})}
               </Text>
 							<Text color="secondary" type="supporting">{base.shared_count} chia sẻ</Text>
-              <StatusDot
+              <StatusLabel
                 label={base.version === 0 ? t('kb.draft') : t('kb.version', {version: base.version})}
                 variant={base.version === 0 ? 'warning' : 'neutral'}
               />
               {base.update_available ? (
-                <StatusDot label={t('kb.updateAvailable', {version: base.version})} variant="accent" />
+                <StatusLabel label={t('kb.updateAvailable', {version: base.version})} variant="accent" />
               ) : null}
               {base.access === 'owner' && base.has_unpublished_changes ? (
-                <StatusDot label={t('kb.unpublished')} variant="warning" />
+                <StatusLabel label={t('kb.unpublished')} variant="warning" />
               ) : null}
             </HStack>
             <HStack gap={1} vAlign="center">

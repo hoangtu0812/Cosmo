@@ -2,38 +2,26 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter} from 'next/navigation';
-import {ArrowLeft, Building2, Copy, KeyRound, Trash2, Users} from 'lucide-react';
-import {AppShell} from '@astryxdesign/core/AppShell';
+import {Copy, Trash2} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
-import {Heading} from '@astryxdesign/core/Heading';
-import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
-import {Icon} from '@astryxdesign/core/Icon';
+import {HStack, Layout, LayoutContent, VStack} from '@astryxdesign/core/Layout';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
 import {List} from '@astryxdesign/core/List';
 import {Section} from '@astryxdesign/core/Section';
 import {Selector} from '@astryxdesign/core/Selector';
-import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
-import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {api, APIError, Invitation, LLMSettings, Member, User, Workspace} from '../lib/api';
+import {PageHeader} from '../components/PageHeader';
 import {useTranslation} from '../lib/i18n';
-import {UserProfileCard} from '../components/UserProfileCard';
 
-type SectionKey = 'model' | 'members' | 'workspace';
 
-const WORKSPACE_SECTIONS: {key: SectionKey; labelKey: 'settings.model' | 'settings.members' | 'settings.workspace'; icon: typeof KeyRound}[] = [
-  {key: 'model', labelKey: 'settings.model', icon: KeyRound},
-  {key: 'members', labelKey: 'settings.members', icon: Users},
-  {key: 'workspace', labelKey: 'settings.workspace', icon: Building2},
-];
-const ALL_SECTIONS: SectionKey[] = ['model', 'members', 'workspace'];
 
 export default function SettingsPage() {
   const t = useTranslation();
@@ -41,12 +29,6 @@ export default function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceID, setWorkspaceID] = useState('');
-  // Deep links from the workspace menu land straight on a section.
-  const [section, setSection] = useState<SectionKey>(() => {
-    if (typeof window === 'undefined') return 'model';
-    const requested = new URLSearchParams(window.location.search).get('section');
-    return ALL_SECTIONS.includes(requested as SectionKey) ? (requested as SectionKey) : 'model';
-  });
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -68,50 +50,15 @@ export default function SettingsPage() {
     });
   }, [router, t]);
 
-  function backToApp() {
-    router.push(workspaceID ? `/chat?workspace=${encodeURIComponent(workspaceID)}` : '/chat');
-  }
-
   return (
-    <AppShell
-      contentPadding={0}
-      sideNav={
-        <SideNav
-          footer={user ? <UserProfileCard user={user} /> : undefined}
-          header={
-            <SideNavHeading
-              heading={t('settings.title')}
-              icon={<Icon icon={ArrowLeft} size="sm" />}
-              onClick={backToApp}
-              subheading={workspace?.name}
-            />
-          }
-        >
-          <SideNavSection title={t('settings.workspaceGroup')}>
-            {WORKSPACE_SECTIONS.map((item) => (
-              <SideNavItem
-                icon={<Icon icon={item.icon} size="sm" />}
-                isSelected={section === item.key}
-                key={item.key}
-                label={t(item.labelKey)}
-                onClick={() => { setSection(item.key); setNotice(''); setError(''); }}
-              />
-            ))}
-          </SideNavSection>
-        </SideNav>
-      }
-    >
+    <>
+      {/* Settings keeps the rail, as the reference does: it is a place in the
+          workspace, not a way out of it. Its parts stack on one page rather
+          than hiding behind a sidebar of their own. */}
       <Layout
         contentWidth={720}
         height="fill"
-        header={
-          <LayoutHeader hasDivider>
-            <Toolbar
-              label={t('settings.nav')}
-              startContent={<Button icon={<ArrowLeft size={15} />} label={t('settings.back')} onClick={backToApp} size="sm" variant="ghost" />}
-            />
-          </LayoutHeader>
-        }
+        header={<PageHeader description={t('settings.subtitle')} title={t('settings.title')} />}
         content={
           <LayoutContent padding={6}>
             <VStack gap={6}>
@@ -120,13 +67,7 @@ export default function SettingsPage() {
 
               {!workspaceID && !error && <EmptyState description={t('settings.empty')} title="—" />}
 
-              {workspaceID && section === 'model' && (
-                <ModelSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
-              )}
-              {workspaceID && section === 'members' && (
-                <MemberSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
-              )}
-              {workspaceID && section === 'workspace' && (
+              {workspaceID ? (
                 <>
                   <WorkspaceSettings
                     onError={setError}
@@ -152,13 +93,15 @@ export default function SettingsPage() {
                       </HStack>
                     </VStack>
                   </Card>
+                  <ModelSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
+                  <MemberSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
                 </>
-              )}
+              ) : null}
             </VStack>
           </LayoutContent>
         }
       />
-    </AppShell>
+    </>
   );
 }
 
@@ -237,7 +180,7 @@ function ModelSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: bo
 
   return (
     <VStack gap={4}>
-      <Heading level={1} type="display-3">{t('settings.model')}</Heading>
+      <Text size="lg" type="large">{t('settings.model')}</Text>
 
       <Card padding={0} width="100%">
         <Section dividers={['bottom']} padding={4}>
@@ -333,7 +276,7 @@ function MemberSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: b
 
   return (
     <VStack gap={4}>
-      <Heading level={1} type="display-3">{t('settings.members')}</Heading>
+      <Text size="lg" type="large">{t('settings.members')}</Text>
 
       {canAdmin && (
         <Card padding={4} width="100%">
@@ -491,7 +434,7 @@ function WorkspaceSettings({onError, onNotice, onUpdated, workspace}: {
 
   return (
     <VStack gap={4}>
-      <Heading level={1} type="display-3">{t('settings.workspace')}</Heading>
+      <Text size="lg" type="large">{t('settings.workspace')}</Text>
 
       {workspace && canEdit && (
         <Card padding={4} width="100%">

@@ -431,6 +431,7 @@ const strings = {
     'profile.admin': 'Admin console',
 
     'settings.title': 'Settings',
+    'settings.subtitle': 'The model, the people and the workspace itself',
     'settings.back': 'Back to app',
     'settings.nav': 'Settings navigation',
     'settings.workspaceGroup': 'Workspace',
@@ -956,6 +957,7 @@ const strings = {
     'profile.admin': 'Trang quản trị',
 
     'settings.title': 'Cài đặt',
+    'settings.subtitle': 'Model, thành viên và chính workspace này',
     'settings.back': 'Quay lại ứng dụng',
     'settings.nav': 'Điều hướng cài đặt',
     'settings.workspaceGroup': 'Workspace',

@@ -19,7 +19,7 @@ import {UserProfileCard} from './UserProfileCard';
 
 // The areas that live inside the workspace application. Anything outside it -
 // signing in, accepting an invite - is its own page and gets no rail.
-const FRAMED_ROUTES = ['/chat', '/knowledge', '/agents', '/projects', '/schedule', '/library', '/notifications', '/workflow', '/tools', '/skills', '/observability'];
+const FRAMED_ROUTES = ['/chat', '/knowledge', '/agents', '/projects', '/schedule', '/library', '/notifications', '/workflow', '/tools', '/skills', '/observability', '/settings'];
 
 // Chat and Knowledge are one workspace application. Keeping the frame above
 // their route content lets navigation replace only that content; the workspace
@@ -52,16 +52,21 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
 
   useEffect(() => {
     let cancelled = false;
+    // Who you are and which workspace you are in is what the whole frame is
+    // drawn from, so it is set as soon as it is known. The conversation list
+    // follows separately: it is one section of one column, and it failing
+    // used to leave the entire shell saying "loading" forever.
     Promise.all([api.me(), api.workspaces()]).then(async ([me, result]) => {
+      if (cancelled) return;
       const workspaceID = requestedWorkspaceID || me.user.last_workspace_id || result.workspaces[0]?.id || '';
       const selected = result.workspaces.find((item) => item.id === workspaceID) ?? null;
-      if (!selected) return;
-      await api.selectWorkspace(selected.id);
-      const history = await api.conversations(selected.id);
-      if (cancelled) return;
       setUser(me.user);
       setWorkspaces(result.workspaces);
       setWorkspace(selected);
+      if (!selected) return;
+      await api.selectWorkspace(selected.id).catch(() => undefined);
+      const history = await api.conversations(selected.id).catch(() => ({conversations: []}));
+      if (cancelled) return;
       setConversations(history.conversations);
     }).catch(() => undefined);
     return () => { cancelled = true; };
@@ -171,7 +176,7 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             topContent={isChatRoute ? <ChatTargetFilters t={t} targets={chatTargets} /> : undefined}
             header={isChatRoute || isLibraryRoute
               ? <SideNavHeading heading={isLibraryRoute ? t('nav.library') : t('nav.chat')} />
-              : <SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} subheading={user?.email} />}
+              : <SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} />}
           >
           {isChatRoute || isLibraryRoute ? null : (
             <SideNavSection isHeaderHidden title={t('chat.actions')}>

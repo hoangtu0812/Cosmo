@@ -186,7 +186,6 @@ function AgentEditorView() {
   return (
     <>
     <Layout
-      contentWidth={960}
       header={
         <LayoutHeader hasDivider>
           <Toolbar
@@ -265,7 +264,12 @@ function AgentEditorView() {
             {error && !isStale ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
             {isReadOnly ? <Banner status="info" title={t('agent.readOnly')} /> : null}
 
-            <HStack gap={4} vAlign="center" width="100%">
+            <HStack gap={4} hAlign="between" vAlign="center" width="100%">
+              <TabList hasDivider onChange={setTab} value={tab}>
+                <Tab label={t('agent.tabPrompt')} value="prompt" />
+                <Tab label={t('agent.tabKnowledge')} value="knowledge" />
+                <Tab label={t('agent.tabExperience')} value="experience" />
+              </TabList>
               <Selector
                 isDisabled={isReadOnly || modelOptions.length === 0}
                 isLabelHidden
@@ -275,13 +279,8 @@ function AgentEditorView() {
                 placeholder={t('agent.modelUnset')}
                 size="sm"
                 value={agent.model}
-                width={220}
+                width={200}
               />
-              <TabList hasDivider onChange={setTab} value={tab}>
-                <Tab label={t('agent.tabPrompt')} value="prompt" />
-                <Tab label={t('agent.tabKnowledge')} value="knowledge" />
-                <Tab label={t('agent.tabExperience')} value="experience" />
-              </TabList>
             </HStack>
 
             {tab === 'prompt' ? (
@@ -292,7 +291,7 @@ function AgentEditorView() {
                   label={t('agent.systemPrompt')}
                   onChange={(value) => patch({system_prompt: value})}
                   placeholder={t('agent.systemPromptPlaceholder')}
-                  rows={26}
+                  rows={30}
                   value={agent.system_prompt}
                   width="100%"
                 />

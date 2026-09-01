@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {BookOpen, Trash2} from 'lucide-react';
+import {BookOpen, Search, Trash2} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -13,7 +13,7 @@ import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Grid} from '@astryxdesign/core/Grid';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, VStack} from '@astryxdesign/core/Layout';
 import {Link} from '@astryxdesign/core/Link';
 import {Section} from '@astryxdesign/core/Section';
 import {Selector} from '@astryxdesign/core/Selector';
@@ -21,7 +21,8 @@ import {Skeleton} from '@astryxdesign/core/Skeleton';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
-import {Toolbar} from '@astryxdesign/core/Toolbar';
+import {Icon} from '@astryxdesign/core/Icon';
+import {PageHeader} from '../components/PageHeader';
 import {StatusLabel} from '../components/StatusLabel';
 import {api, APIError, KnowledgeBase, Workspace, WorkspaceRef} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
@@ -188,44 +189,45 @@ export default function KnowledgePage() {
   return (
     <>
       <Layout
-        contentWidth={1180}
         height="fill"
         header={
-          <LayoutHeader hasDivider>
-            <Toolbar
-              endContent={<Button label={t('kb.create')} onClick={() => setCreating(true)} size="sm" variant="primary" />}
-              label={t('kb.title')}
-              startContent={<Text type="label">{t('kb.title')}</Text>}
-            />
-          </LayoutHeader>
+          <PageHeader
+            actions={<Button label={t('kb.create')} onClick={() => setCreating(true)} size="sm" variant="primary" />}
+            count={bases.length}
+            description={t('kb.subtitle')}
+            title={t('kb.title')}
+          />
         }
         content={
           <LayoutContent padding={6}>
             <VStack gap={4}>
               {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
 
-				<HStack gap={3} vAlign="end" wrap="wrap">
-					<Selector
-						label="Phạm vi"
-						onChange={setScope}
-						options={[
-							{value: 'all', label: 'Tất cả'},
-							{value: 'owned', label: 'Do workspace quản lý'},
-							{value: 'installed', label: 'Đã cài đặt'},
-							{value: 'shared', label: 'Được chia sẻ'},
-						]}
-						value={scope}
-						width={220}
-					/>
-					<TextInput
-						isLabelHidden
-						label="Tìm knowledge base"
-						onChange={setQuery}
-						placeholder="Tìm knowledge base"
-						value={query}
-						width={320}
-					/>
-				</HStack>
+              <HStack gap={3} vAlign="center" wrap="wrap">
+                <Selector
+                  isLabelHidden
+                  label={t('kb.scope')}
+                  onChange={setScope}
+                  options={[
+                    {value: 'all', label: t('kb.scopeAll')},
+                    {value: 'owned', label: t('kb.scopeOwned')},
+                    {value: 'installed', label: t('kb.scopeInstalled')},
+                    {value: 'shared', label: t('kb.scopeShared')},
+                  ]}
+                  value={scope}
+                  width={220}
+                />
+                <TextInput
+                  isLabelHidden
+                  label={t('kb.search')}
+                  onChange={setQuery}
+                  placeholder={t('kb.search')}
+                  size="lg"
+                  startIcon={<Icon icon={Search} size="sm" />}
+                  value={query}
+                  width={280}
+                />
+              </HStack>
 
 				{loading ? (
 					<Grid columns={{minWidth: 280, max: 3}} gap={4} width="100%">

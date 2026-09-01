@@ -9,8 +9,6 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 
 Đối chiếu với `cosmo_agent_workflow_roadmap.md` để biết mục nào thuộc giai đoạn nào.
 
-## Thanh điều hướng
-
 ## Màn hình đã dựng vỏ, chưa có gì phía sau
 
 Đã có route và bố cục giống bản tham chiếu; mọi thao tác ghi đều bị khoá.

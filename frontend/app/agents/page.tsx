@@ -15,7 +15,7 @@ import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Grid} from '@astryxdesign/core/Grid';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, VStack} from '@astryxdesign/core/Layout';
 import {Popover} from '@astryxdesign/core/Popover';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {SelectableCard} from '@astryxdesign/core/SelectableCard';
@@ -24,7 +24,7 @@ import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
-import {Toolbar} from '@astryxdesign/core/Toolbar';
+import {PageHeader} from '../components/PageHeader';
 import {StatusLabel} from '../components/StatusLabel';
 import {Agent, api, APIError} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
@@ -155,16 +155,14 @@ function AgentsView() {
   return (
     <>
       <Layout
-        contentWidth={1120}
         height="fill"
         header={
-          <LayoutHeader hasDivider>
-            <Toolbar
-              endContent={<Button label={t('agent.new')} onClick={() => setIsCreating(true)} size="sm" variant="primary" />}
-              label={t('agent.title')}
-              startContent={<Text type="label">{t('agent.title')}</Text>}
-            />
-          </LayoutHeader>
+          <PageHeader
+            actions={<Button label={t('agent.new')} onClick={() => setIsCreating(true)} size="sm" variant="primary" />}
+            count={agents.length}
+            description={t('agent.subtitle')}
+            title={t('agent.title')}
+          />
         }
         content={
           <LayoutContent padding={6}>
@@ -172,7 +170,7 @@ function AgentsView() {
               {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
               {agents.length > 0 ? (
                 <HStack gap={3} vAlign="center" width="100%">
-                  <SegmentedControl label={t('agent.scope')} onChange={setScope} size="sm" value={scope}>
+                  <SegmentedControl label={t('agent.scope')} onChange={setScope} size="md" value={scope}>
                     <SegmentedControlItem label={t('agent.scopeAll')} value="all" />
                     <SegmentedControlItem label={t('agent.scopeMine')} value="mine" />
                     <SegmentedControlItem label={t('agent.scopeShared')} value="shared" />
@@ -182,6 +180,7 @@ function AgentsView() {
                     label={t('agent.search')}
                     onChange={setQuery}
                     placeholder={t('agent.search')}
+                    size="lg"
                     startIcon={<Search size={15} />}
                     value={query}
                     width={280}

@@ -394,7 +394,7 @@ export default function KnowledgeDetailPage() {
           onClose={() => setSettingsOpen(false)}
           onError={setError}
           onSaved={(next) => { setBase(next); setSettingsOpen(false); }}
-					workspaceID={workspaceID || base.owner_workspace_id}
+					workspaceID={workspaceID || base.owner_workspace_id || ''}
         />
       ) : null}
     </>
@@ -541,7 +541,7 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 									label="Ngưỡng vector"
 									max={1}
 									min={0}
-									onChange={(value) => setScoreThreshold(value as number)}
+									onChange={(value: number) => setScoreThreshold(value)}
 									step={0.05}
 									value={scoreThreshold}
 									valueDisplay="text"

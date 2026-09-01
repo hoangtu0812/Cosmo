@@ -788,13 +788,24 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// Chat is the first production path recorded through the common run model.
 	// Only identifiers and execution metadata are stored here; the user's text
 	// remains in messages and is not duplicated into operational events.
+	// The resource of a run is what was executed. A plain conversation runs on
+	// the workspace defaults, so the conversation is the resource; one backed
+	// by an agent runs that agent, so the agent is. Either way the other id is
+	// kept in the input, so a run traces both ways. ResourceVersion stays empty
+	// until agents carry versions, and is the field that will hold it.
+	runResourceType, runResourceID := "conversation", conversationID
+	runInput := map[string]any{"message_id": userMessage.ID, "model": models.ResolveModel(options), "conversation_id": conversationID}
+	if conversationAgentID != "" {
+		runResourceType, runResourceID = "agent", conversationAgentID
+		runInput["agent_id"] = conversationAgentID
+	}
 	chatRun, _, runErr := s.runs.Create(r.Context(), runs.NewRun{
 		WorkspaceID:  conversationWorkspaceID,
 		ActorUserID:  user.ID,
 		TriggerType:  "manual",
-		ResourceType: "conversation",
-		ResourceID:   conversationID,
-		Input:        map[string]any{"message_id": userMessage.ID, "model": models.ResolveModel(options)},
+		ResourceType: runResourceType,
+		ResourceID:   runResourceID,
+		Input:        runInput,
 		TraceID:      middleware.GetReqID(r.Context()),
 	})
 	if runErr == nil {

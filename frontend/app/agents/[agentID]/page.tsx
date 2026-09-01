@@ -153,11 +153,24 @@ function AgentEditorView() {
             {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
             {isReadOnly ? <Banner status="info" title={t('agent.readOnly')} /> : null}
 
-            <TabList hasDivider onChange={setTab} value={tab}>
-              <Tab label={t('agent.tabPrompt')} value="prompt" />
-              <Tab label={t('agent.tabKnowledge')} value="knowledge" />
-              <Tab label={t('agent.tabExperience')} value="experience" />
-            </TabList>
+            <HStack gap={4} vAlign="center" width="100%">
+              <Selector
+                isDisabled={isReadOnly || modelOptions.length === 0}
+                isLabelHidden
+                label={t('agent.model')}
+                onChange={(value) => patch({model: value})}
+                options={modelOptions}
+                placeholder={t('agent.modelUnset')}
+                size="sm"
+                value={agent.model}
+                width={220}
+              />
+              <TabList hasDivider onChange={setTab} value={tab}>
+                <Tab label={t('agent.tabPrompt')} value="prompt" />
+                <Tab label={t('agent.tabKnowledge')} value="knowledge" />
+                <Tab label={t('agent.tabExperience')} value="experience" />
+              </TabList>
+            </HStack>
 
             {tab === 'prompt' ? (
               <VStack gap={4}>
@@ -177,24 +190,22 @@ function AgentEditorView() {
                   value={agent.introduction}
                   width="100%"
                 />
-                <Selector
-                  isDisabled={isReadOnly || modelOptions.length === 0}
-                  label={t('agent.model')}
-                  onChange={(value) => patch({model: value})}
-                  options={modelOptions}
-                  placeholder={t('agent.modelUnset')}
-                  value={agent.model}
-                  width="100%"
-                />
-                <TextArea
-                  isDisabled={isReadOnly}
-                  label={t('agent.systemPrompt')}
-                  onChange={(value) => patch({system_prompt: value})}
-                  placeholder={t('agent.systemPromptPlaceholder')}
-                  rows={12}
-                  value={agent.system_prompt}
-                  width="100%"
-                />
+                <VStack gap={1} width="100%">
+                  <TextArea
+                    isDisabled={isReadOnly}
+                    label={t('agent.systemPrompt')}
+                    onChange={(value) => patch({system_prompt: value})}
+                    placeholder={t('agent.systemPromptPlaceholder')}
+                    rows={14}
+                    value={agent.system_prompt}
+                    width="100%"
+                  />
+                  <HStack hAlign="end" width="100%">
+                    <Text color="secondary" type="supporting">
+                      {t('agent.promptChars', {count: String(agent.system_prompt.length)})}
+                    </Text>
+                  </HStack>
+                </VStack>
                 <Selector
                   isDisabled={isReadOnly}
                   label={t('agent.visibility')}

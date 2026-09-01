@@ -288,7 +288,10 @@ function AgentEditorView() {
                 {/* A prompt is written, not filled in. The reference gives it a
                     borderless surface for that reason; the border and rounding
                     made ours read as a form field in a box. Utilities rather
-                    than component props because TextArea has no ghost variant. */}
+                    than component props because TextArea has no ghost variant.
+                    The resize grip cannot be removed the same way: className
+                    lands on the wrapper, and resize belongs to the textarea
+                    inside it. That needs a prop Astryx does not expose. */}
                 <TextArea
                   className="border-0 bg-transparent px-0"
                   isDisabled={isReadOnly}
@@ -296,7 +299,7 @@ function AgentEditorView() {
                   label={t('agent.systemPrompt')}
                   onChange={(value) => patch({system_prompt: value})}
                   placeholder={t('agent.systemPromptPlaceholder')}
-                  rows={30}
+                  rows={34}
                   value={agent.system_prompt}
                   width="100%"
                 />
@@ -654,7 +657,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   }
 
   return (
-    <VStack gap={3} height="100%" padding={4} width={560}>
+    <VStack gap={3} height="100%" padding={4} width={640}>
       <HStack gap={2} hAlign="between" vAlign="center">
         <HStack gap={2} vAlign="center">
           <Text type="label">{t('agent.chat')}</Text>

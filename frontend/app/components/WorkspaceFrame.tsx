@@ -60,6 +60,17 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
     return () => { cancelled = true; };
   }, [requestedWorkspaceID]);
 
+  // Every framed page reads its workspace from the URL, but a direct load has
+  // no such parameter and the frame is what resolves it. Writing it back means
+  // a page that loaded without one refetches against the right workspace
+  // instead of sitting on an empty list it never retries.
+  useEffect(() => {
+    if (!workspace || search.get('workspace') === workspace.id) return;
+    const params = new URLSearchParams(search.toString());
+    params.set('workspace', workspace.id);
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [workspace, search, pathname, router]);
+
   function goTo(path: string) {
     const workspaceQuery = workspace ? `?workspace=${encodeURIComponent(workspace.id)}` : '';
     const newConversation = path === '/chat' ? `${workspaceQuery ? '&' : '?'}conversation=new` : '';

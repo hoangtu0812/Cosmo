@@ -5,7 +5,7 @@ import {useRouter} from 'next/navigation';
 import {ArrowLeft, Building2, Copy, KeyRound, Trash2, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
-import {Badge} from '@astryxdesign/core/Badge';
+import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -357,7 +357,7 @@ function MemberSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: b
             <Item
               as="li"
               description={member.email}
-              endContent={<Badge label={member.role.toUpperCase()} variant="neutral" />}
+              endContent={<Token label={member.role.toUpperCase()} size="sm" />}
               key={member.user_id}
               label={member.name}
               startContent={<Avatar name={member.name} size="sm" />}

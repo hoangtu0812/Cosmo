@@ -4,7 +4,7 @@ import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {BookOpen, Trash2} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
-import {Badge} from '@astryxdesign/core/Badge';
+import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -153,7 +153,7 @@ export default function KnowledgePage() {
 
   function installationAction(base: KnowledgeBase) {
     if (base.version === 0) return null;
-    if (!canInstall) return base.is_mounted ? <Badge label={t('kb.installed')} variant="neutral" /> : null;
+    if (!canInstall) return base.is_mounted ? <StatusDot label={t('kb.installed')} variant="success" /> : null;
     return (
       <Button
         isDisabled={pending === base.id || !workspaceID}
@@ -351,7 +351,7 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
             </Text>
 						{base.tags.length > 0 ? (
 							<HStack gap={1} wrap="wrap">
-								{base.tags.slice(0, 3).map((tag) => <Badge key={tag} label={tag} variant="neutral" />)}
+								{base.tags.slice(0, 3).map((tag) => <Token key={tag} label={tag} size="sm" />)}
 							</HStack>
 						) : null}
           </VStack>
@@ -364,15 +364,15 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
                 {base.document_count === 1 ? t('kb.docCountOne') : t('kb.docCount', {count: base.document_count})}
               </Text>
 							<Text color="secondary" type="supporting">{base.shared_count} chia sẻ</Text>
-              <Badge
+              <StatusDot
                 label={base.version === 0 ? t('kb.draft') : t('kb.version', {version: base.version})}
                 variant={base.version === 0 ? 'warning' : 'neutral'}
               />
               {base.update_available ? (
-                <Badge label={t('kb.updateAvailable', {version: base.version})} variant="info" />
+                <StatusDot label={t('kb.updateAvailable', {version: base.version})} variant="accent" />
               ) : null}
               {base.access === 'owner' && base.has_unpublished_changes ? (
-                <Badge label={t('kb.unpublished')} variant="warning" />
+                <StatusDot label={t('kb.unpublished')} variant="warning" />
               ) : null}
             </HStack>
             <HStack gap={1} vAlign="center">

@@ -4,8 +4,8 @@ import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
 import {ArrowLeft, History, MoreHorizontal, Pencil, Plus, SendHorizontal, Trash2} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
-import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
+import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Button} from '@astryxdesign/core/Button';
 import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
 import {IconButton} from '@astryxdesign/core/IconButton';
@@ -461,7 +461,7 @@ function AgentEditorView() {
                     as="li"
                     description={`${version.changelog || t('agent.versionNoChangelog')} · ${new Date(version.created_at).toLocaleString()}`}
                     endContent={version.id === agent.published_version_id
-                      ? <Badge label={t('agent.versionCurrent')} variant="success" />
+                      ? <StatusDot label={t('agent.versionCurrent')} variant="success" />
                       : undefined}
                     key={version.id}
                     label={t('agent.publishedVersion', {version: String(version.version_number)})}
@@ -653,7 +653,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       <HStack gap={2} hAlign="between" vAlign="center">
         <HStack gap={2} vAlign="center">
           <Text type="label">{t('agent.chat')}</Text>
-          <Badge label={t('agent.runsDraft')} variant="neutral" />
+          <StatusDot label={t('agent.runsDraft')} variant="accent" />
         </HStack>
         <Button icon={<Plus size={14} />} label={t('agent.chatNew')} onClick={() => void startNew()} size="sm" variant="ghost" />
       </HStack>
@@ -733,7 +733,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
                 <Item
                   as="li"
                   description={stepDetail(step, t)}
-                  endContent={<Badge label={step.status} variant={step.status === 'succeeded' ? 'success' : step.status === 'failed' ? 'error' : 'neutral'} />}
+                  endContent={<StatusDot label={step.status} variant={step.status === 'succeeded' ? 'success' : step.status === 'failed' ? 'error' : 'neutral'} />}
                   key={step.id}
                   label={step.name || step.type}
                 />

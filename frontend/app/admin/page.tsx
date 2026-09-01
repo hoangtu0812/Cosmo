@@ -7,6 +7,8 @@ import {AppShell} from '@astryxdesign/core/AppShell';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
+import {StatusDot} from '@astryxdesign/core/StatusDot';
+import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -188,7 +190,7 @@ function UsersPanel({users, pendingUserID, onUpdateRole, t}: {users: AdminUser[]
               description={`${item.email} · ${item.provider === 'entra' ? t('admin.providerEntra') : t('admin.providerLocal')} · ${t('admin.workspaces', {count: item.workspace_count})}`}
               endContent={
                 <HStack gap={2} vAlign="center">
-                  <Badge label={item.role.toUpperCase()} variant={item.role === 'admin' ? 'info' : 'neutral'} />
+                  <Token label={item.role.toUpperCase()} size="sm" />
                   <Button
                     isDisabled={pendingUserID === item.id}
                     isLoading={pendingUserID === item.id}
@@ -287,7 +289,7 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
       <Card padding={0} width="100%">
         <List>
           {rows.map(([label, enabled]) => (
-            <Item as="li" endContent={<Badge label={enabled ? t('admin.enabled') : t('admin.disabled')} variant={enabled ? 'success' : 'neutral'} />} key={label} label={label} />
+            <Item as="li" endContent={<StatusDot label={enabled ? t('admin.enabled') : t('admin.disabled')} variant={enabled ? 'success' : 'neutral'} />} key={label} label={label} />
           ))}
           {system && <Item as="li" description={system.configuration_source} label={t('admin.sessionTtl')} endContent={<Text type="label">{system.session_ttl}</Text>} />}
           {system && <Item as="li" label={t('admin.adminEmails')} endContent={<Text type="label">{String(system.admin_email_count)}</Text>} />}

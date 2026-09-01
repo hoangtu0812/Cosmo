@@ -4,7 +4,6 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
 import {ExternalLink, FileText, Search, SlidersHorizontal, Trash2, Upload, X} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
-import {Badge} from '@astryxdesign/core/Badge';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -133,7 +132,7 @@ export default function KnowledgeDetailPage() {
       },
       {
         key: 'status', header: 'Trạng thái', width: proportional(1), filter: 'status',
-        renderCell: (document) => <Badge label={statusLabel(document.status)} variant={statusVariant(document.status)} />,
+        renderCell: (document) => <StatusDot label={statusLabel(document.status)} variant={statusVariant(document.status)} />,
       },
       {
         // Two controls plus cell padding need more than the 120px floor a bare
@@ -271,7 +270,7 @@ export default function KnowledgeDetailPage() {
               endContent={
                 canEdit ? (
                   <HStack gap={2} vAlign="center">
-                    <Badge
+                    <StatusDot
                       label={base && base.version > 0 ? t('kb.published', {version: base.version}) : t('kb.draft')}
                       variant={base && base.version > 0 ? 'neutral' : 'warning'}
                     />

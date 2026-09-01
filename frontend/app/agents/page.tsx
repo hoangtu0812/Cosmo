@@ -5,7 +5,8 @@ import {useRouter, useSearchParams} from 'next/navigation';
 import {Bot, ImageUp, Trash2, Workflow} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
-import {Badge} from '@astryxdesign/core/Badge';
+import {StatusDot} from '@astryxdesign/core/StatusDot';
+import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -179,11 +180,11 @@ function AgentsView() {
                         </HStack>
                         {agent.introduction ? <Text color="secondary" type="supporting">{agent.introduction}</Text> : null}
                         <HStack gap={2} vAlign="center">
-                          <Badge
+                          <StatusDot
                             label={agent.visibility === 'workspace' ? t('agent.visibilityWorkspace') : t('agent.visibilityPrivate')}
                             variant="neutral"
                           />
-                          {agent.model ? <Badge label={agent.model} variant="neutral" /> : null}
+                          {agent.model ? <Token label={agent.model} size="sm" /> : null}
                         </HStack>
                       </VStack>
                     </Card>

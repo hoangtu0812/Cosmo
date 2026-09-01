@@ -204,9 +204,11 @@ function AgentsView() {
                     // of its own, then the name, then what the agent is for.
                     <Card key={agent.id} onClick={() => openAgent(agent)} padding={0} width="100%" xstyle={entry}>
                       <VStack gap={0} height="100%">
-                        <Section padding={3}>
+                        {/* The face sits on a tinted band, as the reference
+                            has it, so a wall of cards reads as faces first. */}
+                        <Section padding={3} variant="muted">
                           <HStack gap={2} hAlign="between" vAlign="start">
-                            <Avatar name={agent.avatar || agent.name} size="lg" />
+                            <Avatar name={agent.avatar || agent.name} size="xl" />
                             {agent.is_editable ? (
                               /* The reference offers this set from the card.
                                  What Cosmo cannot do yet is disabled rather

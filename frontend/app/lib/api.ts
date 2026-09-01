@@ -73,7 +73,14 @@ export type KnowledgeShare = {workspace_id: string; name: string};
 export type WorkspaceRef = {id: string; name: string};
 // mode is what the gateway says a model is for ('embedding', 'rerank', 'chat').
 // It is absent on gateways that do not report one.
-export type GatewayModel = {id: string; mode?: string};
+export type GatewayModel = {
+  id: string;
+  mode?: string;
+  provider?: string;
+  supports_reasoning?: boolean;
+  reasoning_efforts?: string[];
+  default_reasoning_effort?: string;
+};
 
 export type Agent = {
   id: string;
@@ -125,7 +132,7 @@ export type KnowledgeDocumentDetail = {
 };
 export type Member = {user_id: string; email: string; name: string; role: string; joined_at: string};
 export type Invitation = {id: string; email: string; role: string; expires_at: string; created_at: string; invite_url?: string};
-export type Conversation = {id: string; workspace_id: string; title: string; created_at: string; updated_at: string};
+export type Conversation = {id: string; workspace_id: string; agent_id?: string; title: string; created_at: string; updated_at: string};
 export type Citation = {index: number; kb_id: string; document_id: string; title: string; source: string; section?: string; page?: string};
 export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; created_at: string};
 export type RunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
@@ -313,7 +320,7 @@ export const api = {
   unmountKnowledge: (workspaceID: string, kbID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
   createWorkspace: (name: string, description = '') => request<{workspace: Workspace}>('/api/workspaces', {method: 'POST', body: JSON.stringify({name, description})}),
-  workspaceModels: (workspaceID: string) => request<{models: string[]; default: string}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/models`),
+  workspaceModels: (workspaceID: string) => request<{models: GatewayModel[]; default: string}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/models`),
 	workspaceKnowledgeModels: (workspaceID: string) =>
 		request<{configured: boolean; message?: string; models: GatewayModel[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/models`),
   members: (workspaceID: string) => request<{members: Member[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/members`),

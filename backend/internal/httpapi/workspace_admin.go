@@ -292,7 +292,7 @@ func (s *Server) listWorkspaceModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if baseURL == "" {
-		writeJSON(w, http.StatusOK, map[string]any{"models": []string{}, "default": model})
+		writeJSON(w, http.StatusOK, map[string]any{"models": []gatewayModel{}, "default": model})
 		return
 	}
 	models, probeErr := fetchGatewayModels(r.Context(), baseURL, apiKey)
@@ -300,10 +300,12 @@ func (s *Server) listWorkspaceModels(w http.ResponseWriter, r *http.Request) {
 		// The picker degrades to the workspace default rather than failing the
 		// chat surface over an unreachable gateway.
 		s.logger.Warn("list workspace models", "workspace_id", workspaceID, "error", probeErr)
-		writeJSON(w, http.StatusOK, map[string]any{"models": []string{}, "default": model})
+		writeJSON(w, http.StatusOK, map[string]any{"models": []gatewayModel{}, "default": model})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": models, "default": model})
+	metadata := fetchGatewayModelMetadata(r.Context(), baseURL, apiKey)
+	described := describeGatewayModels(models, metadata, true)
+	writeJSON(w, http.StatusOK, map[string]any{"models": described, "default": model})
 }
 
 // listWorkspaceKnowledgeModels exposes the same saved workspace gateway to a
@@ -338,11 +340,7 @@ func (s *Server) listWorkspaceKnowledgeModels(w http.ResponseWriter, r *http.Req
 		})
 		return
 	}
-	modes := fetchGatewayModelModes(r.Context(), baseURL, apiKey)
-	items := make([]gatewayModel, 0, len(models))
-	for _, id := range models {
-		items = append(items, gatewayModel{ID: id, Mode: modes[id]})
-	}
+	items := describeGatewayModels(models, fetchGatewayModelMetadata(r.Context(), baseURL, apiKey), false)
 	writeJSON(w, http.StatusOK, map[string]any{"configured": true, "models": items})
 }
 
@@ -385,16 +383,27 @@ func fetchGatewayModels(ctx context.Context, baseURL, apiKey string) ([]string, 
 
 // gatewayModel pairs a model id with what the gateway says the model is for.
 type gatewayModel struct {
-	ID   string `json:"id"`
-	Mode string `json:"mode,omitempty"`
+	ID                     string   `json:"id"`
+	Mode                   string   `json:"mode,omitempty"`
+	Provider               string   `json:"provider,omitempty"`
+	SupportsReasoning      bool     `json:"supports_reasoning"`
+	ReasoningEfforts       []string `json:"reasoning_efforts,omitempty"`
+	DefaultReasoningEffort string   `json:"default_reasoning_effort,omitempty"`
 }
 
-// fetchGatewayModelModes asks a LiteLLM-style gateway what each model is for,
-// so a picker can offer embedding models where an embedding model belongs and
-// rerankers where a reranker belongs. It is best effort: a plain
-// OpenAI-compatible gateway has no /model/info and simply reports no modes,
-// which leaves every model on offer rather than hiding all of them.
-func fetchGatewayModelModes(ctx context.Context, baseURL, apiKey string) map[string]string {
+type gatewayModelMetadata struct {
+	Mode                   string
+	Provider               string
+	SupportsReasoning      bool
+	ReasoningEfforts       []string
+	DefaultReasoningEffort string
+}
+
+// fetchGatewayModelMetadata asks a LiteLLM-style gateway what every model can
+// do. It is best effort: a plain OpenAI-compatible gateway has no /model/info,
+// in which case chat models remain available but optional controls such as
+// reasoning effort stay hidden rather than sending unsupported parameters.
+func fetchGatewayModelMetadata(ctx context.Context, baseURL, apiKey string) map[string]gatewayModelMetadata {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/model/info", nil)
@@ -414,9 +423,22 @@ func fetchGatewayModelModes(ctx context.Context, baseURL, apiKey string) map[str
 	}
 	var payload struct {
 		Data []struct {
-			ModelName string `json:"model_name"`
+			ModelName     string `json:"model_name"`
+			LiteLLMParams struct {
+				CustomProvider string `json:"custom_llm_provider"`
+			} `json:"litellm_params"`
 			ModelInfo struct {
-				Mode string `json:"mode"`
+				Mode                   string   `json:"mode"`
+				Provider               string   `json:"litellm_provider"`
+				SupportsReasoning      *bool    `json:"supports_reasoning"`
+				ReasoningEffortLevels  []string `json:"reasoning_effort_levels"`
+				DefaultReasoningEffort string   `json:"default_reasoning_effort"`
+				SupportsNoneEffort     *bool    `json:"supports_none_reasoning_effort"`
+				SupportsMinimalEffort  *bool    `json:"supports_minimal_reasoning_effort"`
+				SupportsLowEffort      *bool    `json:"supports_low_reasoning_effort"`
+				SupportsXHighEffort    *bool    `json:"supports_xhigh_reasoning_effort"`
+				SupportsMaxEffort      *bool    `json:"supports_max_reasoning_effort"`
+				SupportedOpenAIParams  []string `json:"supported_openai_params"`
 			} `json:"model_info"`
 		} `json:"data"`
 	}
@@ -424,13 +446,124 @@ func fetchGatewayModelModes(ctx context.Context, baseURL, apiKey string) map[str
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil
 	}
-	modes := make(map[string]string, len(payload.Data))
+	metadata := make(map[string]gatewayModelMetadata, len(payload.Data))
 	for _, item := range payload.Data {
-		if item.ModelName != "" && item.ModelInfo.Mode != "" {
-			modes[item.ModelName] = item.ModelInfo.Mode
+		if item.ModelName == "" {
+			continue
+		}
+		provider := item.ModelInfo.Provider
+		if provider == "" {
+			provider = item.LiteLLMParams.CustomProvider
+		}
+		efforts := reasoningEffortsFor(item.ModelInfo.SupportsReasoning, item.ModelInfo.ReasoningEffortLevels,
+			item.ModelInfo.SupportedOpenAIParams, item.ModelInfo.SupportsNoneEffort, item.ModelInfo.SupportsMinimalEffort,
+			item.ModelInfo.SupportsLowEffort, item.ModelInfo.SupportsXHighEffort, item.ModelInfo.SupportsMaxEffort)
+		metadata[item.ModelName] = gatewayModelMetadata{
+			Mode: item.ModelInfo.Mode, Provider: provider, SupportsReasoning: len(efforts) > 0,
+			ReasoningEfforts: efforts, DefaultReasoningEffort: item.ModelInfo.DefaultReasoningEffort,
 		}
 	}
-	return modes
+	return metadata
+}
+
+func describeGatewayModels(ids []string, metadata map[string]gatewayModelMetadata, chatOnly bool) []gatewayModel {
+	items := make([]gatewayModel, 0, len(ids))
+	for _, id := range ids {
+		info := metadata[id]
+		if chatOnly && !chatModelMode(info.Mode) {
+			continue
+		}
+		provider := info.Provider
+		if provider == "" {
+			provider = providerFromModelID(id)
+		}
+		items = append(items, gatewayModel{
+			ID: id, Mode: info.Mode, Provider: provider, SupportsReasoning: info.SupportsReasoning,
+			ReasoningEfforts: info.ReasoningEfforts, DefaultReasoningEffort: info.DefaultReasoningEffort,
+		})
+	}
+	return items
+}
+
+func chatModelMode(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "chat", "completion", "responses", "text":
+		return true
+	default:
+		return false
+	}
+}
+
+func providerFromModelID(id string) string {
+	lower := strings.ToLower(id)
+	providers := []struct {
+		name    string
+		markers []string
+	}{
+		{name: "azure", markers: []string{"azure/"}},
+		{name: "openai", markers: []string{"openai/", "gpt-", "o1", "o3", "o4"}},
+		{name: "anthropic", markers: []string{"anthropic/", "claude"}},
+		{name: "google", markers: []string{"google/", "gemini"}},
+		{name: "cohere", markers: []string{"cohere/", "command-", "rerank"}},
+	}
+	for _, provider := range providers {
+		for _, marker := range provider.markers {
+			if strings.Contains(lower, marker) {
+				return provider.name
+			}
+		}
+	}
+	return ""
+}
+
+func reasoningEffortsFor(supportsReasoning *bool, explicit, supportedParams []string, none, minimal, low, xhigh, max *bool) []string {
+	supported := supportsReasoning != nil && *supportsReasoning
+	for _, parameter := range supportedParams {
+		if parameter == "reasoning_effort" {
+			supported = true
+			break
+		}
+	}
+	if !supported {
+		return nil
+	}
+	allowed := map[string]bool{"none": true, "minimal": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+	if len(explicit) > 0 {
+		result := make([]string, 0, len(explicit))
+		for _, effort := range explicit {
+			effort = strings.ToLower(strings.TrimSpace(effort))
+			if allowed[effort] && !containsString(result, effort) {
+				result = append(result, effort)
+			}
+		}
+		return result
+	}
+	result := []string{"low", "medium", "high"}
+	if low != nil && !*low {
+		result = []string{"medium", "high"}
+	}
+	if minimal != nil && *minimal {
+		result = append([]string{"minimal"}, result...)
+	}
+	if none != nil && *none {
+		result = append([]string{"none"}, result...)
+	}
+	if xhigh != nil && *xhigh {
+		result = append(result, "xhigh")
+	}
+	if max != nil && *max {
+		result = append(result, "max")
+	}
+	return result
+}
+
+func containsString(items []string, value string) bool {
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 // ------------------------------------------------------------ workspace CRUD

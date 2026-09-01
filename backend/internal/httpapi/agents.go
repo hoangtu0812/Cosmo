@@ -471,10 +471,9 @@ func (s *Server) loadAgentForRun(ctx context.Context, agentID string) (Agent, er
 	return item, nil
 }
 
-// listAgentConversations and startAgentConversation are the agent's own chat
-// history. They write the same conversations table the general chat uses, but
-// stamped with agent_id, and the general chat filters that column out - so the
-// two surfaces share every message mechanism without ever sharing a list.
+// listAgentConversations and startAgentConversation are the Agent-filtered view
+// of the shared chat history. Every row is stamped with agent_id, so the Agent
+// page and the unified chat selector can both restore the same execution target.
 func (s *Server) listAgentConversations(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	agentID := chi.URLParam(r, "agentID")
@@ -488,7 +487,7 @@ func (s *Server) listAgentConversations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	rows, err := s.db.Query(r.Context(), `
-		SELECT id, workspace_id, title, created_at, updated_at
+		SELECT id, workspace_id, COALESCE(agent_id, ''), title, created_at, updated_at
 		FROM conversations
 		WHERE user_id = $1 AND workspace_id = $2 AND agent_id = $3
 		ORDER BY updated_at DESC LIMIT 100`, user.ID, workspaceID, agentID)
@@ -500,7 +499,7 @@ func (s *Server) listAgentConversations(w http.ResponseWriter, r *http.Request) 
 	items := []Conversation{}
 	for rows.Next() {
 		var item Conversation
-		if rows.Scan(&item.ID, &item.WorkspaceID, &item.Title, &item.CreatedAt, &item.UpdatedAt) == nil {
+		if rows.Scan(&item.ID, &item.WorkspaceID, &item.AgentID, &item.Title, &item.CreatedAt, &item.UpdatedAt) == nil {
 			items = append(items, item)
 		}
 	}
@@ -531,7 +530,7 @@ func (s *Server) startAgentConversation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"conversation": Conversation{
-		ID: conversationID, WorkspaceID: workspaceID, Title: title,
+		ID: conversationID, WorkspaceID: workspaceID, AgentID: agentID, Title: title,
 	}})
 }
 

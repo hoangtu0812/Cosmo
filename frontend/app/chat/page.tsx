@@ -3,7 +3,7 @@
 import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb, type OrbState} from 'thinking-orbs';
-import {Bot, Building2, Check, MessageSquare, Plus, Settings, UserPlus, UserRound} from 'lucide-react';
+import {Bot, Brain, Building2, Check, Cloud, Cpu, Gem, MessageSquare, Plus, Settings, Sparkles, UserPlus, UserRound} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -29,7 +29,7 @@ import {StatusDot} from '@astryxdesign/core/StatusDot';
 import {Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {api, APIError, Citation, Conversation, Message, streamChat, User, Workspace} from '../lib/api';
+import {Agent, api, APIError, Citation, Conversation, GatewayModel, Message, streamChat, User, Workspace} from '../lib/api';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Markdown} from '@astryxdesign/core/Markdown';
@@ -76,8 +76,10 @@ export default function ChatPage() {
   // Per-conversation overrides for the composer pickers. Empty model means the
   // workspace default; empty effort omits the parameter, since models that do
   // not reason reject it on some providers.
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [model, setModel] = useState('');
+  const [availableModels, setAvailableModels] = useState<GatewayModel[]>([]);
+  const [defaultModel, setDefaultModel] = useState('');
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [chatTarget, setChatTarget] = useState('model:');
   const [reasoningEffort, setReasoningEffort] = useState('');
   // Conversations whose messages are already in state. Without this the fetch
   // below races the optimistic bubbles: sending the first message of a new chat
@@ -102,6 +104,21 @@ export default function ChatPage() {
   const sidebarOpen = sidebarOverride ?? !isMobile;
 
   const activeConversation = useMemo(() => conversations.find((item) => item.id === conversationID), [conversations, conversationID]);
+  const selectedAgentID = chatTarget.startsWith('agent:') ? chatTarget.slice(6) : '';
+  const selectedAgent = useMemo(() => agents.find((item) => item.id === selectedAgentID), [agents, selectedAgentID]);
+  const selectedModelID = chatTarget.startsWith('model:') ? chatTarget.slice(6) : '';
+  const effectiveModelID = selectedAgent?.model || selectedModelID || defaultModel;
+  const effectiveModel = useMemo(() => availableModels.find((item) => item.id === effectiveModelID), [availableModels, effectiveModelID]);
+  const reasoningEfforts = useMemo(() => effectiveModel?.reasoning_efforts ?? [], [effectiveModel]);
+  const reasoningLabels: Record<string, string> = {
+    none: t('composer.reasoningNone'),
+    minimal: t('composer.reasoningMinimal'),
+    low: t('composer.reasoningLow'),
+    medium: t('composer.reasoningMedium'),
+    high: t('composer.reasoningHigh'),
+    xhigh: t('composer.reasoningXHigh'),
+    max: t('composer.reasoningMax'),
+  };
 
   useEffect(() => {
     Promise.all([api.me(), api.workspaces()]).then(async ([me, workspaceResult]) => {
@@ -128,7 +145,10 @@ export default function ChatPage() {
         return;
       }
       const selectedConversation = conversationResult.conversations.find((item) => item.id === requestedConversationID) ?? conversationResult.conversations[0];
-      if (selectedConversation) setConversationID(selectedConversation.id);
+      if (selectedConversation) {
+        setConversationID(selectedConversation.id);
+        setChatTarget(selectedConversation.agent_id ? `agent:${selectedConversation.agent_id}` : 'model:');
+      }
     }).catch((caught) => {
       if (caught instanceof APIError && caught.status === 401) router.replace('/');
       else setError(caught instanceof Error ? caught.message : t('chat.loadFailed'));
@@ -138,8 +158,13 @@ export default function ChatPage() {
   useEffect(() => {
     if (!workspace) return;
     let cancelled = false;
-    api.workspaceModels(workspace.id)
-      .then((result) => { if (!cancelled) setAvailableModels(result.models); })
+    Promise.all([api.workspaceModels(workspace.id), api.agents(workspace.id)])
+      .then(([modelResult, agentResult]) => {
+        if (cancelled) return;
+        setAvailableModels(modelResult.models);
+        setDefaultModel(modelResult.default);
+        setAgents(agentResult.agents);
+      })
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, [workspace]);
@@ -151,8 +176,11 @@ export default function ChatPage() {
     api.messages(conversationID).then((result) => setMessages(result.messages)).catch((caught) => setError(caught instanceof Error ? caught.message : t('chat.historyFailed')));
   }, [conversationID, t]);
 
-  function openConversation(id: string) {
-    setConversationID(id);
+  function openConversation(conversation: Conversation) {
+    setConversationID(conversation.id);
+    setChatTarget(conversation.agent_id ? `agent:${conversation.agent_id}` : 'model:');
+    setReasoningEffort('');
+    if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=${encodeURIComponent(conversation.id)}`);
     if (isMobile) setSidebarOverride(false);
   }
 
@@ -160,7 +188,21 @@ export default function ChatPage() {
     setConversationID('');
     setMessages([]);
     setError('');
+    setChatTarget('model:');
+    setReasoningEffort('');
+    if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new`);
     if (isMobile) setSidebarOverride(false);
+  }
+
+  function changeChatTarget(value: string) {
+    if (value === chatTarget) return;
+    setChatTarget(value);
+    setReasoningEffort('');
+    setConversationID('');
+    setMessages([]);
+    setError('');
+    hydratedRef.current = '';
+    if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new`);
   }
 
   async function switchWorkspace(next: Workspace) {
@@ -172,6 +214,8 @@ export default function ChatPage() {
       setWorkspace(next);
       setConversations(result.conversations);
       setConversationID(result.conversations[0]?.id ?? '');
+      setChatTarget(result.conversations[0]?.agent_id ? `agent:${result.conversations[0].agent_id}` : 'model:');
+      setReasoningEffort('');
       setMessages([]);
       router.replace(`/chat?workspace=${encodeURIComponent(next.id)}`);
     } catch (caught) {
@@ -243,17 +287,21 @@ export default function ChatPage() {
   async function submit(content: string) {
     const trimmed = content.trim();
     if (!trimmed || streaming || !workspace) return;
+    const supportedReasoningEffort = reasoningEfforts.includes(reasoningEffort) ? reasoningEffort : '';
     setDraft('');
     setError('');
     let targetID = conversationID;
     if (!targetID) {
-      const result = await api.createConversation(workspace.id, trimmed.slice(0, 100));
+      const result = selectedAgentID
+        ? await api.startAgentConversation(selectedAgentID, workspace.id)
+        : await api.createConversation(workspace.id, trimmed.slice(0, 100));
       targetID = result.conversation.id;
       // The optimistic bubbles below are the freshest view of this
       // conversation, so suppress the history fetch this id would trigger.
       hydratedRef.current = targetID;
       setConversationID(targetID);
-      setConversations((current) => [result.conversation, ...current]);
+      setConversations((current) => [result.conversation, ...current.filter((item) => item.id !== result.conversation.id)]);
+      router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=${encodeURIComponent(targetID)}`);
     }
     const optimisticUser: Message = {id: `local-${crypto.randomUUID()}`, conversation_id: targetID, role: 'user', content: trimmed, created_at: new Date().toISOString()};
     const optimisticAssistant: Message = {id: `stream-${crypto.randomUUID()}`, conversation_id: targetID, role: 'assistant', content: '', created_at: new Date().toISOString()};
@@ -262,7 +310,7 @@ export default function ChatPage() {
     setStatus(t('chat.thinking'));
     setOrbState('working');
     try {
-      await streamChat(targetID, trimmed, {model, reasoningEffort}, {
+      await streamChat(targetID, trimmed, {model: selectedAgentID ? '' : selectedModelID, reasoningEffort: supportedReasoningEffort}, {
         onMeta: () => {
           setStatus(t('chat.writing'));
           setOrbState('composing');
@@ -331,19 +379,55 @@ export default function ChatPage() {
   const conversationMenu: DropdownMenuOption[] = [
     {id: 'new', label: t('chat.newChat'), icon: <Plus size={15} />, onClick: startNewChat},
     ...(conversations.length > 0 ? [{type: 'divider' as const}] : []),
-    ...conversations.map((item) => ({id: item.id, label: item.title, icon: <MessageSquare size={15} />, onClick: () => openConversation(item.id)})),
+    ...conversations.map((item) => ({
+      id: item.id,
+      label: item.title,
+      icon: item.agent_id ? <Bot size={15} /> : <MessageSquare size={15} />,
+      onClick: () => openConversation(item),
+    })),
   ];
+
+  const modelTargetOptions = [
+    ...(defaultModel ? [{
+      value: 'model:',
+      label: defaultModel,
+      description: `${providerName(availableModels.find((item) => item.id === defaultModel)?.provider)} · ${t('composer.modelDefault')}`,
+      icon: providerIcon(availableModels.find((item) => item.id === defaultModel)?.provider),
+    }] : []),
+    ...availableModels
+      .filter((item) => item.id !== defaultModel)
+      .map((item) => ({
+        value: `model:${item.id}`,
+        label: item.id,
+        description: providerName(item.provider),
+        icon: providerIcon(item.provider),
+      })),
+  ];
+  const agentTargetOptions = agents.map((item) => ({
+    value: `agent:${item.id}`,
+    label: item.name,
+    description: item.model ? `${t('composer.agent')} · ${item.model}` : t('composer.agentNoModel'),
+    disabled: !item.model,
+    icon: <Avatar name={item.name} size="xsm" src={item.has_avatar_image && workspace ? api.agentAvatarURL(item.id, workspace.id) : undefined} tooltip={false} />,
+  }));
+  const chatTargetOptions = [
+    ...(modelTargetOptions.length ? [{type: 'section' as const, title: t('composer.modelsSection'), options: modelTargetOptions}] : []),
+    ...(agentTargetOptions.length ? [{type: 'section' as const, title: t('composer.agentsSection'), options: agentTargetOptions}] : []),
+  ];
+  const promptSuggestions = selectedAgent?.preset_questions.length ? selectedAgent.preset_questions : suggestions;
 
   const emptyState = (
     <VStack gap={6} hAlign="center" width="100%">
       <EmptyState
-        description={t('chat.greetingBody')}
+        description={selectedAgent?.introduction || t('chat.greetingBody')}
         headingLevel={1}
-        icon={<Bot size={72} strokeWidth={1} />}
-        title={t('chat.greeting')}
+        icon={selectedAgent
+          ? <Avatar name={selectedAgent.name} size="xl" src={selectedAgent.has_avatar_image && workspace ? api.agentAvatarURL(selectedAgent.id, workspace.id) : undefined} tooltip={false} />
+          : <Bot size={72} strokeWidth={1} />}
+        title={selectedAgent?.name || t('chat.greeting')}
       />
       <VStack gap={2} width="100%">
-        {suggestions.map((suggestion) => (
+        {promptSuggestions.map((suggestion) => (
           <ClickableCard
             isDisabled={streaming || !workspace}
             key={suggestion}
@@ -365,35 +449,34 @@ export default function ChatPage() {
         footerActions={
           <HStack gap={2} vAlign="center">
             <StatusDot label={workspace?.model_configured ? t('chat.modelReady') : t('chat.modelMissing')} variant={workspace?.model_configured ? 'success' : 'warning'} />
-            {availableModels.length > 0 ? (
+            {chatTargetOptions.length > 0 ? (
               <Selector
                 hasSearch
                 isLabelHidden
-                label={t('composer.model')}
-                onChange={setModel}
-                options={[{value: '', label: workspace?.model_alias ?? t('composer.model')}, ...availableModels.map((item) => ({value: item, label: item}))]}
+                label={t('composer.target')}
+                onChange={changeChatTarget}
+                options={chatTargetOptions}
                 size="sm"
-                value={model}
+                value={chatTarget}
                 variant="ghost"
               />
             ) : (
               <Text color="secondary" type="supporting">{workspace?.model_alias || t('composer.model')}</Text>
             )}
-            <Selector
-              isLabelHidden
-              label={t('composer.reasoning')}
-              onChange={setReasoningEffort}
-              options={[
-                {value: '', label: t('composer.reasoningAuto')},
-                {value: 'minimal', label: t('composer.reasoningMinimal')},
-                {value: 'low', label: t('composer.reasoningLow')},
-                {value: 'medium', label: t('composer.reasoningMedium')},
-                {value: 'high', label: t('composer.reasoningHigh')},
-              ]}
-              size="sm"
-              value={reasoningEffort}
-              variant="ghost"
-            />
+            {reasoningEfforts.length > 0 ? (
+              <Selector
+                isLabelHidden
+                label={t('composer.reasoning')}
+                onChange={setReasoningEffort}
+                options={[
+                  {value: '', label: t('composer.reasoningAuto')},
+                  ...reasoningEfforts.map((effort) => ({value: effort, label: reasoningLabels[effort] ?? effort})),
+                ]}
+                size="sm"
+                value={reasoningEffort}
+                variant="ghost"
+              />
+            ) : null}
           </HStack>
         }
         isDisabled={streaming || !workspace}
@@ -465,10 +548,20 @@ export default function ChatPage() {
                     ) : (() => {
                       const isActiveStream = streaming && message.id.startsWith('stream-');
                       return (
-                      <ChatMessage avatar={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="md" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} key={message.id} sender="assistant">
+                      <ChatMessage
+                        avatar={<Avatar
+                          name={selectedAgent?.name || workspace?.icon || workspace?.name || 'Cosmo'}
+                          size="md"
+                          src={selectedAgent?.has_avatar_image && workspace
+                            ? api.agentAvatarURL(selectedAgent.id, workspace.id)
+                            : workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined}
+                        />}
+                        key={message.id}
+                        sender="assistant"
+                      >
                         <ChatMessageBubble
                           metadata={message.content ? <ChatMessageMetadata footer={message.model || workspace?.model_alias} timestamp={<Timestamp format="time" value={message.created_at} />} /> : undefined}
-                          name="Cosmo"
+                          name={selectedAgent?.name || 'Cosmo'}
                           variant="ghost"
                         >
                           {message.content
@@ -573,6 +666,30 @@ export default function ChatPage() {
 
     </>
   );
+}
+
+function providerIcon(provider?: string) {
+  switch ((provider ?? '').toLowerCase()) {
+    case 'openai': return <Sparkles size={16} />;
+    case 'anthropic': return <Brain size={16} />;
+    case 'google':
+    case 'gemini': return <Gem size={16} />;
+    case 'azure': return <Cloud size={16} />;
+    default: return <Cpu size={16} />;
+  }
+}
+
+function providerName(provider?: string) {
+  if (!provider) return 'Model Gateway';
+  const names: Record<string, string> = {
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    google: 'Google',
+    gemini: 'Google Gemini',
+    azure: 'Azure AI',
+    cohere: 'Cohere',
+  };
+  return names[provider.toLowerCase()] ?? provider;
 }
 
 function CitationList({citations, showEmpty = false}: {citations: Citation[]; showEmpty?: boolean}) {

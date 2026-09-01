@@ -54,7 +54,7 @@ function AgentEditorView() {
     // is saved with is one the workspace can actually run.
     if (workspaceID) {
       api.workspaceModels(workspaceID)
-        .then((result) => setModels(result.models))
+        .then((result) => setModels(result.models.map((item) => item.id)))
         .catch(() => setModels([]));
     }
   }, [agentID, workspaceID]);

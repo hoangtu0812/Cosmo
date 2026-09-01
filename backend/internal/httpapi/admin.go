@@ -422,11 +422,7 @@ func (s *Server) listSystemGatewayModels(w http.ResponseWriter, r *http.Request)
 	}
 	// The mode is what lets the console offer embedding models and rerankers
 	// separately. A gateway that does not report one still lists every model.
-	modes := fetchGatewayModelModes(r.Context(), baseURL, apiKey)
-	described := make([]gatewayModel, 0, len(models))
-	for _, id := range models {
-		described = append(described, gatewayModel{ID: id, Mode: modes[id]})
-	}
+	described := describeGatewayModels(models, fetchGatewayModelMetadata(r.Context(), baseURL, apiKey), false)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": described})
 }
 

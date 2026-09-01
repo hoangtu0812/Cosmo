@@ -77,6 +77,7 @@ type Workspace struct {
 type Conversation struct {
 	ID          string    `json:"id"`
 	WorkspaceID string    `json:"workspace_id"`
+	AgentID     string    `json:"agent_id,omitempty"`
 	Title       string    `json:"title"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -628,10 +629,10 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Bạn không có quyền truy cập workspace này.")
 		return
 	}
-	// Chat is the general surface: its own conversations and knowledge ones.
-	// An agent keeps its conversations in its own place, so they are excluded
-	// here rather than filtered in the sidebar - the two lists never mix.
-	rows, err := s.db.Query(r.Context(), `SELECT id, workspace_id, title, created_at, updated_at FROM conversations WHERE user_id = $1 AND workspace_id = $2 AND agent_id IS NULL ORDER BY updated_at DESC LIMIT 100`, user.ID, workspaceID)
+	// The shared chat surface can target either a workspace model or an Agent.
+	// agent_id lets the composer restore the correct target after reload while
+	// the message endpoint continues enforcing the Agent's own configuration.
+	rows, err := s.db.Query(r.Context(), `SELECT id, workspace_id, COALESCE(agent_id, ''), title, created_at, updated_at FROM conversations WHERE user_id = $1 AND workspace_id = $2 ORDER BY updated_at DESC LIMIT 100`, user.ID, workspaceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải hội thoại.")
 		return
@@ -640,7 +641,7 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	items := []Conversation{}
 	for rows.Next() {
 		var item Conversation
-		if rows.Scan(&item.ID, &item.WorkspaceID, &item.Title, &item.CreatedAt, &item.UpdatedAt) == nil {
+		if rows.Scan(&item.ID, &item.WorkspaceID, &item.AgentID, &item.Title, &item.CreatedAt, &item.UpdatedAt) == nil {
 			items = append(items, item)
 		}
 	}
@@ -721,14 +722,20 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	var agentKnowledge []string
 	var agentRemembers, agentSuggests bool
 	if conversationAgentID != "" {
-		if agent, err := s.loadAgentForRun(r.Context(), conversationAgentID); err == nil {
-			models = s.modelsWith(r.Context(), conversationWorkspaceID, agent.SystemPrompt, agent.Model)
-			agentKnowledge = agent.KnowledgeBaseIDs
-			agentRemembers = agent.IsMemoryEnabled
-			agentSuggests = agent.HasSuggestedQuestions
-		} else {
+		agent, err := s.loadAgentForRun(r.Context(), conversationAgentID)
+		if err != nil {
 			s.logger.Error("load agent for conversation", "conversation_id", conversationID, "agent_id", conversationAgentID, "error", err)
+			writeError(w, http.StatusConflict, "Agent không còn khả dụng trong workspace này.")
+			return
 		}
+		if strings.TrimSpace(agent.Model) == "" {
+			writeError(w, http.StatusBadRequest, "Agent chưa cấu hình model.")
+			return
+		}
+		models = s.modelsWith(r.Context(), conversationWorkspaceID, agent.SystemPrompt, agent.Model)
+		agentKnowledge = agent.KnowledgeBaseIDs
+		agentRemembers = agent.IsMemoryEnabled
+		agentSuggests = agent.HasSuggestedQuestions
 	}
 	var input struct {
 		Content         string `json:"content"`
@@ -744,6 +751,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.Model = strings.TrimSpace(input.Model)
+	if conversationAgentID != "" {
+		// Agent conversations are pinned to the model selected in Agent setup;
+		// clients cannot override it from the composer or a crafted request.
+		input.Model = ""
+	}
 	if len(input.Model) > 200 {
 		writeError(w, http.StatusBadRequest, "Tên model không hợp lệ.")
 		return
@@ -751,7 +763,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// Only the levels the OpenAI-compatible API defines; anything else is
 	// dropped rather than forwarded to the gateway.
 	switch input.ReasoningEffort {
-	case "", "minimal", "low", "medium", "high":
+	case "", "none", "minimal", "low", "medium", "high", "xhigh", "max":
 	default:
 		writeError(w, http.StatusBadRequest, "Mức suy luận không hợp lệ.")
 		return

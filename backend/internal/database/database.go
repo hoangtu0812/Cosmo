@@ -301,6 +301,10 @@ var migrations = []string{
 	// What an agent has learned about one person. Keyed by agent AND user, so
 	// a shared agent builds a separate memory for each member rather than
 	// carrying one person's details into another person's conversation.
+	// An uploaded avatar, stored beside the emoji one: `avatar` holds the
+	// chosen emoji, these hold an image when the author uploaded one instead.
+	`ALTER TABLE agents ADD COLUMN IF NOT EXISTS avatar_image BYTEA`,
+	`ALTER TABLE agents ADD COLUMN IF NOT EXISTS avatar_mime TEXT`,
 	`CREATE TABLE IF NOT EXISTS agent_memories (
 		agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
 		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

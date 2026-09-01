@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {Bot, Trash2} from 'lucide-react';
+import {Bot, ImageUp, Trash2, Workflow} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Badge} from '@astryxdesign/core/Badge';
@@ -14,6 +14,9 @@ import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Grid} from '@astryxdesign/core/Grid';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {Popover} from '@astryxdesign/core/Popover';
+import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
+import {SelectableCard} from '@astryxdesign/core/SelectableCard';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
@@ -21,10 +24,20 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Agent, api, APIError} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
+import {AgentAvatarPicker} from './AgentAvatarPicker';
 
-// Single-codepoint emoji only: Avatar renders the first character of `name`,
-// and a sequence joined by ZWJ or a variation selector would be cut in half.
-export const AGENT_AVATARS = ['🤖', '🧠', '📊', '🔍', '📚', '💡', '🧭', '🗂', '🔧', '🧪'];
+const DEFAULT_AGENT_AVATAR = '🤖';
+
+// toBase64 strips the data: prefix the reader adds, because the upload
+// endpoint stores raw base64 and sniffs the bytes to check the declared type.
+function toBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 function AgentsView() {
   const t = useTranslation();
@@ -38,8 +51,11 @@ function AgentsView() {
   const [deleting, setDeleting] = useState<Agent | null>(null);
   const [newName, setNewName] = useState('');
   const [newIntroduction, setNewIntroduction] = useState('');
-  const [newAvatar, setNewAvatar] = useState(AGENT_AVATARS[0]);
+  const [newAvatar, setNewAvatar] = useState(DEFAULT_AGENT_AVATAR);
   const [newVisibility, setNewVisibility] = useState<'private' | 'workspace'>('private');
+  const [newTags, setNewTags] = useState('');
+  // Held until the agent exists: the upload endpoint needs an id to attach to.
+  const [newAvatarFile, setNewAvatarFile] = useState<File | null>(null);
 
   const load = useCallback(() => {
     api.agents(workspaceID)
@@ -62,10 +78,20 @@ function AgentsView() {
         name: newName.trim(),
         introduction: newIntroduction.trim(),
         avatar: newAvatar,
-        tags: [],
+        tags: newTags.split(',').map((tag) => tag.trim()).filter(Boolean),
         visibility: newVisibility,
         workspace_id: workspaceID,
       });
+      // The picture can only be attached once the agent has an id. A failure
+      // here leaves a created agent with its emoji, which is worth more than
+      // failing the whole creation over a picture.
+      if (newAvatarFile) {
+        try {
+          await api.uploadAgentAvatar(result.agent.id, newAvatarFile.type, await toBase64(newAvatarFile), workspaceID);
+        } catch {
+          // The editor offers the same picker, so it can be set again there.
+        }
+      }
       closeCreate();
       openAgent(result.agent);
     } catch (caught) {
@@ -79,8 +105,10 @@ function AgentsView() {
     setIsCreating(false);
     setNewName('');
     setNewIntroduction('');
-    setNewAvatar(AGENT_AVATARS[0]);
+    setNewAvatar(DEFAULT_AGENT_AVATAR);
     setNewVisibility('private');
+    setNewTags('');
+    setNewAvatarFile(null);
   }
 
   async function remove() {
@@ -168,14 +196,45 @@ function AgentsView() {
           content={
             <LayoutContent>
               <VStack gap={4}>
-                <Selector
-                  label={t('agent.avatar')}
-                  onChange={setNewAvatar}
-                  options={AGENT_AVATARS.map((emoji) => ({label: emoji, value: emoji}))}
-                  value={newAvatar}
-                  width="100%"
-                />
-                <TextInput label={t('agent.name')} onChange={setNewName} value={newName} width="100%" />
+                <VStack gap={2}>
+                  <Text type="label" weight="semibold">{t('agent.type')}</Text>
+                  <HStack gap={3} width="100%">
+                    <SelectableCard isSelected label={t('agent.typePrompt')} onChange={() => undefined} width="100%">
+                      <HStack gap={2} vAlign="center">
+                        <Bot size={18} />
+                        <Text type="label" weight="semibold">{t('agent.typePrompt')}</Text>
+                      </HStack>
+                    </SelectableCard>
+                    {/* Flow needs a workflow engine Cosmo does not have yet. It
+                        is shown, disabled, so the choice it will one day offer
+                        is visible rather than sprung on the reader later. */}
+                    <SelectableCard
+                      isDisabled
+                      isSelected={false}
+                      label={t('agent.typeFlow')}
+                      onChange={() => undefined}
+                      width="100%"
+                    >
+                      <VStack gap={1}>
+                        <HStack gap={2} vAlign="center">
+                          <Workflow size={18} />
+                          <Text type="label" weight="semibold">{t('agent.typeFlow')}</Text>
+                        </HStack>
+                        <Text color="secondary" type="supporting">{t('agent.typeFlowUnavailable')}</Text>
+                      </VStack>
+                    </SelectableCard>
+                  </HStack>
+                </VStack>
+                <HStack gap={3} vAlign="end" width="100%">
+                  <AgentAvatarPicker
+                    file={newAvatarFile}
+                    onChangeEmoji={(emoji) => { setNewAvatar(emoji); setNewAvatarFile(null); }}
+                    onChangeFile={(file) => setNewAvatarFile(file)}
+                    t={t}
+                    value={newAvatar}
+                  />
+                  <TextInput label={t('agent.name')} onChange={setNewName} value={newName} width="100%" />
+                </HStack>
                 <TextArea
                   label={t('agent.introduction')}
                   maxLength={512}
@@ -183,6 +242,13 @@ function AgentsView() {
                   placeholder={t('agent.introductionPlaceholder')}
                   rows={3}
                   value={newIntroduction}
+                  width="100%"
+                />
+                <TextInput
+                  label={t('agent.tags')}
+                  onChange={setNewTags}
+                  placeholder={t('agent.tagsPlaceholder')}
+                  value={newTags}
                   width="100%"
                 />
                 <Selector

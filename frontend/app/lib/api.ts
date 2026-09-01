@@ -80,6 +80,7 @@ export type Agent = {
   has_suggested_questions: boolean;
   is_memory_enabled: boolean;
   knowledge_base_ids: string[];
+  has_avatar_image: boolean;
   // Whether this viewer may edit the agent: its author, or a workspace admin.
   is_editable: boolean;
   created_at: string;
@@ -208,6 +209,12 @@ export const api = {
     request<{conversations: Conversation[]}>(`/api/agents/${encodeURIComponent(agentID)}/conversations${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   startAgentConversation: (agentID: string, workspaceID?: string) =>
     request<{conversation: Conversation}>(`/api/agents/${encodeURIComponent(agentID)}/conversations${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
+  agentAvatarURL: (agentID: string, workspaceID?: string) =>
+    `${API_BASE}/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
+  uploadAgentAvatar: (agentID: string, mime: string, data: string, workspaceID?: string) =>
+    request<void>(`/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PUT', body: JSON.stringify({mime, data})}),
+  deleteAgentAvatar: (agentID: string, workspaceID?: string) =>
+    request<void>(`/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
   deleteAgent: (agentID: string, workspaceID?: string) =>
     request<void>(`/api/agents/${encodeURIComponent(agentID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
   knowledgeBases: (workspaceID?: string) =>

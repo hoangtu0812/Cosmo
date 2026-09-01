@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,6 +92,7 @@ type Agent struct {
 	HasSuggestedQuestions bool      `json:"has_suggested_questions"`
 	IsMemoryEnabled       bool      `json:"is_memory_enabled"`
 	KnowledgeBaseIDs      []string  `json:"knowledge_base_ids"`
+	HasAvatarImage        bool      `json:"has_avatar_image"`
 	IsEditable            bool      `json:"is_editable"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
@@ -100,7 +102,7 @@ const agentColumns = `
 	a.id, a.name, a.introduction, a.avatar, a.tags, COALESCE(a.owner_user_id, ''),
 	COALESCE(u.name, ''), a.owner_workspace_id, a.visibility, a.model, a.system_prompt,
 	a.opening_line, a.preset_questions, a.has_suggested_questions, a.is_memory_enabled,
-	a.created_at, a.updated_at`
+	(a.avatar_image IS NOT NULL), a.created_at, a.updated_at`
 
 // visibleAgentSQL is the one place that decides who may see an agent: everyone
 // in the workspace sees a shared one, only the author sees a private one.
@@ -112,7 +114,7 @@ func scanAgent(scan func(...any) error) (Agent, error) {
 	err := scan(&item.ID, &item.Name, &item.Introduction, &item.Avatar, &tags, &item.OwnerUserID,
 		&item.OwnerName, &item.WorkspaceID, &item.Visibility, &item.Model, &item.SystemPrompt,
 		&item.OpeningLine, &presets, &item.HasSuggestedQuestions, &item.IsMemoryEnabled,
-		&item.CreatedAt, &item.UpdatedAt)
+		&item.HasAvatarImage, &item.CreatedAt, &item.UpdatedAt)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -608,4 +610,79 @@ func (s *Server) suggestFollowUps(ctx context.Context, question, answer string, 
 		}
 	}
 	return suggestions
+}
+
+// agentAvatar serves an uploaded avatar. Anyone who can see the agent can see
+// its picture; the visibility check in loadAgent is what decides that.
+func (s *Server) agentAvatar(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	agentID := chi.URLParam(r, "agentID")
+	workspaceID := s.memberWorkspace(r.Context(), user.ID, r.URL.Query().Get("workspace"))
+	if workspaceID == "" {
+		writeError(w, http.StatusForbidden, "Bạn không có quyền truy cập workspace này.")
+		return
+	}
+	if _, err := s.loadAgent(r.Context(), agentID, user.ID, workspaceID); err != nil {
+		writeError(w, http.StatusNotFound, "Không tìm thấy agent.")
+		return
+	}
+	var image []byte
+	var mime string
+	if err := s.db.QueryRow(r.Context(), `SELECT avatar_image, COALESCE(avatar_mime, '') FROM agents WHERE id = $1`, agentID).Scan(&image, &mime); err != nil || len(image) == 0 {
+		writeError(w, http.StatusNotFound, "Agent chưa có ảnh đại diện.")
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	_, _ = w.Write(image)
+}
+
+func (s *Server) uploadAgentAvatar(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "agentID")
+	if _, _, ok := s.agentForWrite(w, r, agentID); !ok {
+		return
+	}
+	var input struct {
+		MIME string `json:"mime"`
+		Data string `json:"data"` // base64, no data: prefix
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if !allowedIconMIME[input.MIME] {
+		writeError(w, http.StatusBadRequest, "Chỉ nhận ảnh PNG, JPEG, WebP hoặc GIF.")
+		return
+	}
+	image, err := base64.StdEncoding.DecodeString(input.Data)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Dữ liệu ảnh không hợp lệ.")
+		return
+	}
+	if len(image) == 0 || len(image) > maxIconBytes {
+		writeError(w, http.StatusBadRequest, "Ảnh phải nhỏ hơn 256 KB.")
+		return
+	}
+	// Trust the bytes, not the declared type: a mismatch means the upload is
+	// not what it claims to be.
+	if sniffed := http.DetectContentType(image); sniffed != input.MIME {
+		writeError(w, http.StatusBadRequest, "Nội dung ảnh không khớp định dạng khai báo.")
+		return
+	}
+	if _, err := s.db.Exec(r.Context(), `UPDATE agents SET avatar_image = $2, avatar_mime = $3, updated_at = NOW() WHERE id = $1`, agentID, image, input.MIME); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể lưu ảnh đại diện.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) deleteAgentAvatar(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "agentID")
+	if _, _, ok := s.agentForWrite(w, r, agentID); !ok {
+		return
+	}
+	if _, err := s.db.Exec(r.Context(), `UPDATE agents SET avatar_image = NULL, avatar_mime = NULL, updated_at = NOW() WHERE id = $1`, agentID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể xoá ảnh đại diện.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

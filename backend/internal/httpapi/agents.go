@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"strings"
 
 	"cosmo/backend/internal/agents"
 
@@ -16,6 +17,9 @@ func writeAgentError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, agents.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, agents.ErrStaleDraft):
+		// 409: the request was well formed, but the world moved under it.
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, agents.ErrNameLength), errors.Is(err, agents.ErrIntroLength),
 		errors.Is(err, agents.ErrKnowledgeNotInstalled), errors.Is(err, agents.ErrKnowledgeSave):
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -133,11 +137,19 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		HasSuggestedQuestions *bool     `json:"has_suggested_questions"`
 		IsMemoryEnabled       *bool     `json:"is_memory_enabled"`
 		KnowledgeBaseIDs      *[]string `json:"knowledge_base_ids"`
+		DraftRevision         int64     `json:"draft_revision"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	if err := s.agents.Update(r.Context(), current, agents.Changes(input)); err != nil {
+	changes := agents.Changes{
+		Name: input.Name, Introduction: input.Introduction, Avatar: input.Avatar,
+		Tags: input.Tags, Visibility: input.Visibility, Model: input.Model,
+		SystemPrompt: input.SystemPrompt, OpeningLine: input.OpeningLine,
+		PresetQuestions: input.PresetQuestions, HasSuggestedQuestions: input.HasSuggestedQuestions,
+		IsMemoryEnabled: input.IsMemoryEnabled, KnowledgeBaseIDs: input.KnowledgeBaseIDs,
+	}
+	if err := s.agents.SaveDraft(r.Context(), current, changes, input.DraftRevision); err != nil {
 		writeAgentError(w, err)
 		return
 	}
@@ -275,4 +287,40 @@ func (s *Server) deleteAgentAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) publishAgent(w http.ResponseWriter, r *http.Request) {
+	current, user, workspaceID, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
+	if !ok {
+		return
+	}
+	var input struct {
+		Changelog string `json:"changelog"`
+	}
+	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
+		return
+	}
+	if _, err := s.agents.Publish(r.Context(), current.ID, user.ID, strings.TrimSpace(input.Changelog)); err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	s.writeAgent(w, r, current.ID, user, workspaceID, http.StatusOK)
+}
+
+func (s *Server) listAgentVersions(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "agentID")
+	user, workspaceID, ok := s.agentWorkspace(w, r, r.URL.Query().Get("workspace"))
+	if !ok {
+		return
+	}
+	if _, err := s.agents.Get(r.Context(), agentID, user.ID, workspaceID); err != nil {
+		writeAgentError(w, err)
+		return
+	}
+	items, err := s.agents.Versions(r.Context(), agentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể tải danh sách phiên bản.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"versions": items})
 }

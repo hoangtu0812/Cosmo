@@ -30,6 +30,10 @@ const (
 // The errors carry the message the reader sees, so the transport layer maps
 // them to a status without restating them and the wording stays in one place.
 var (
+	// ErrStaleDraft means another editor saved since this one loaded the
+	// draft. Refusing is the point: the alternative is losing their work.
+	ErrStaleDraft            = errors.New("Agent đã được người khác sửa. Hãy tải lại trước khi lưu.")
+	ErrNothingToPublish      = errors.New("Không có thay đổi nào để xuất bản.")
 	ErrNameLength            = errors.New("Tên agent phải từ 1 đến 120 ký tự.")
 	ErrIntroLength           = errors.New("Giới thiệu tối đa 512 ký tự.")
 	ErrNotFound              = errors.New("Không tìm thấy agent.")
@@ -40,24 +44,31 @@ var (
 // Agent is a saved chat configuration: who it is, which model answers as it,
 // what it is told to do, and what a reader sees before the first question.
 type Agent struct {
-	ID                    string    `json:"id"`
-	Name                  string    `json:"name"`
-	Introduction          string    `json:"introduction"`
-	Avatar                string    `json:"avatar"`
-	Tags                  []string  `json:"tags"`
-	OwnerUserID           string    `json:"owner_user_id"`
-	OwnerName             string    `json:"owner_name"`
-	WorkspaceID           string    `json:"workspace_id"`
-	Visibility            string    `json:"visibility"`
-	Model                 string    `json:"model"`
-	SystemPrompt          string    `json:"system_prompt"`
-	OpeningLine           string    `json:"opening_line"`
-	PresetQuestions       []string  `json:"preset_questions"`
-	HasSuggestedQuestions bool      `json:"has_suggested_questions"`
-	IsMemoryEnabled       bool      `json:"is_memory_enabled"`
-	KnowledgeBaseIDs      []string  `json:"knowledge_base_ids"`
-	HasAvatarImage        bool      `json:"has_avatar_image"`
-	IsEditable            bool      `json:"is_editable"`
+	ID                    string   `json:"id"`
+	Name                  string   `json:"name"`
+	Introduction          string   `json:"introduction"`
+	Avatar                string   `json:"avatar"`
+	Tags                  []string `json:"tags"`
+	OwnerUserID           string   `json:"owner_user_id"`
+	OwnerName             string   `json:"owner_name"`
+	WorkspaceID           string   `json:"workspace_id"`
+	Visibility            string   `json:"visibility"`
+	Model                 string   `json:"model"`
+	SystemPrompt          string   `json:"system_prompt"`
+	OpeningLine           string   `json:"opening_line"`
+	PresetQuestions       []string `json:"preset_questions"`
+	HasSuggestedQuestions bool     `json:"has_suggested_questions"`
+	IsMemoryEnabled       bool     `json:"is_memory_enabled"`
+	KnowledgeBaseIDs      []string `json:"knowledge_base_ids"`
+	HasAvatarImage        bool     `json:"has_avatar_image"`
+	IsEditable            bool     `json:"is_editable"`
+	// DraftRevision is what a save must carry back to prove it read the
+	// current draft; a stale one is refused rather than silently overwriting.
+	DraftRevision int64 `json:"draft_revision"`
+	// PublishedVersion is empty while an agent has never been published.
+	PublishedVersion      int       `json:"published_version"`
+	PublishedVersionID    string    `json:"published_version_id"`
+	HasUnpublishedChanges bool      `json:"has_unpublished_changes"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
 }
@@ -89,6 +100,23 @@ type Changes struct {
 	HasSuggestedQuestions *bool
 	IsMemoryEnabled       *bool
 	KnowledgeBaseIDs      *[]string
+}
+
+// Version is an immutable snapshot of a draft at the moment it was published.
+type Version struct {
+	ID                    string    `json:"id"`
+	AgentID               string    `json:"agent_id"`
+	VersionNumber         int       `json:"version_number"`
+	Model                 string    `json:"model"`
+	SystemPrompt          string    `json:"system_prompt"`
+	OpeningLine           string    `json:"opening_line"`
+	PresetQuestions       []string  `json:"preset_questions"`
+	HasSuggestedQuestions bool      `json:"has_suggested_questions"`
+	IsMemoryEnabled       bool      `json:"is_memory_enabled"`
+	KnowledgeBaseIDs      []string  `json:"knowledge_base_ids"`
+	Changelog             string    `json:"changelog"`
+	PublishedBy           string    `json:"published_by"`
+	CreatedAt             time.Time `json:"created_at"`
 }
 
 // Conversation is an agent's own chat history, kept in the same table the

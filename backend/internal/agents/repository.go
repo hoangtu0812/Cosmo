@@ -32,7 +32,34 @@ const columns = `
 	a.id, a.name, a.introduction, a.avatar, a.tags, COALESCE(a.owner_user_id, ''),
 	COALESCE(u.name, ''), a.owner_workspace_id, a.visibility, a.model, a.system_prompt,
 	a.opening_line, a.preset_questions, a.has_suggested_questions, a.is_memory_enabled,
-	(a.avatar_image IS NOT NULL), a.created_at, a.updated_at`
+	(a.avatar_image IS NOT NULL), a.draft_revision, COALESCE(pv.version_number, 0),
+	COALESCE(a.published_version_id, ''), ` + unpublishedSQL + `,
+	a.created_at, a.updated_at`
+
+// unpublishedSQL answers whether the draft has drifted from what is live. It
+// compares the draft field by field against the published snapshot rather than
+// trusting a timestamp, because a save that changes nothing must not present
+// itself as an unpublished change. An agent that was never published always
+// has changes to publish.
+const unpublishedSQL = `(
+	pv.id IS NULL
+	OR pv.model IS DISTINCT FROM a.model
+	OR pv.system_prompt IS DISTINCT FROM a.system_prompt
+	OR pv.opening_line IS DISTINCT FROM a.opening_line
+	OR pv.preset_questions IS DISTINCT FROM a.preset_questions
+	OR pv.has_suggested_questions IS DISTINCT FROM a.has_suggested_questions
+	OR pv.is_memory_enabled IS DISTINCT FROM a.is_memory_enabled
+	OR pv.knowledge_base_ids IS DISTINCT FROM COALESCE((
+		SELECT jsonb_agg(k.kb_id ORDER BY k.created_at)
+		FROM agent_knowledge_bases k WHERE k.agent_id = a.id
+	), '[]'::jsonb)
+)`
+
+// joinPublished is part of every read of an agent, so the projection above can
+// speak about the live version.
+const joinPublished = `
+	LEFT JOIN users u ON u.id = a.owner_user_id
+	LEFT JOIN agent_versions pv ON pv.id = a.published_version_id`
 
 // visibleSQL is the one place that decides who may see an agent: everyone in
 // the workspace sees a shared one, only the author sees a private one. $1 is
@@ -45,7 +72,8 @@ func scan(row func(...any) error) (Agent, error) {
 	err := row(&item.ID, &item.Name, &item.Introduction, &item.Avatar, &tags, &item.OwnerUserID,
 		&item.OwnerName, &item.WorkspaceID, &item.Visibility, &item.Model, &item.SystemPrompt,
 		&item.OpeningLine, &presets, &item.HasSuggestedQuestions, &item.IsMemoryEnabled,
-		&item.HasAvatarImage, &item.CreatedAt, &item.UpdatedAt)
+		&item.HasAvatarImage, &item.DraftRevision, &item.PublishedVersion,
+		&item.PublishedVersionID, &item.HasUnpublishedChanges, &item.CreatedAt, &item.UpdatedAt)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -118,8 +146,7 @@ func NormalizeVisibility(visibility string) string {
 func (repository *Repository) List(ctx context.Context, userID, workspaceID string) ([]Agent, error) {
 	rows, err := repository.db.Query(ctx, `
 		SELECT `+columns+`
-		FROM agents a
-		LEFT JOIN users u ON u.id = a.owner_user_id
+		FROM agents a`+joinPublished+`
 		WHERE `+visibleSQL+`
 		ORDER BY a.updated_at DESC`, userID, workspaceID)
 	if err != nil {
@@ -162,8 +189,7 @@ func (repository *Repository) Create(ctx context.Context, input NewAgent) (strin
 func (repository *Repository) Get(ctx context.Context, agentID, userID, workspaceID string) (Agent, error) {
 	row := repository.db.QueryRow(ctx, `
 		SELECT `+columns+`
-		FROM agents a
-		LEFT JOIN users u ON u.id = a.owner_user_id
+		FROM agents a`+joinPublished+`
 		WHERE a.id = $3 AND `+visibleSQL, userID, workspaceID, agentID)
 	item, err := scan(row.Scan)
 	if err != nil {

@@ -214,6 +214,8 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/agents/{agentID}", s.getAgent)
 		protected.Patch("/api/agents/{agentID}", s.updateAgent)
 		protected.Delete("/api/agents/{agentID}", s.deleteAgent)
+		protected.Post("/api/agents/{agentID}/publish", s.publishAgent)
+		protected.Get("/api/agents/{agentID}/versions", s.listAgentVersions)
 		protected.Get("/api/agents/{agentID}/conversations", s.listAgentConversations)
 		protected.Post("/api/agents/{agentID}/conversations", s.startAgentConversation)
 		protected.Get("/api/agents/{agentID}/avatar", s.agentAvatar)

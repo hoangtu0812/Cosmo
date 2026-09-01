@@ -14,13 +14,20 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
 | Workflow | Sidebar › Workspace | Graph model, designer, execution engine | 3 |
-| Dự án | Sidebar › Workspace | Project, environment, artifact | 4 |
-| Lịch chạy | Sidebar › Workspace | Trigger manual/cron/webhook, scheduler lock | 4 |
 | Tool | Sidebar › Năng lực | Credential Vault, HTTP/OpenAPI tool, egress allowlist | 2 |
 | Skill | Sidebar › Năng lực | Skill registry, dependency lên Tool | 2 |
-| Thư viện | Sidebar › Dữ liệu | Registry, release, install/update | 6 |
 | Quan sát | Sidebar › Vận hành | Telemetry token/cost/latency, trace, dashboard | 5 |
-| Thông báo | Sidebar › Vận hành | Alert, incident, dedupe window | 5 |
+
+## Màn hình đã dựng vỏ, chưa có gì phía sau
+
+Đã có route và bố cục giống bản tham chiếu; mọi thao tác ghi đều bị khoá.
+
+| Màn hình | Đường dẫn | Cần gì để bật | Giai đoạn |
+|---|---|---|---|
+| Dự án | `/projects` | Project, environment, artifact | 4 |
+| Lịch chạy | `/schedule` | Trigger manual/cron/webhook, scheduler lock | 4 |
+| Thư viện | `/library` | Registry, release, install/update | 6 |
+| Thông báo | `/notifications` | Alert, incident, dedupe window | 5 |
 
 ## Chat
 

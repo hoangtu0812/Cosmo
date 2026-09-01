@@ -2,7 +2,7 @@
 
 import {Suspense, useEffect, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {Archive, BarChart3, Bell, Bot, Building2, Check, Clock, FolderKanban, Library, MessageSquare, MoreHorizontal, Settings, SquarePen, Trash2, UserPlus, UserRound, Workflow, Wrench, Zap} from 'lucide-react';
+import {Archive, BarChart3, Bell, Bookmark, Bot, Building2, Check, Clock, FolderKanban, Library, MessageSquare, MoreHorizontal, Search, Settings, SquarePen, Trash2, UserPlus, UserRound, Workflow, Wrench, Zap} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
@@ -14,14 +14,19 @@ import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesig
 import {api, Conversation, User, Workspace} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {ChatTargetFilters, ChatTargetList, useChatTargets} from './ChatTargetNav';
+import {Token} from '@astryxdesign/core/Token';
 import {UserProfileCard} from './UserProfileCard';
+
+// The areas that live inside the workspace application. Anything outside it -
+// signing in, accepting an invite - is its own page and gets no rail.
+const FRAMED_ROUTES = ['/chat', '/knowledge', '/agents', '/projects', '/schedule', '/library', '/notifications'];
 
 // Chat and Knowledge are one workspace application. Keeping the frame above
 // their route content lets navigation replace only that content; the workspace
 // context, conversation list and profile card never turn into a second page.
 export function WorkspaceFrame({children}: {children: React.ReactNode}) {
   const pathname = usePathname();
-  if (pathname !== '/chat' && !pathname.startsWith('/knowledge') && !pathname.startsWith('/agents')) return <>{children}</>;
+  if (!FRAMED_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))) return <>{children}</>;
   // The shell and every page it frames read the request URL through
   // useSearchParams, which a prerender has no answer for. One boundary here
   // covers the shell and its children together.
@@ -123,6 +128,8 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
   // The agent editor is a focused surface, so it runs without the rail while
   // keeping everything else the frame does - resolving the workspace above all.
   const isChatRoute = pathname === '/chat';
+  const isLibraryRoute = pathname === '/library';
+  const hasSecondColumn = !['/projects', '/schedule', '/notifications'].includes(pathname);
   const chatTargets = useChatTargets(workspace);
   const isFocusedRoute = /^\/agents\/[^/]+$/.test(pathname);
 
@@ -143,21 +150,22 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           >
             <SideNavSection isHeaderHidden title={t('nav.product')}>
               <SideNavItem icon={<Icon icon={MessageSquare} size="sm" />} isSelected={pathname === '/chat'} label={t('nav.chat')} size="md" onClick={() => goTo('/chat')} />
-              <SideNavItem icon={<Icon icon={FolderKanban} size="sm" />} isDisabled label={t('nav.projects')} size="md" />
-              <SideNavItem icon={<Icon icon={Clock} size="sm" />} isDisabled label={t('nav.schedule')} size="md" />
-              <SideNavItem icon={<Icon icon={Archive} size="sm" />} isDisabled label={t('nav.library')} size="md" />
-              <SideNavItem icon={<Icon icon={Bell} size="sm" />} isDisabled label={t('nav.notification')} size="md" />
+              <SideNavItem icon={<Icon icon={FolderKanban} size="sm" />} isSelected={pathname === '/projects'} label={t('nav.projects')} size="md" onClick={() => goTo('/projects')} />
+              <SideNavItem icon={<Icon icon={Clock} size="sm" />} isSelected={pathname === '/schedule'} label={t('nav.schedule')} size="md" onClick={() => goTo('/schedule')} />
+              <SideNavItem icon={<Icon icon={Archive} size="sm" />} isSelected={pathname === '/library'} label={t('nav.library')} size="md" onClick={() => goTo('/library')} />
+              <SideNavItem icon={<Icon icon={Bell} size="sm" />} isSelected={pathname === '/notifications'} label={t('nav.notification')} size="md" onClick={() => goTo('/notifications')} />
             </SideNavSection>
           </SideNav>
 
+          {hasSecondColumn ? (
           <SideNav
             className="w-76"
             topContent={isChatRoute ? <ChatTargetFilters t={t} targets={chatTargets} /> : undefined}
-            header={isChatRoute
-              ? <SideNavHeading heading={t('nav.chat')} />
+            header={isChatRoute || isLibraryRoute
+              ? <SideNavHeading heading={isLibraryRoute ? t('nav.library') : t('nav.chat')} />
               : <SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} subheading={user?.email} />}
           >
-          {isChatRoute ? null : (
+          {isChatRoute || isLibraryRoute ? null : (
             <SideNavSection isHeaderHidden title={t('chat.actions')}>
               <SideNavItem icon={<Icon icon={SquarePen} size="sm" />} isSelected={pathname === '/chat' && search.get('conversation') === 'new'} label={t('chat.newChat')} onClick={() => goTo('/chat')} />
             </SideNavSection>
@@ -165,7 +173,15 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           {/* Chat asks a different question of this column: not where to go,
               but who to ask. The workspace sections step aside for the list of
               agents and models, which is how the reference arranges it. */}
-          {isChatRoute ? (
+          {isLibraryRoute ? (
+            /* The library's own sections. Shells for now - see
+               docs/ui_backlog.md. */
+            <SideNavSection isHeaderHidden title={t('nav.library')}>
+              <SideNavItem icon={<Icon icon={Search} size="sm" />} isDisabled label={t('library.search')} size="lg" />
+              <SideNavItem endContent={<Token label={t('library.internal')} size="sm" />} icon={<Icon icon={Archive} size="sm" />} isDisabled label={t('library.shared')} size="lg" />
+              <SideNavItem icon={<Icon icon={Bookmark} size="sm" />} isDisabled label={t('library.collection')} size="lg" />
+            </SideNavSection>
+          ) : isChatRoute ? (
             <ChatTargetList
               activeTarget={search.get('target') ?? ''}
               onPick={(target) => router.push(`/chat?workspace=${encodeURIComponent(workspace?.id ?? '')}&conversation=new&target=${encodeURIComponent(target)}`)}
@@ -194,6 +210,7 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             <SideNavItem icon={<Icon icon={BarChart3} size="sm" />} isDisabled label={t('nav.observability')} />
           </SideNavSection>
           </>)}
+          {isLibraryRoute ? null : (<>
           <SideNavSection title={t('chat.recent')}>
             {conversations.map((item) => (
               <SideNavItem
@@ -214,7 +231,9 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             ))}
           </SideNavSection>
           {conversations.length === 0 && <EmptyState description={t('chat.empty')} isCompact title="—" />}
+          </>)}
           </SideNav>
+          ) : null}
         </HStack>
       }
     >

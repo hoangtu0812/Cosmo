@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ArrowLeft, History, MoreHorizontal, Pencil, Plus, SendHorizontal, Trash2} from 'lucide-react';
+import {ArrowLeft, History, MoreHorizontal, Pencil, Plus, SendHorizontal, Trash2, Wrench} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
@@ -17,6 +17,7 @@ import {Tab, TabList} from '@astryxdesign/core/TabList';
 import {Text} from '@astryxdesign/core/Text';
 import {Card} from '@astryxdesign/core/Card';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
+import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Item} from '@astryxdesign/core/Item';
 import {List} from '@astryxdesign/core/List';
 import {useEntryAnimation, useStreamingText} from '@astryxdesign/core/hooks';
@@ -265,8 +266,13 @@ function AgentEditorView() {
             {isReadOnly ? <Banner status="info" title={t('agent.readOnly')} /> : null}
 
             <HStack gap={4} hAlign="between" vAlign="center" width="100%">
+              {/* Capabilities is the reference's fourth tab. It needs Tool and
+                  Skill, which Cosmo has not built. Tab takes no disabled prop,
+                  so the panel behind it says so plainly instead: the shape is
+                  visible and nothing pretends to work. */}
               <TabList hasDivider onChange={setTab} value={tab}>
                 <Tab label={t('agent.tabPrompt')} value="prompt" />
+                <Tab label={t('agent.tabCapabilities')} value="capabilities" />
                 <Tab label={t('agent.tabKnowledge')} value="knowledge" />
                 <Tab label={t('agent.tabExperience')} value="experience" />
               </TabList>
@@ -309,6 +315,14 @@ function AgentEditorView() {
                   </Text>
                 </HStack>
               </VStack>
+            ) : null}
+
+            {tab === 'capabilities' ? (
+              <EmptyState
+                description={t('agent.capabilitiesSoonBody')}
+                icon={<Wrench size={48} strokeWidth={1} />}
+                title={t('agent.capabilitiesSoon')}
+              />
             ) : null}
 
             {tab === 'knowledge' ? (

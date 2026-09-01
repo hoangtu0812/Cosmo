@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {Bot, ImageUp, Search, Trash2, Workflow} from 'lucide-react';
+import {BarChart3, Bot, Copy, ImageUp, KeyRound, MoreHorizontal, Search, Settings2, ShieldCheck, Trash2, Workflow} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
@@ -12,6 +12,7 @@ import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
 import {useEntryAnimation} from '@astryxdesign/core/hooks';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
+import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Grid} from '@astryxdesign/core/Grid';
 import {IconButton} from '@astryxdesign/core/IconButton';
@@ -207,12 +208,23 @@ function AgentsView() {
                           <HStack gap={2} hAlign="between" vAlign="start">
                             <Avatar name={agent.avatar || agent.name} size="lg" />
                             {agent.is_editable ? (
-                              <IconButton
-                                icon={<Trash2 size={14} />}
-                                label={t('agent.deleteTitle')}
-                                onClick={() => setDeleting(agent)}
-                                size="sm"
-                                variant="ghost"
+                              /* The reference offers this set from the card.
+                                 What Cosmo cannot do yet is disabled rather
+                                 than absent, so the shape is visible and
+                                 nothing pretends to work. */
+                              <DropdownMenu
+                                alignment="end"
+                                button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('agent.moreActions'), size: 'sm', variant: 'ghost'}}
+                                hasChevron={false}
+                                items={[
+                                  {icon: <Settings2 size={15} />, label: t('agent.configure'), onClick: () => openAgent(agent)},
+                                  {icon: <Copy size={15} />, isDisabled: true, label: t('agent.duplicate')},
+                                  {icon: <KeyRound size={15} />, isDisabled: true, label: t('agent.apiKeys')},
+                                  {icon: <ShieldCheck size={15} />, isDisabled: true, label: t('agent.accessControl')},
+                                  {icon: <BarChart3 size={15} />, isDisabled: true, label: t('agent.observability')},
+                                  {type: 'divider' as const},
+                                  {icon: <Trash2 size={15} />, label: t('conv.delete'), onClick: () => setDeleting(agent), variant: 'destructive' as const},
+                                ]}
                               />
                             ) : null}
                           </HStack>

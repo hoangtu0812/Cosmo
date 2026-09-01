@@ -2,7 +2,7 @@
 
 import {Suspense, useEffect, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {Bot, Building2, Check, Library, MessageSquare, MoreHorizontal, Settings, SquarePen, Trash2, UserPlus, UserRound} from 'lucide-react';
+import {Archive, BarChart3, Bell, Bot, Building2, Check, Clock, FolderKanban, Library, MessageSquare, MoreHorizontal, Settings, SquarePen, Trash2, UserPlus, UserRound, Workflow, Wrench, Zap} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
@@ -134,12 +134,28 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           <SideNavSection isHeaderHidden title={t('chat.actions')}>
             <SideNavItem icon={<Icon icon={SquarePen} size="sm" />} isSelected={pathname === '/chat' && search.get('conversation') === 'new'} label={t('chat.newChat')} onClick={() => goTo('/chat')} />
           </SideNavSection>
-          {/* Agents and the knowledge they read belong together: building one
-              is the reason to open the other. They sit above Recent so a long
-              conversation list cannot push them out of view. */}
+          {/* The sections mirror the reference's information architecture, so
+              the shape of the product is visible before every part of it
+              exists. An item with no feature behind it is disabled rather than
+              hidden: it says what is coming without pretending to work.
+              What is stubbed is tracked in docs/ui_backlog.md. */}
           <SideNavSection title={t('nav.workspace')}>
             <SideNavItem icon={<Icon icon={Bot} size="sm" />} isSelected={pathname.startsWith('/agents')} label={t('agent.title')} onClick={() => goTo('/agents')} />
+            <SideNavItem icon={<Icon icon={Workflow} size="sm" />} isDisabled label={t('nav.workflow')} />
+            <SideNavItem icon={<Icon icon={FolderKanban} size="sm" />} isDisabled label={t('nav.projects')} />
+            <SideNavItem icon={<Icon icon={Clock} size="sm" />} isDisabled label={t('nav.schedule')} />
+          </SideNavSection>
+          <SideNavSection title={t('nav.capabilities')}>
+            <SideNavItem icon={<Icon icon={Wrench} size="sm" />} isDisabled label={t('nav.tool')} />
+            <SideNavItem icon={<Icon icon={Zap} size="sm" />} isDisabled label={t('nav.skill')} />
+          </SideNavSection>
+          <SideNavSection title={t('nav.data')}>
             <SideNavItem icon={<Icon icon={Library} size="sm" />} isSelected={pathname.startsWith('/knowledge')} label={t('kb.title')} onClick={() => goTo('/knowledge')} />
+            <SideNavItem icon={<Icon icon={Archive} size="sm" />} isDisabled label={t('nav.library')} />
+          </SideNavSection>
+          <SideNavSection title={t('nav.operate')}>
+            <SideNavItem icon={<Icon icon={BarChart3} size="sm" />} isDisabled label={t('nav.observability')} />
+            <SideNavItem icon={<Icon icon={Bell} size="sm" />} isDisabled label={t('nav.notification')} />
           </SideNavSection>
           <SideNavSection title={t('chat.recent')}>
             {conversations.map((item) => (

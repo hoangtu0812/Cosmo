@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {Bot, ImageUp, Trash2, Workflow} from 'lucide-react';
+import {Bot, ImageUp, Search, Trash2, Workflow} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {StatusDot} from '@astryxdesign/core/StatusDot';
@@ -19,6 +19,7 @@ import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from 
 import {Popover} from '@astryxdesign/core/Popover';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {SelectableCard} from '@astryxdesign/core/SelectableCard';
+import {Section} from '@astryxdesign/core/Section';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
@@ -58,6 +59,13 @@ function AgentsView() {
   const [newTags, setNewTags] = useState('');
   // Held until the agent exists: the upload endpoint needs an id to attach to.
   const [newAvatarFile, setNewAvatarFile] = useState<File | null>(null);
+  const [query, setQuery] = useState('');
+  // The reference filters by agent type. Cosmo has one type, so the division
+  // that actually means something here is whose agent it is.
+  const [scope, setScope] = useState('all');
+  // Needed to tell "mine" from "shared with me"; the list itself only says who
+  // owns each agent.
+  const [ownerID, setOwnerID] = useState('');
   // Only animates cards inserted after the first paint, so arriving on the
   // page stays still and a newly created agent is the thing that moves.
   const entry = useEntryAnimation('scaleIn');
@@ -69,6 +77,10 @@ function AgentsView() {
   }, [workspaceID]);
 
   useEffect(load, [load]);
+
+  useEffect(() => {
+    api.me().then((result) => setOwnerID(result.user.id)).catch(() => undefined);
+  }, []);
 
   function openAgent(agent: Agent) {
     const query = workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : '';
@@ -130,6 +142,15 @@ function AgentsView() {
     }
   }
 
+  const visible = agents.filter((agent) => {
+    if (scope === 'mine' && agent.owner_user_id !== ownerID) return false;
+    if (scope === 'shared' && agent.visibility !== 'workspace') return false;
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    return [agent.name, agent.introduction, ...agent.tags]
+      .some((field) => (field || '').toLowerCase().includes(needle));
+  });
+
   return (
     <>
       <Layout
@@ -148,6 +169,24 @@ function AgentsView() {
           <LayoutContent padding={6}>
             <VStack gap={6}>
               {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
+              {agents.length > 0 ? (
+                <HStack gap={3} vAlign="center" width="100%">
+                  <SegmentedControl label={t('agent.scope')} onChange={setScope} size="sm" value={scope}>
+                    <SegmentedControlItem label={t('agent.scopeAll')} value="all" />
+                    <SegmentedControlItem label={t('agent.scopeMine')} value="mine" />
+                    <SegmentedControlItem label={t('agent.scopeShared')} value="shared" />
+                  </SegmentedControl>
+                  <TextInput
+                    isLabelHidden
+                    label={t('agent.search')}
+                    onChange={setQuery}
+                    placeholder={t('agent.search')}
+                    startIcon={<Search size={15} />}
+                    value={query}
+                    width={280}
+                  />
+                </HStack>
+              ) : null}
               {agents.length === 0 ? (
                 <EmptyState
                   description={t('agent.emptyBody')}
@@ -155,37 +194,44 @@ function AgentsView() {
                   actions={<Button label={t('agent.new')} onClick={() => setIsCreating(true)} variant="primary" />}
                   title={t('agent.emptyTitle')}
                 />
+              ) : visible.length === 0 ? (
+                <Text color="secondary" type="supporting">{t('agent.noMatch')}</Text>
               ) : (
-                <Grid columns={{minWidth: 320, max: 3}} gap={4} width="100%">
-                  {agents.map((agent) => (
-                    <Card key={agent.id} onClick={() => openAgent(agent)} width="100%" xstyle={entry}>
-                      <VStack gap={3}>
-                        <HStack gap={3} hAlign="between" vAlign="start">
-                          <HStack gap={3} vAlign="center">
-                            <Avatar name={agent.avatar || agent.name} size="md" />
-                            <VStack gap={0}>
-                              <Text type="label">{agent.name}</Text>
-                              <Text color="secondary" type="supporting">{agent.owner_name}</Text>
-                            </VStack>
+                <Grid columns={{minWidth: 220, max: 5}} gap={4} width="100%">
+                  {visible.map((agent) => (
+                    // Portrait card, as the reference has it: the face on a band
+                    // of its own, then the name, then what the agent is for.
+                    <Card key={agent.id} onClick={() => openAgent(agent)} padding={0} width="100%" xstyle={entry}>
+                      <VStack gap={0} height="100%">
+                        <Section padding={3}>
+                          <HStack gap={2} hAlign="between" vAlign="start">
+                            <Avatar name={agent.avatar || agent.name} size="lg" />
+                            {agent.is_editable ? (
+                              <IconButton
+                                icon={<Trash2 size={14} />}
+                                label={t('agent.deleteTitle')}
+                                onClick={() => setDeleting(agent)}
+                                size="sm"
+                                variant="ghost"
+                              />
+                            ) : null}
                           </HStack>
-                          {agent.is_editable ? (
-                            <IconButton
-                              icon={<Trash2 size={14} />}
-                              label={t('agent.deleteTitle')}
-                              onClick={() => setDeleting(agent)}
-                              size="sm"
-                              variant="ghost"
-                            />
-                          ) : null}
-                        </HStack>
-                        {agent.introduction ? <Text color="secondary" type="supporting">{agent.introduction}</Text> : null}
-                        <HStack gap={2} vAlign="center">
-                          <StatusDot
-                            label={agent.visibility === 'workspace' ? t('agent.visibilityWorkspace') : t('agent.visibilityPrivate')}
-                            variant="neutral"
-                          />
-                          {agent.model ? <Token label={agent.model} size="sm" /> : null}
-                        </HStack>
+                        </Section>
+                        <Section padding={3}>
+                          <VStack gap={1}>
+                            <Text maxLines={1} type="label">{agent.name}</Text>
+                            <Text color="secondary" maxLines={2} type="supporting">
+                              {agent.introduction || agent.owner_name}
+                            </Text>
+                            <HStack gap={2} vAlign="center" wrap="wrap">
+                              <StatusDot
+                                label={agent.visibility === 'workspace' ? t('agent.visibilityWorkspace') : t('agent.visibilityPrivate')}
+                                variant="neutral"
+                              />
+                              {agent.model ? <Token label={agent.model} size="sm" /> : null}
+                            </HStack>
+                          </VStack>
+                        </Section>
                       </VStack>
                     </Card>
                   ))}

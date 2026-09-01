@@ -11,13 +11,6 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 
 ## Thanh điều hướng
 
-| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
-|---|---|---|---|
-| Workflow | Sidebar › Workspace | Graph model, designer, execution engine | 3 |
-| Tool | Sidebar › Năng lực | Credential Vault, HTTP/OpenAPI tool, egress allowlist | 2 |
-| Skill | Sidebar › Năng lực | Skill registry, dependency lên Tool | 2 |
-| Quan sát | Sidebar › Vận hành | Telemetry token/cost/latency, trace, dashboard | 5 |
-
 ## Màn hình đã dựng vỏ, chưa có gì phía sau
 
 Đã có route và bố cục giống bản tham chiếu; mọi thao tác ghi đều bị khoá.
@@ -28,6 +21,10 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Lịch chạy | `/schedule` | Trigger manual/cron/webhook, scheduler lock | 4 |
 | Thư viện | `/library` | Registry, release, install/update | 6 |
 | Thông báo | `/notifications` | Alert, incident, dedupe window | 5 |
+| Workflow | `/workflow` | Graph model, designer, execution engine | 3 |
+| Tool | `/tools` | Credential Vault, HTTP/OpenAPI tool, egress allowlist | 2 |
+| Skill | `/skills` | Skill registry, dependency lên Tool | 2 |
+| Quan sát | `/observability` | Telemetry token/cost/latency, trace, dashboard | 5 |
 
 ## Chat
 

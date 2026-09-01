@@ -19,7 +19,7 @@ import {UserProfileCard} from './UserProfileCard';
 
 // The areas that live inside the workspace application. Anything outside it -
 // signing in, accepting an invite - is its own page and gets no rail.
-const FRAMED_ROUTES = ['/chat', '/knowledge', '/agents', '/projects', '/schedule', '/library', '/notifications'];
+const FRAMED_ROUTES = ['/chat', '/knowledge', '/agents', '/projects', '/schedule', '/library', '/notifications', '/workflow', '/tools', '/skills', '/observability'];
 
 // Chat and Knowledge are one workspace application. Keeping the frame above
 // their route content lets navigation replace only that content; the workspace
@@ -160,6 +160,12 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           {hasSecondColumn ? (
           <SideNav
             className="w-76"
+            footer={isChatRoute || isLibraryRoute ? undefined : (
+              <SideNavSection isHeaderHidden title={t('nav.operate')}>
+                <SideNavItem icon={<Icon icon={BarChart3} size="sm" />} isSelected={pathname === '/observability'} label={t('nav.observability')} onClick={() => goTo('/observability')} />
+                <SideNavItem icon={<Icon icon={Settings} size="sm" />} isSelected={pathname === '/settings'} label={t('nav.manageWorkspace')} onClick={() => goTo('/settings')} />
+              </SideNavSection>
+            )}
             topContent={isChatRoute ? <ChatTargetFilters t={t} targets={chatTargets} /> : undefined}
             header={isChatRoute || isLibraryRoute
               ? <SideNavHeading heading={isLibraryRoute ? t('nav.library') : t('nav.chat')} />
@@ -195,22 +201,19 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
               exists. An item with no feature behind it is disabled rather than
               hidden: it says what is coming without pretending to work.
               What is stubbed is tracked in docs/ui_backlog.md. */}
-          <SideNavSection title={t('nav.workspace')}>
+          <SideNavSection isHeaderHidden title={t('nav.workspace')}>
             <SideNavItem icon={<Icon icon={Bot} size="sm" />} isSelected={pathname.startsWith('/agents')} label={t('agent.title')} onClick={() => goTo('/agents')} />
-            <SideNavItem icon={<Icon icon={Workflow} size="sm" />} isDisabled label={t('nav.workflow')} />
+            <SideNavItem icon={<Icon icon={Workflow} size="sm" />} isSelected={pathname === '/workflow'} label={t('nav.workflow')} onClick={() => goTo('/workflow')} />
           </SideNavSection>
           <SideNavSection title={t('nav.capabilities')}>
-            <SideNavItem icon={<Icon icon={Wrench} size="sm" />} isDisabled label={t('nav.tool')} />
-            <SideNavItem icon={<Icon icon={Zap} size="sm" />} isDisabled label={t('nav.skill')} />
+            <SideNavItem icon={<Icon icon={Wrench} size="sm" />} isSelected={pathname === '/tools'} label={t('nav.tool')} onClick={() => goTo('/tools')} />
+            <SideNavItem icon={<Icon icon={Zap} size="sm" />} isSelected={pathname === '/skills'} label={t('nav.skill')} onClick={() => goTo('/skills')} />
           </SideNavSection>
           <SideNavSection title={t('nav.data')}>
             <SideNavItem icon={<Icon icon={Library} size="sm" />} isSelected={pathname.startsWith('/knowledge')} label={t('kb.title')} onClick={() => goTo('/knowledge')} />
           </SideNavSection>
-          <SideNavSection title={t('nav.operate')}>
-            <SideNavItem icon={<Icon icon={BarChart3} size="sm" />} isDisabled label={t('nav.observability')} />
-          </SideNavSection>
           </>)}
-          {isLibraryRoute ? null : (<>
+          {isChatRoute ? (<>
           <SideNavSection title={t('chat.recent')}>
             {conversations.map((item) => (
               <SideNavItem
@@ -231,7 +234,7 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             ))}
           </SideNavSection>
           {conversations.length === 0 && <EmptyState description={t('chat.empty')} isCompact title="—" />}
-          </>)}
+          </>) : null}
           </SideNav>
           ) : null}
         </HStack>

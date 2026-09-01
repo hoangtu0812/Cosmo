@@ -118,11 +118,15 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
     </>
   );
 
+  // The agent editor is a focused surface, so it runs without the rail while
+  // keeping everything else the frame does - resolving the workspace above all.
+  const isFocusedRoute = /^\/agents\/[^/]+$/.test(pathname);
+
   return (
     <AppShell
       contentPadding={0}
       variant="elevated"
-      sideNav={
+      sideNav={isFocusedRoute ? undefined :
         <SideNav
           footer={user ? <UserProfileCard user={user} /> : undefined}
           header={<SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} subheading={user?.email} />}

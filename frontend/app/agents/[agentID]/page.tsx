@@ -657,7 +657,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   }
 
   return (
-    <VStack gap={3} height="100%" padding={4} width={640}>
+    <VStack gap={3} height="100%" padding={4} width={740}>
       <HStack gap={2} hAlign="between" vAlign="center">
         <HStack gap={2} vAlign="center">
           <Text type="label">{t('agent.chat')}</Text>

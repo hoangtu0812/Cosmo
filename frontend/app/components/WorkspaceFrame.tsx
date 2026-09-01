@@ -9,6 +9,7 @@ import {Avatar} from '@astryxdesign/core/Avatar';
 import {DropdownMenu, DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
+import {HStack} from '@astryxdesign/core/Layout';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {api, Conversation, User, Workspace} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
@@ -127,10 +128,28 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
       contentPadding={0}
       variant="elevated"
       sideNav={isFocusedRoute ? undefined :
-        <SideNav
-          footer={user ? <UserProfileCard user={user} /> : undefined}
-          header={<SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} subheading={user?.email} />}
-        >
+        /* Two columns, as the reference has them: the outer rail is the
+           product's top-level areas and stays the same wherever you are; the
+           inner one is what the current workspace holds. Built from two
+           SideNavs side by side rather than hand-rolled layout. */
+        <HStack gap={0} height="100%">
+          <SideNav
+            footer={user ? <UserProfileCard user={user} /> : undefined}
+            header={<SideNavHeading heading="Cosmo" icon={<Icon icon={Bot} size="sm" />} />}
+            xstyle={undefined}
+          >
+            <SideNavSection isHeaderHidden title={t('nav.product')}>
+              <SideNavItem icon={<Icon icon={MessageSquare} size="sm" />} isSelected={pathname === '/chat'} label={t('nav.chat')} onClick={() => goTo('/chat')} />
+              <SideNavItem icon={<Icon icon={FolderKanban} size="sm" />} isDisabled label={t('nav.projects')} />
+              <SideNavItem icon={<Icon icon={Clock} size="sm" />} isDisabled label={t('nav.schedule')} />
+              <SideNavItem icon={<Icon icon={Archive} size="sm" />} isDisabled label={t('nav.library')} />
+              <SideNavItem icon={<Icon icon={Bell} size="sm" />} isDisabled label={t('nav.notification')} />
+            </SideNavSection>
+          </SideNav>
+
+          <SideNav
+            header={<SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} subheading={user?.email} />}
+          >
           <SideNavSection isHeaderHidden title={t('chat.actions')}>
             <SideNavItem icon={<Icon icon={SquarePen} size="sm" />} isSelected={pathname === '/chat' && search.get('conversation') === 'new'} label={t('chat.newChat')} onClick={() => goTo('/chat')} />
           </SideNavSection>
@@ -142,8 +161,6 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           <SideNavSection title={t('nav.workspace')}>
             <SideNavItem icon={<Icon icon={Bot} size="sm" />} isSelected={pathname.startsWith('/agents')} label={t('agent.title')} onClick={() => goTo('/agents')} />
             <SideNavItem icon={<Icon icon={Workflow} size="sm" />} isDisabled label={t('nav.workflow')} />
-            <SideNavItem icon={<Icon icon={FolderKanban} size="sm" />} isDisabled label={t('nav.projects')} />
-            <SideNavItem icon={<Icon icon={Clock} size="sm" />} isDisabled label={t('nav.schedule')} />
           </SideNavSection>
           <SideNavSection title={t('nav.capabilities')}>
             <SideNavItem icon={<Icon icon={Wrench} size="sm" />} isDisabled label={t('nav.tool')} />
@@ -151,11 +168,9 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           </SideNavSection>
           <SideNavSection title={t('nav.data')}>
             <SideNavItem icon={<Icon icon={Library} size="sm" />} isSelected={pathname.startsWith('/knowledge')} label={t('kb.title')} onClick={() => goTo('/knowledge')} />
-            <SideNavItem icon={<Icon icon={Archive} size="sm" />} isDisabled label={t('nav.library')} />
           </SideNavSection>
           <SideNavSection title={t('nav.operate')}>
             <SideNavItem icon={<Icon icon={BarChart3} size="sm" />} isDisabled label={t('nav.observability')} />
-            <SideNavItem icon={<Icon icon={Bell} size="sm" />} isDisabled label={t('nav.notification')} />
           </SideNavSection>
           <SideNavSection title={t('chat.recent')}>
             {conversations.map((item) => (
@@ -177,7 +192,8 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             ))}
           </SideNavSection>
           {conversations.length === 0 && <EmptyState description={t('chat.empty')} isCompact title="—" />}
-        </SideNav>
+          </SideNav>
+        </HStack>
       }
     >
       {children}

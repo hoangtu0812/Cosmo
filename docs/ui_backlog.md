@@ -37,6 +37,12 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 |---|---|---|---|
 | Kiểm tra truy xuất | Chi tiết KB | Đưa `rag-service/app/evaluate.py` thành API và màn hình | 5 |
 
+## Tài khoản
+
+| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
+|---|---|---|---|
+| Truy cập API | Menu tài khoản | Cấp và thu hồi API key cho người dùng | chưa xếp |
+
 ## Workspace
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
@@ -54,6 +60,7 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Quan sát | Menu ⋯ trên card | Trace theo agent, token/cost | 5 |
 | Flow agent | Dialog tạo agent | Workflow engine | 3 |
 | Biến trong prompt | Editor agent › Prompt | Thay thế biến khi chạy, khai báo biến theo agent | chưa xếp |
+| Tạo bằng AI | Nút Agent mới | Model sinh prompt và cấu hình từ mô tả | chưa xếp |
 | Cải thiện prompt | Editor agent › panel | Model viết lại prompt và so sánh kết quả | chưa xếp |
 
 ## Đã dựng UI và **có** chức năng thật

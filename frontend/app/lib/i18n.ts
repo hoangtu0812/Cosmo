@@ -489,6 +489,7 @@ const strings = {
     'menu.signOut': 'Sign out',
     'menu.yourWorkspaces': 'Your workspaces',
     'profile.options': 'Profile options',
+    'profile.apiAccess': 'API access',
     'profile.admin': 'Admin console',
 
     'settings.title': 'Settings',
@@ -1076,6 +1077,7 @@ const strings = {
     'menu.signOut': 'Đăng xuất',
     'menu.yourWorkspaces': 'Workspace của bạn',
     'profile.options': 'Tuỳ chọn hồ sơ',
+    'profile.apiAccess': 'Truy cập API',
     'profile.admin': 'Trang quản trị',
 
     'settings.title': 'Cài đặt',

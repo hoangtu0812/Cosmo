@@ -4,7 +4,6 @@ import {Archive} from 'lucide-react';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Layout, LayoutContent, VStack} from '@astryxdesign/core/Layout';
 import {Tab, TabList} from '@astryxdesign/core/TabList';
-import {PageHeader} from '../components/PageHeader';
 import {useTranslation} from '../lib/i18n';
 
 // Shell only. The sections that would fill it live in the second column and
@@ -24,7 +23,6 @@ export default function LibraryPage() {
         </VStack>
       </LayoutContent>
     }
-    header={<PageHeader description={t('library.subtitle')} title={t('nav.library')} />}
     height="fill"
   />
   );

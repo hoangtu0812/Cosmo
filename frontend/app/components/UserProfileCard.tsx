@@ -1,5 +1,7 @@
 'use client';
 
+import {Building2, Code, LogOut, SlidersHorizontal} from 'lucide-react';
+
 import {useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {Avatar} from '@astryxdesign/core/Avatar';
@@ -38,9 +40,13 @@ export function UserProfileCard({user}: {user: User}) {
           </VStack>
           <MoreMenu
             items={[
-              ...(user.role === 'admin' ? [{label: t('profile.admin'), onClick: () => router.push('/admin')}] : []),
-              {label: t('settings.preferences'), onClick: () => setIsPreferencesOpen(true)},
-              {label: t('menu.signOut'), onClick: () => void signOut(), variant: 'destructive'},
+              {icon: <SlidersHorizontal size={15} />, label: t('settings.preferences'), onClick: () => setIsPreferencesOpen(true)},
+              ...(user.role === 'admin' ? [{icon: <Building2 size={15} />, label: t('profile.admin'), onClick: () => router.push('/admin')}] : []),
+              /* The reference offers programmatic access from here. Cosmo has
+                 no key issuing yet - see docs/ui_backlog.md. */
+              {icon: <Code size={15} />, isDisabled: true, label: t('profile.apiAccess')},
+              {type: 'divider' as const},
+              {icon: <LogOut size={15} />, label: t('menu.signOut'), onClick: () => void signOut(), variant: 'destructive'},
             ]}
             label={t('profile.options')}
             size="sm"

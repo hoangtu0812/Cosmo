@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {BarChart3, Bot, Copy, ImageUp, KeyRound, MoreHorizontal, Search, Settings2, ShieldCheck, Sparkles, Trash2, Workflow} from 'lucide-react';
+import {BarChart3, Bot, Copy, ExternalLink, ImageUp, KeyRound, MoreHorizontal, Pencil, Search, Settings2, ShieldCheck, Sparkles, Trash2, Workflow} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Token} from '@astryxdesign/core/Token';
@@ -232,7 +232,9 @@ function AgentsView() {
                                 hasChevron={false}
                                 items={[
                                   {icon: <Settings2 size={15} />, label: t('agent.configure'), onClick: () => openAgent(agent)},
-                                  {icon: <Copy size={15} />, isDisabled: true, label: t('agent.duplicate')},
+                                  {icon: <Pencil size={15} />, isDisabled: true, label: t('agent.edit')},
+                                  {icon: <Copy size={15} />, isDisabled: true, label: t('agent.copy')},
+                                  {icon: <ExternalLink size={15} />, isDisabled: true, label: t('agent.access')},
                                   {icon: <KeyRound size={15} />, isDisabled: true, label: t('agent.apiKeys')},
                                   {icon: <ShieldCheck size={15} />, isDisabled: true, label: t('agent.accessControl')},
                                   {icon: <BarChart3 size={15} />, isDisabled: true, label: t('agent.observability')},

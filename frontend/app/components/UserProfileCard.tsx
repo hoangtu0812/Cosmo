@@ -1,6 +1,6 @@
 'use client';
 
-import {Building2, Code, LogOut, SlidersHorizontal} from 'lucide-react';
+import {Building2, ChevronsUpDown, Code, LogOut, SlidersHorizontal} from 'lucide-react';
 
 import {useState} from 'react';
 import {useRouter} from 'next/navigation';
@@ -8,7 +8,7 @@ import {Avatar} from '@astryxdesign/core/Avatar';
 import {Card} from '@astryxdesign/core/Card';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {HStack, Layout, LayoutContent, VStack} from '@astryxdesign/core/Layout';
-import {MoreMenu} from '@astryxdesign/core/MoreMenu';
+import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
 import {api, User} from '../lib/api';
@@ -38,7 +38,10 @@ export function UserProfileCard({user}: {user: User}) {
             <Text maxLines={1} type="label">{user.name}</Text>
             <Text color="secondary" maxLines={1} type="supporting">{user.email}</Text>
           </VStack>
-          <MoreMenu
+          <DropdownMenu
+            alignment="end"
+            button={{icon: <ChevronsUpDown size={15} />, isIconOnly: true, label: t('profile.options'), size: 'sm', variant: 'ghost'}}
+            hasChevron={false}
             items={[
               {icon: <SlidersHorizontal size={15} />, label: t('settings.preferences'), onClick: () => setIsPreferencesOpen(true)},
               ...(user.role === 'admin' ? [{icon: <Building2 size={15} />, label: t('profile.admin'), onClick: () => router.push('/admin')}] : []),
@@ -48,8 +51,6 @@ export function UserProfileCard({user}: {user: User}) {
               {type: 'divider' as const},
               {icon: <LogOut size={15} />, label: t('menu.signOut'), onClick: () => void signOut(), variant: 'destructive'},
             ]}
-            label={t('profile.options')}
-            size="sm"
           />
         </HStack>
       </Card>

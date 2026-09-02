@@ -19,6 +19,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {api, APIError, Invitation, LLMSettings, Member, User, Workspace} from '../lib/api';
 import {PageHeader} from '../components/PageHeader';
+import {resizeToSquare} from '../lib/image';
 import {useTranslation} from '../lib/i18n';
 
 
@@ -361,24 +362,6 @@ function MemberSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: b
 
 // Downscales an upload to a small square before it reaches the API, so the
 // stored icon stays well under the server's 256 KB cap whatever the source is.
-async function resizeToSquare(file: File, size = 128): Promise<{mime: string; data: string}> {
-  const bitmap = await createImageBitmap(file);
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Canvas unavailable');
-  const side = Math.min(bitmap.width, bitmap.height);
-  context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
-  bitmap.close();
-  const blob: Blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('Encode failed'))), 'image/png');
-  });
-  const buffer = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  buffer.forEach((byte) => { binary += String.fromCharCode(byte); });
-  return {mime: 'image/png', data: btoa(binary)};
-}
 
 function WorkspaceSettings({onError, onNotice, onUpdated, workspace}: {
   onError: (value: string) => void;

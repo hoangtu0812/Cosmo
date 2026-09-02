@@ -1,9 +1,9 @@
 'use client';
 
-import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb, type OrbState} from 'thinking-orbs';
-import {Bot, Brain, Building2, Check, Cloud, Cpu, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Pencil, Plus, Settings, Sparkles, SquarePen, Trash2, UserPlus, UserRound, X} from 'lucide-react';
+import {Bot, Brain, Cloud, Cpu, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Pencil, Plus, Sparkles, SquarePen, Trash2, X} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -17,7 +17,7 @@ import {
 } from '@astryxdesign/core/Chat';
 import {ClickableCard} from '@astryxdesign/core/ClickableCard';
 import {Collapsible} from '@astryxdesign/core/Collapsible';
-import {DropdownMenu, DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
+import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
@@ -34,20 +34,11 @@ import {Agent, api, APIError, Citation, Conversation, GatewayModel, Message, str
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Markdown} from '@astryxdesign/core/Markdown';
-import {MoreMenu} from '@astryxdesign/core/MoreMenu';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Selector} from '@astryxdesign/core/Selector';
 import {StatusLabel} from '../components/StatusLabel';
 import {useTranslation} from '../lib/i18n';
-import {UserProfileCard} from '../components/UserProfileCard';
 
-const MOBILE_QUERY = '(max-width: 768px)';
-
-function subscribeMobile(onChange: () => void) {
-  const query = window.matchMedia(MOBILE_QUERY);
-  query.addEventListener('change', onChange);
-  return () => query.removeEventListener('change', onChange);
-}
 
 function activityOrb(stage: string): OrbState {
   switch (stage) {
@@ -67,7 +58,6 @@ export default function ChatPage() {
   const suggestions = [t('chat.suggestion1'), t('chat.suggestion2'), t('chat.suggestion3'), t('chat.suggestion4')];
   const [user, setUser] = useState<User | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationID, setConversationID] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -94,18 +84,9 @@ export default function ChatPage() {
   const [renameTitle, setRenameTitle] = useState('');
   const [deleting, setDeleting] = useState<Conversation | null>(null);
   const [busy, setBusy] = useState(false);
-  const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState('');
-  const [workspaceDescription, setWorkspaceDescription] = useState('');
-  const [workspaceLogo, setWorkspaceLogo] = useState<File | null>(null);
-  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
-  const workspaceLogoInput = useRef<HTMLInputElement>(null);
 
   // Below 768px the rail must start collapsed. Tracked as a subscription
   // rather than an effect so a resize stays in sync.
-  const isMobile = useSyncExternalStore(subscribeMobile, () => window.matchMedia(MOBILE_QUERY).matches, () => false);
-  const [sidebarOverride, setSidebarOverride] = useState<boolean | null>(null);
-  const sidebarOpen = sidebarOverride ?? !isMobile;
 
   const activeConversation = useMemo(() => conversations.find((item) => item.id === conversationID), [conversations, conversationID]);
   const selectedAgentID = chatTarget.startsWith('agent:') ? chatTarget.slice(6) : '';
@@ -132,7 +113,6 @@ export default function ChatPage() {
       const workspaceID = requestedWorkspaceID ?? me.user.last_workspace_id ?? workspaceResult.workspaces[0]?.id;
       const selected = workspaceResult.workspaces.find((item) => item.id === workspaceID);
       setUser(me.user);
-      setWorkspaces(workspaceResult.workspaces);
       if (!selected) {
         setError(t('chat.noWorkspace'));
         return;
@@ -191,7 +171,6 @@ export default function ChatPage() {
     setChatTarget(conversation.agent_id ? `agent:${conversation.agent_id}` : 'model:');
     setReasoningEffort('');
     if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=${encodeURIComponent(conversation.id)}`);
-    if (isMobile) setSidebarOverride(false);
   }
 
   function startNewChat() {
@@ -201,7 +180,6 @@ export default function ChatPage() {
     setChatTarget('model:');
     setReasoningEffort('');
     if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new`);
-    if (isMobile) setSidebarOverride(false);
   }
 
   function changeChatTarget(value: string) {
@@ -213,24 +191,6 @@ export default function ChatPage() {
     setError('');
     hydratedRef.current = '';
     if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new&target=${encodeURIComponent(value)}`);
-  }
-
-  async function switchWorkspace(next: Workspace) {
-    if (next.id === workspace?.id) return;
-    setError('');
-    try {
-      await api.selectWorkspace(next.id);
-      const result = await api.conversations(next.id);
-      setWorkspace(next);
-      setConversations(result.conversations);
-      setConversationID(result.conversations[0]?.id ?? '');
-      setChatTarget(result.conversations[0]?.agent_id ? `agent:${result.conversations[0].agent_id}` : 'model:');
-      setReasoningEffort('');
-      setMessages([]);
-      router.replace(`/chat?workspace=${encodeURIComponent(next.id)}`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('chat.switchFailed'));
-    }
   }
 
   async function renameConversation() {
@@ -260,37 +220,6 @@ export default function ChatPage() {
       setError(caught instanceof Error ? caught.message : t('conv.deleteFailed'));
     } finally {
       setBusy(false);
-    }
-  }
-
-  function closeCreateWorkspace(force = false) {
-    if (isCreatingWorkspace && !force) return;
-    setIsCreateWorkspaceOpen(false);
-    setWorkspaceName('');
-    setWorkspaceDescription('');
-    setWorkspaceLogo(null);
-  }
-
-  async function createWorkspace() {
-    const name = workspaceName.trim();
-    if (!name) return;
-    setIsCreatingWorkspace(true);
-    setError('');
-    try {
-      const result = await api.createWorkspace(name, workspaceDescription.trim());
-      let created = result.workspace;
-      if (workspaceLogo) {
-        const {mime, data} = await resizeToSquare(workspaceLogo);
-        await api.uploadWorkspaceIcon(created.id, mime, data);
-        created = {...created, has_icon_image: true};
-      }
-      setWorkspaces((current) => [...current, created]);
-      closeCreateWorkspace(true);
-      await switchWorkspace(created);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('workspace.createFailed'));
-    } finally {
-      setIsCreatingWorkspace(false);
     }
   }
 
@@ -348,44 +277,8 @@ export default function ChatPage() {
     }
   }
 
-  const collapsible = {
-    isCollapsed: !sidebarOpen,
-    onCollapsedChange: (isCollapsed: boolean) => setSidebarOverride(!isCollapsed),
-    hasButton: false,
-  };
-
   // Workspace switching lives in the SideNav heading's popover, the way the
   // reference shell puts it, rather than on a separate picker page.
-  const workspaceMenu = (
-    <>
-      {workspaces.map((item) => (
-        <DropdownMenuItem
-          endContent={item.id === workspace?.id ? <Check size={14} /> : undefined}
-          icon={item.type === 'personal' ? <UserRound size={15} /> : <Building2 size={15} />}
-          key={item.id}
-          label={item.name}
-          onClick={() => void switchWorkspace(item)}
-        />
-      ))}
-      <DropdownMenuDivider />
-      <DropdownMenuItem
-        icon={<Settings size={15} />}
-        label={t('menu.settings')}
-        onClick={() => router.push('/settings')}
-      />
-      <DropdownMenuItem
-        icon={<UserPlus size={15} />}
-        label={t('menu.invite')}
-        onClick={() => router.push('/settings?section=members')}
-      />
-      <DropdownMenuItem
-        icon={<Plus size={15} />}
-        label={t('menu.createWorkspace')}
-        onClick={() => setIsCreateWorkspaceOpen(true)}
-      />
-    </>
-  );
-
   const conversationMenu: DropdownMenuOption[] = [
     {id: 'new', label: t('chat.newChat'), icon: <Plus size={15} />, onClick: startNewChat},
     ...(conversations.length > 0 ? [{type: 'divider' as const}] : []),
@@ -713,47 +606,6 @@ export default function ChatPage() {
         title={t('conv.deleteTitle')}
       />
 
-      <Dialog
-        isOpen={isCreateWorkspaceOpen}
-        onOpenChange={(open) => { if (!open) closeCreateWorkspace(); }}
-        purpose="form"
-      >
-        <Layout
-          content={
-            <LayoutContent>
-              <VStack gap={4}>
-                <TextInput label={t('workspace.name')} onChange={setWorkspaceName} onEnter={() => void createWorkspace()} value={workspaceName} width="100%" />
-                <TextInput label={t('workspace.description')} onChange={setWorkspaceDescription} value={workspaceDescription} width="100%" />
-                <VStack gap={2}>
-                  <Text type="label">{t('workspace.logo')}</Text>
-                  <HStack gap={2} vAlign="center">
-                    <Avatar name={workspaceName || 'Workspace'} size="lg" src={workspaceLogo ? URL.createObjectURL(workspaceLogo) : undefined} />
-                    <input
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      hidden
-                      onChange={(event) => { setWorkspaceLogo(event.target.files?.[0] ?? null); event.target.value = ''; }}
-                      ref={workspaceLogoInput}
-                      type="file"
-                    />
-                    <Button label={t('workspace.uploadImage')} onClick={() => workspaceLogoInput.current?.click()} variant="secondary" />
-                    {workspaceLogo && <Button label={t('workspace.removeImage')} onClick={() => setWorkspaceLogo(null)} variant="ghost" />}
-                  </HStack>
-                </VStack>
-              </VStack>
-            </LayoutContent>
-          }
-          footer={
-            <LayoutFooter>
-              <HStack gap={2} hAlign="end">
-                <Button label={t('common.cancel')} onClick={() => closeCreateWorkspace()} variant="secondary" />
-                <Button isDisabled={!workspaceName.trim() || isCreatingWorkspace} isLoading={isCreatingWorkspace} label={t('workspace.create')} onClick={() => void createWorkspace()} variant="primary" />
-              </HStack>
-            </LayoutFooter>
-          }
-          header={<DialogHeader onOpenChange={(open) => { if (!open) closeCreateWorkspace(); }} title={t('workspace.createTitle')} />}
-        />
-      </Dialog>
-
     </>
   );
 }
@@ -858,21 +710,3 @@ function answerForDisplay(content: string, citations: Citation[], hideAllIndexes
     .replace(/[ \t]+([.,;:!?])/g, '$1');
 }
 
-async function resizeToSquare(file: File, size = 128): Promise<{mime: string; data: string}> {
-  const bitmap = await createImageBitmap(file);
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Canvas unavailable');
-  const side = Math.min(bitmap.width, bitmap.height);
-  context.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
-  bitmap.close();
-  const blob: Blob = await new Promise((resolve, reject) => {
-    canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('Encode failed'))), 'image/png');
-  });
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = '';
-  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-  return {mime: 'image/png', data: btoa(binary)};
-}

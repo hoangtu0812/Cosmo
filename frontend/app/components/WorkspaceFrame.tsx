@@ -1,15 +1,20 @@
 'use client';
 
-import {Suspense, useEffect, useState} from 'react';
+import {Suspense, useEffect, useRef, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {Archive, BarChart3, Bell, Bookmark, Bot, Box, Building2, Check, Clock, FolderKanban, Library, MessageSquare, Search, Settings, SquarePen, UserPlus, UserRound, Workflow, Wrench, Zap} from 'lucide-react';
+import {Archive, BarChart3, Bell, Bookmark, Bot, Box, Building2, Check, Clock, FolderKanban, Library, MessageSquare, Plus, Search, Settings, SquarePen, UserRound, Workflow, Wrench, Zap} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
+import {Button} from '@astryxdesign/core/Button';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Icon} from '@astryxdesign/core/Icon';
-import {HStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, VStack} from '@astryxdesign/core/Layout';
+import {Text} from '@astryxdesign/core/Text';
+import {TextInput} from '@astryxdesign/core/TextInput';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {api, User, Workspace} from '../lib/api';
+import {resizeToSquare} from '../lib/image';
 import {useTranslation} from '../lib/i18n';
 import {ChatTargetFilters, ChatTargetList, useChatTargets} from './ChatTargetNav';
 import {Token} from '@astryxdesign/core/Token';
@@ -47,6 +52,12 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
   const [user, setUser] = useState<User | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [workspaceDescription, setWorkspaceDescription] = useState('');
+  const [workspaceLogo, setWorkspaceLogo] = useState<File | null>(null);
+  const workspaceLogoInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,8 +102,44 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
     router.push(`${target}?workspace=${encodeURIComponent(next.id)}`);
   }
 
+  // The reference's switcher says what it is for, marks where you are, and
+  // then offers the two ways to end up somewhere else. Settings and invites
+  // live at the foot of the rail, so they are not repeated here.
+  function closeCreateWorkspace(force = false) {
+    if (isCreatingWorkspace && !force) return;
+    setIsCreateWorkspaceOpen(false);
+    setWorkspaceName('');
+    setWorkspaceDescription('');
+    setWorkspaceLogo(null);
+  }
+
+  async function createWorkspace() {
+    const name = workspaceName.trim();
+    if (!name) return;
+    setIsCreatingWorkspace(true);
+    try {
+      const result = await api.createWorkspace(name, workspaceDescription.trim());
+      let created = result.workspace;
+      if (workspaceLogo) {
+        const {mime, data} = await resizeToSquare(workspaceLogo);
+        await api.uploadWorkspaceIcon(created.id, mime, data);
+        created = {...created, has_icon_image: true};
+      }
+      setWorkspaces((current) => [...current, created]);
+      closeCreateWorkspace(true);
+      await switchWorkspace(created);
+    } catch {
+      closeCreateWorkspace(true);
+    } finally {
+      setIsCreatingWorkspace(false);
+    }
+  }
+
   const workspaceMenu = (
     <>
+      <HStack paddingBlock={1} paddingInline={2}>
+        <Text color="secondary" type="supporting">{t('menu.switchWorkspace')}</Text>
+      </HStack>
       {workspaces.map((item) => (
         <DropdownMenuItem
           endContent={item.id === workspace?.id ? <Check size={14} /> : undefined}
@@ -103,8 +150,10 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
         />
       ))}
       <DropdownMenuDivider />
-      <DropdownMenuItem icon={<Settings size={15} />} label={t('menu.settings')} onClick={() => router.push('/settings')} />
-      <DropdownMenuItem icon={<UserPlus size={15} />} label={t('menu.invite')} onClick={() => router.push('/settings?section=members')} />
+      <DropdownMenuItem icon={<Plus size={15} />} label={t('menu.createWorkspace')} onClick={() => setIsCreateWorkspaceOpen(true)} />
+      {/* Joining someone else's workspace needs an invite flow we have not
+          built - see docs/ui_backlog.md. */}
+      <DropdownMenuItem icon={<Box size={15} />} isDisabled label={t('menu.joinWorkspace')} />
     </>
   );
 
@@ -222,6 +271,43 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
       }
     >
       {children}
+
+      <Dialog isOpen={isCreateWorkspaceOpen} onOpenChange={(open) => { if (!open) closeCreateWorkspace(); }} purpose="form">
+        <Layout
+          content={
+            <LayoutContent>
+              <VStack gap={4}>
+                <TextInput label={t('workspace.name')} onChange={setWorkspaceName} onEnter={() => void createWorkspace()} value={workspaceName} width="100%" />
+                <TextInput label={t('workspace.description')} onChange={setWorkspaceDescription} value={workspaceDescription} width="100%" />
+                <VStack gap={2}>
+                  <Text type="label">{t('workspace.logo')}</Text>
+                  <HStack gap={2} vAlign="center">
+                    <Avatar name={workspaceName || 'Workspace'} size="lg" src={workspaceLogo ? URL.createObjectURL(workspaceLogo) : undefined} />
+                    <input
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      hidden
+                      onChange={(event) => { setWorkspaceLogo(event.target.files?.[0] ?? null); event.target.value = ''; }}
+                      ref={workspaceLogoInput}
+                      type="file"
+                    />
+                    <Button label={t('workspace.uploadImage')} onClick={() => workspaceLogoInput.current?.click()} variant="secondary" />
+                    {workspaceLogo ? <Button label={t('workspace.removeImage')} onClick={() => setWorkspaceLogo(null)} variant="ghost" /> : null}
+                  </HStack>
+                </VStack>
+              </VStack>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button label={t('common.cancel')} onClick={() => closeCreateWorkspace()} variant="secondary" />
+                <Button isDisabled={!workspaceName.trim() || isCreatingWorkspace} isLoading={isCreatingWorkspace} label={t('workspace.create')} onClick={() => void createWorkspace()} variant="primary" />
+              </HStack>
+            </LayoutFooter>
+          }
+          header={<DialogHeader onOpenChange={(open) => { if (!open) closeCreateWorkspace(); }} title={t('workspace.createTitle')} />}
+        />
+      </Dialog>
     </AppShell>
   );
 }

@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {BookOpen, MoreHorizontal, Search, Share2, Trash2} from 'lucide-react';
+import {BookOpen, MoreHorizontal, Pencil, Search, Settings2, Share2, ShieldCheck, Trash2} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
@@ -179,8 +179,11 @@ export default function KnowledgePage() {
         button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('kb.manage'), size: 'sm', variant: 'ghost'}}
         hasChevron={false}
         items={[
+          {icon: <Settings2 size={15} />, label: t('kb.configure'), onClick: () => router.push(`/knowledge/${base.id}?workspace=${encodeURIComponent(workspaceID)}`)},
           {icon: <Share2 size={15} />, label: t('kb.share'), onClick: () => setSharing(base)},
+          {icon: <ShieldCheck size={15} />, isDisabled: true, label: t('kb.accessControl')},
           {type: 'divider' as const},
+          {icon: <Pencil size={15} />, isDisabled: true, label: t('kb.edit')},
           {icon: <Trash2 size={15} />, label: t('kb.delete'), onClick: () => setDeleting(base), variant: 'destructive' as const},
         ]}
       />
@@ -335,7 +338,9 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
       <VStack gap={0} height="100%">
         <Section padding={5} variant="muted">
           <HStack hAlign="center" width="100%">
-            <Text type="display-3">{base.icon || '📚'}</Text>
+            <Card padding={3}>
+              <Text type="display-3">{base.icon || '📚'}</Text>
+            </Card>
           </HStack>
         </Section>
         <Section padding={4}>

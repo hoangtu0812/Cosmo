@@ -42,6 +42,7 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
 | Truy cập API | Menu tài khoản | Cấp và thu hồi API key cho người dùng | chưa xếp |
+| Tham gia workspace | Bộ chuyển workspace | Luồng mời và nhận lời mời | chưa xếp |
 
 ## Workspace
 
@@ -55,6 +56,9 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 |---|---|---|---|
 | Tab Năng lực | Editor agent | Tool và Skill gắn được vào agent | 2 |
 | Nhân bản | Menu ⋯ trên card | Clone definition, không dùng chung cấu hình | 1 (Sprint 4) |
+| Sửa thông tin | Menu ⋯ trên card (agent, KB) | Dialog sửa tên, mô tả, ảnh, thẻ ngay từ danh sách | chưa xếp |
+| Cách gọi | Menu ⋯ trên card | Endpoint và ví dụ gọi agent từ ngoài | chưa xếp |
+| Phân quyền KB | Menu ⋯ trên card KB | Quyền chi tiết trên từng kho | chưa xếp |
 | API key | Menu ⋯ trên card | Cấp key gọi agent từ ngoài | chưa xếp |
 | Phân quyền | Menu ⋯ trên card | Quyền chi tiết `view/edit/test/publish/share/delete` | 1 (Sprint 4) |
 | Quan sát | Menu ⋯ trên card | Trace theo agent, token/cost | 5 |

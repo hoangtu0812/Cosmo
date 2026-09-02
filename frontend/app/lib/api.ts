@@ -93,6 +93,10 @@ export type ToolParameter = {
   type: 'string' | 'number' | 'boolean';
   in: 'query' | 'path' | 'body';
   is_required: boolean;
+  // Where the value comes from: the model fills it in, or the tool always
+  // sends the same one and the model never sees it.
+  source?: 'model' | 'fixed';
+  value?: string;
 };
 
 export type ToolAction = {

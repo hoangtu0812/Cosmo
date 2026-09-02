@@ -60,6 +60,20 @@ func number(name, description, in string, required bool) Parameter {
 	return Parameter{Name: name, Description: description, Type: "number", In: in, IsRequired: required}
 }
 
+// fixed is a query parameter the tool always sends and the model never sees:
+// a units flag, a result count, a response format. Written here rather than
+// into the path, so the path stays a path and the settings stay readable.
+func fixed(name, description, value string) Parameter {
+	return Parameter{
+		Name:        name,
+		Description: description,
+		Type:        "string",
+		In:          "query",
+		Source:      SourceFixed,
+		Value:       value,
+	}
+}
+
 // Catalog returns the entries on offer. A function rather than a variable so a
 // caller cannot mutate the shared list by accident.
 func Catalog() []CatalogEntry {
@@ -121,8 +135,10 @@ func Catalog() []CatalogEntry {
 					Name:        "list_user_repos",
 					Description: "List a GitHub user's public repositories, newest first",
 					Method:      "GET",
-					Path:        "/users/{username}/repos?sort=updated&per_page=20",
-					Parameters:  []Parameter{text("username", "The GitHub login", "path", true)},
+					Path:        "/users/{username}/repos",
+					Parameters: []Parameter{text("username", "The GitHub login", "path", true),
+						fixed("sort", "Newest first", "updated"),
+						fixed("per_page", "How many repositories", "20")},
 				},
 				{
 					Name:        "search_repositories",
@@ -222,8 +238,13 @@ func Catalog() []CatalogEntry {
 					Name:        "search_articles",
 					Description: "Find articles matching a phrase",
 					Method:      "GET",
-					Path:        "/w/api.php?action=query&list=search&format=json",
-					Parameters:  []Parameter{text("srsearch", "What to look for", "query", true)},
+					Path:        "/w/api.php",
+					Parameters: []Parameter{
+						text("srsearch", "What to look for", "query", true),
+						fixed("action", "MediaWiki action", "query"),
+						fixed("list", "What to list", "search"),
+						fixed("format", "Response format", "json"),
+					},
 				},
 			},
 		},
@@ -255,9 +276,10 @@ func Catalog() []CatalogEntry {
 				Name:        "search_books",
 				Description: "Find books matching a query",
 				Method:      "GET",
-				Path:        "/search.json?limit=10",
+				Path:        "/search.json",
 				Parameters: []Parameter{
 					text("q", "Title, author or subject", "query", true),
+					fixed("limit", "How many results", "10"),
 				},
 			}},
 		},
@@ -293,10 +315,12 @@ func Catalog() []CatalogEntry {
 				Name:        "get_forecast",
 				Description: "Weather forecast for a latitude and longitude",
 				Method:      "GET",
-				Path:        "/v1/forecast?current=temperature_2m,relative_humidity_2m,weather_code&forecast_days=3",
+				Path:        "/v1/forecast",
 				Parameters: []Parameter{
 					number("latitude", "Latitude in decimal degrees", "query", true),
 					number("longitude", "Longitude in decimal degrees", "query", true),
+					fixed("current", "Readings to return", "temperature_2m,relative_humidity_2m,weather_code"),
+					fixed("forecast_days", "How many days ahead", "3"),
 				},
 			}},
 		},
@@ -312,8 +336,12 @@ func Catalog() []CatalogEntry {
 				Name:        "find_place",
 				Description: "Coordinates, country and population for a place name",
 				Method:      "GET",
-				Path:        "/v1/search?count=5&format=json",
-				Parameters:  []Parameter{text("name", "Place name, for example Quang Ngai", "query", true)},
+				Path:        "/v1/search",
+				Parameters: []Parameter{
+					text("name", "Place name, for example Quang Ngai", "query", true),
+					fixed("count", "How many matches", "5"),
+					fixed("format", "Response format", "json"),
+				},
 			}},
 		},
 		{
@@ -328,11 +356,12 @@ func Catalog() []CatalogEntry {
 				Name:        "get_sun_times",
 				Description: "Sunrise, sunset and day length for one day",
 				Method:      "GET",
-				Path:        "/json?formatted=0",
+				Path:        "/json",
 				Parameters: []Parameter{
 					number("lat", "Latitude in decimal degrees", "query", true),
 					number("lng", "Longitude in decimal degrees", "query", true),
 					text("date", "A date as YYYY-MM-DD, or today if omitted", "query", false),
+					fixed("formatted", "Return raw timestamps rather than prose", "0"),
 				},
 			}},
 		},
@@ -429,10 +458,13 @@ func Catalog() []CatalogEntry {
 				Name:        "recent_earthquakes",
 				Description: "Earthquakes in a period, strongest first",
 				Method:      "GET",
-				Path:        "/fdsnws/event/1/query?format=geojson&orderby=magnitude&limit=20",
+				Path:        "/fdsnws/event/1/query",
 				Parameters: []Parameter{
 					text("starttime", "Start date as YYYY-MM-DD", "query", false),
 					number("minmagnitude", "Smallest magnitude to include", "query", false),
+					fixed("format", "Response format", "geojson"),
+					fixed("orderby", "Strongest first", "magnitude"),
+					fixed("limit", "How many events", "20"),
 				},
 			}},
 		},

@@ -56,6 +56,7 @@ var (
 	ErrActionPath      = errors.New("Đường dẫn action phải bắt đầu bằng /.")
 	ErrTooManyActions  = errors.New("Mỗi tool tối đa 30 action.")
 	ErrTooManyParams   = errors.New("Mỗi action tối đa 20 tham số.")
+	ErrFixedNeedsValue = errors.New("Tham số cố định phải có giá trị.")
 	ErrDuplicateAction = errors.New("Đã có action trùng tên trong tool này.")
 	ErrSecretsOff      = errors.New("Chưa cấu hình khoá mã hoá nên không lưu được thông tin xác thực.")
 	ErrCallFailed      = errors.New("Không gọi được endpoint của tool.")
@@ -102,7 +103,22 @@ type Parameter struct {
 	// Where the value goes: "query", "path", or "body".
 	In         string `json:"in"`
 	IsRequired bool   `json:"is_required"`
+	// Where the value comes from: "" or "model" for one the model fills in,
+	// "fixed" for one the tool always sends. A fixed parameter is never shown
+	// to the model - it has no business guessing an API version - so it is
+	// absent from the schema and cannot be overridden by a call.
+	Source string `json:"source,omitempty"`
+	// The value sent when Source is "fixed". Meaningless otherwise.
+	Value string `json:"value,omitempty"`
 }
+
+// IsFixed reports whether the tool supplies this parameter itself.
+func (p Parameter) IsFixed() bool { return p.Source == SourceFixed }
+
+const (
+	SourceModel = "model"
+	SourceFixed = "fixed"
+)
 
 // Action is a single endpoint under a tool - the unit a model calls.
 type Action struct {
@@ -279,12 +295,30 @@ func CleanParameters(raw []Parameter) ([]Parameter, error) {
 		if err != nil {
 			return nil, err
 		}
+		source := strings.TrimSpace(item.Source)
+		if source != SourceFixed {
+			source = SourceModel
+		}
+		value := strings.TrimSpace(item.Value)
+		if source == SourceFixed && value == "" {
+			// A fixed parameter with nothing to send is a parameter the author
+			// forgot to finish, and silently dropping it would send a request
+			// missing something they thought they had set.
+			return nil, ErrFixedNeedsValue
+		}
+		if source == SourceModel {
+			value = ""
+		}
 		cleaned = append(cleaned, Parameter{
 			Name:        name,
 			Description: description,
 			Type:        kind,
 			In:          where,
-			IsRequired:  item.IsRequired,
+			// "Required" asks the model for something; a fixed value is
+			// already there, so the two cannot both be true.
+			IsRequired: item.IsRequired && source == SourceModel,
+			Source:     source,
+			Value:      value,
 		})
 	}
 	if len(cleaned) > MaxParameters {

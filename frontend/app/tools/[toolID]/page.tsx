@@ -570,7 +570,7 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
             icon={<Plus size={14} />}
             isDisabled={!isEditable}
             label={t('tool.addParameter')}
-            onClick={() => setParameters((current) => [...current, {name: '', description: '', type: 'string', in: 'query', is_required: false}])}
+            onClick={() => setParameters((current) => [...current, {name: '', description: '', type: 'string', in: 'query', is_required: false, source: 'model', value: ''}])}
             size="sm"
             variant="ghost"
           />
@@ -614,6 +614,22 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
                   value={parameter.in}
                   width={140}
                 />
+                <Selector
+                  isDisabled={!isEditable}
+                  label={t('tool.paramSource')}
+                  onChange={(value) => updateParameter(index, {
+                    source: value as ToolParameter['source'],
+                    // A fixed value is already supplied, so it cannot also be
+                    // something the model is required to pass.
+                    is_required: value === 'fixed' ? false : parameter.is_required,
+                  })}
+                  options={[
+                    {value: 'model', label: t('tool.paramFromModel')},
+                    {value: 'fixed', label: t('tool.paramFixed')},
+                  ]}
+                  value={parameter.source ?? 'model'}
+                  width={170}
+                />
                 <IconButton
                   icon={<Trash2 size={16} />}
                   isDisabled={!isEditable}
@@ -630,12 +646,22 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
                 value={parameter.description}
                 width="100%"
               />
-              <Switch
-                value={parameter.is_required}
-                isDisabled={!isEditable}
-                label={t('tool.paramRequired')}
-                onChange={(checked: boolean) => updateParameter(index, {is_required: checked})}
-              />
+              {parameter.source === 'fixed' ? (
+                <TextInput
+                  isDisabled={!isEditable}
+                  label={t('tool.paramValue')}
+                  onChange={(value) => updateParameter(index, {value})}
+                  value={parameter.value ?? ''}
+                  width="100%"
+                />
+              ) : (
+                <Switch
+                  value={parameter.is_required}
+                  isDisabled={!isEditable}
+                  label={t('tool.paramRequired')}
+                  onChange={(checked: boolean) => updateParameter(index, {is_required: checked})}
+                />
+              )}
             </VStack>
           </Card>
         ))}

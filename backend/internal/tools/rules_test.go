@@ -164,3 +164,62 @@ func TestBuildRequestPlacesArguments(t *testing.T) {
 		t.Fatalf("a path argument must be escaped, got %s", target)
 	}
 }
+
+// A fixed parameter is the tool's own value: the model never sees it, and a
+// call that names it anyway does not get to override it.
+func TestCleanParametersKeepsFixedValues(t *testing.T) {
+	cleaned, err := CleanParameters([]Parameter{
+		{Name: "q", Description: "Search terms", Type: "string", In: "query", IsRequired: true},
+		{Name: "format", Description: "Response format", Type: "string", In: "query", Source: SourceFixed, Value: "json", IsRequired: true},
+	})
+	if err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+	if cleaned[0].Source != SourceModel || cleaned[0].Value != "" {
+		t.Errorf("model parameter carried a value: %+v", cleaned[0])
+	}
+	if !cleaned[1].IsFixed() || cleaned[1].Value != "json" {
+		t.Errorf("fixed parameter lost its value: %+v", cleaned[1])
+	}
+	// "Required" asks the model for something that is already supplied.
+	if cleaned[1].IsRequired {
+		t.Error("a fixed parameter is still marked required of the model")
+	}
+}
+
+// A fixed parameter with nothing to send is unfinished, not empty: dropping it
+// would send a request missing something the author thought they had set.
+func TestCleanParametersRefusesFixedWithoutValue(t *testing.T) {
+	if _, err := CleanParameters([]Parameter{
+		{Name: "format", Description: "Response format", Type: "string", In: "query", Source: SourceFixed},
+	}); !errors.Is(err, ErrFixedNeedsValue) {
+		t.Fatalf("got %v, want ErrFixedNeedsValue", err)
+	}
+}
+
+// The whole point: the constant reaches the request without the model naming
+// it, and a model that names it anyway is ignored.
+func TestBuildRequestSendsFixedValuesAndIgnoresOverrides(t *testing.T) {
+	action := Action{
+		Method: "GET",
+		Path:   "/v1/forecast",
+		Parameters: []Parameter{
+			{Name: "latitude", Type: "number", In: "query"},
+			{Name: "current", Type: "string", In: "query", Source: SourceFixed, Value: "temperature_2m"},
+		},
+	}
+	target, _, err := buildRequest(EgressPolicy{}, Tool{BaseURL: "https://api.example.com"}, action,
+		map[string]any{"latitude": 10.78, "current": "something_else"})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if !strings.Contains(target, "current=temperature_2m") {
+		t.Errorf("fixed value missing from %q", target)
+	}
+	if strings.Contains(target, "something_else") {
+		t.Errorf("model overrode a fixed value: %q", target)
+	}
+	if !strings.Contains(target, "latitude=10.78") {
+		t.Errorf("model value missing from %q", target)
+	}
+}

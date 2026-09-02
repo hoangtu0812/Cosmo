@@ -217,9 +217,17 @@ func buildRequest(policy EgressPolicy, tool Tool, action Action, arguments map[s
 	payload := map[string]any{}
 
 	for _, parameter := range action.Parameters {
-		value, ok := arguments[parameter.Name]
-		if !ok || value == nil {
-			continue
+		// A fixed parameter is the tool's own value and is not offered to the
+		// model, so a call that names it anyway does not get to override it.
+		var value any
+		if parameter.IsFixed() {
+			value = parameter.Value
+		} else {
+			supplied, ok := arguments[parameter.Name]
+			if !ok || supplied == nil {
+				continue
+			}
+			value = supplied
 		}
 		switch parameter.In {
 		case "path":

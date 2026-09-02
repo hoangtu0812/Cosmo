@@ -218,6 +218,11 @@ func (repository *Repository) Definitions(ctx context.Context, agentID string, p
 			properties := map[string]any{}
 			required := []string{}
 			for _, parameter := range action.Parameters {
+				// The model is not shown what it does not supply. Describing a
+				// fixed parameter would invite it to pass one.
+				if parameter.IsFixed() {
+					continue
+				}
 				properties[parameter.Name] = map[string]any{
 					"type":        parameter.Type,
 					"description": parameter.Description,

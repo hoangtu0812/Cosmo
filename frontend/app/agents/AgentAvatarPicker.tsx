@@ -14,6 +14,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {useTranslation} from '../lib/i18n';
 import {EMOJI_GROUPS, searchEmoji} from './avatars';
+import {CHARACTER_GROUPS, CharacterGroup, characterDataURI, characterFile} from './characterAvatars';
 
 // Group headings are looked up through a fixed map rather than a built key, so
 // a group added without a translation fails to compile instead of rendering
@@ -23,6 +24,11 @@ const GROUP_LABELS = {
   knowledge: 'agent.avatarGroupKnowledge',
   industry: 'agent.avatarGroupIndustry',
   people: 'agent.avatarGroupPeople',
+} as const;
+
+const CHARACTER_LABELS = {
+  people: 'agent.avatarGroupCharacters',
+  robots: 'agent.avatarGroupRobots',
 } as const;
 
 // The largest upload the server keeps, checked here too so an oversized file
@@ -42,7 +48,7 @@ type Props = {
 
 export function AgentAvatarPicker({value, file, onChangeEmoji, onChangeFile, imageURL, t}: Props) {
   const [isOpen, setIsOpen] = useState(false);
-  const [tab, setTab] = useState('emoji');
+  const [tab, setTab] = useState('character');
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -72,17 +78,50 @@ export function AgentAvatarPicker({value, file, onChangeEmoji, onChangeFile, ima
     setIsOpen(false);
   }
 
+  // A generated character goes through the same upload path as a picture from
+  // disk, so it becomes an ordinary agent image with nothing new to store.
+  async function pickCharacter(group: CharacterGroup['id'], seed: string) {
+    try {
+      onChangeFile(await characterFile(group, seed));
+      setError('');
+      setIsOpen(false);
+    } catch {
+      setError(t('agent.avatarRenderFailed'));
+    }
+  }
+
   return (
     <Popover
       alignment="start"
       content={
         <VStack gap={3} padding={3} width={320}>
           <SegmentedControl label={t('agent.avatar')} onChange={setTab} size="sm" value={tab}>
+            <SegmentedControlItem label={t('agent.avatarCharacter')} value="character" />
             <SegmentedControlItem label={t('agent.avatarEmoji')} value="emoji" />
             <SegmentedControlItem label={t('agent.avatarUpload')} value="upload" />
           </SegmentedControl>
 
-          {tab === 'emoji' ? (
+          {tab === 'character' ? (
+            <VStack gap={3} height={280} isScrollable width="100%">
+              {CHARACTER_GROUPS.map((group) => (
+                <VStack gap={1} key={group.id} width="100%">
+                  <Text color="secondary" type="supporting">{t(CHARACTER_LABELS[group.id])}</Text>
+                  <Grid columns={{minWidth: 40, max: 6}} gap={1} width="100%">
+                    {group.seeds.map((seed) => (
+                      <IconButton
+                        icon={<Avatar name={seed} size="sm" src={characterDataURI(group.id, seed)} tooltip={false} />}
+                        key={seed}
+                        label={seed}
+                        onClick={() => void pickCharacter(group.id, seed)}
+                        variant="ghost"
+                      />
+                    ))}
+                  </Grid>
+                </VStack>
+              ))}
+              {error ? <Banner status="error" title={error} /> : null}
+            </VStack>
+          ) : tab === 'emoji' ? (
             <VStack gap={3} isScrollable height={280} width="100%">
               <TextInput
                 isLabelHidden

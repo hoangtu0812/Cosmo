@@ -27,7 +27,7 @@ import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {StatusLabel} from '../../components/StatusLabel';
-import {Agent, AgentVersion, api, APIError, Conversation, KnowledgeBase, Message, RunStep, streamChat} from '../../lib/api';
+import {APIError, Agent, AgentVersion, Conversation, KnowledgeBase, Message, RunStep, Tool, api, streamChat} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 const MAX_KNOWLEDGE_BASES = 5;
@@ -78,6 +78,8 @@ function AgentEditorView() {
   const [isDirty, setIsDirty] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isPublishOpen, setIsPublishOpen] = useState(false);
+  const [workspaceTools, setWorkspaceTools] = useState<Tool[]>([]);
+  const [attachedToolIDs, setAttachedToolIDs] = useState<string[]>([]);
   const [changelog, setChangelog] = useState('');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [versions, setVersions] = useState<AgentVersion[]>([]);
@@ -127,6 +129,38 @@ function AgentEditorView() {
       setIsSaving(false);
     }
   }, [t, workspaceID]);
+
+  // The tool list and the attachment are read together: the tab needs both to
+  // say anything, and neither changes while the editor is open unless this
+  // screen changes it.
+  useEffect(() => {
+    if (!agentID) return;
+    let cancelled = false;
+    Promise.all([api.tools(workspaceID), api.agentTools(agentID, workspaceID)])
+      .then(([toolResult, attachedResult]) => {
+        if (cancelled) return;
+        setWorkspaceTools(toolResult.tools);
+        setAttachedToolIDs(attachedResult.tool_ids);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [agentID, workspaceID]);
+
+  // Attaching is one fact, not a form: it saves when the switch moves, and the
+  // list is set from what the server confirms rather than from what was asked.
+  async function setToolAttached(toolID: string, isAttached: boolean) {
+    const next = isAttached
+      ? [...attachedToolIDs, toolID]
+      : attachedToolIDs.filter((item) => item !== toolID);
+    setAttachedToolIDs(next);
+    try {
+      const result = await api.setAgentTools(agentID, next, workspaceID);
+      setAttachedToolIDs(result.tool_ids);
+    } catch (caught) {
+      setAttachedToolIDs(attachedToolIDs);
+      setError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    }
+  }
 
   useEffect(() => {
     if (!isDirty || isStale) return;
@@ -325,11 +359,46 @@ function AgentEditorView() {
             ) : null}
 
             {tab === 'capabilities' ? (
-              <EmptyState
-                description={t('agent.capabilitiesSoonBody')}
-                icon={<Wrench size={48} strokeWidth={1} />}
-                title={t('agent.capabilitiesSoon')}
-              />
+              workspaceTools.length === 0 ? (
+                <EmptyState
+                  actions={<Button label={t('tool.add')} onClick={() => router.push(`/tools?workspace=${encodeURIComponent(workspaceID)}`)} variant="secondary" />}
+                  description={t('agent.noToolsBody')}
+                  icon={<Wrench size={48} strokeWidth={1} />}
+                  title={t('agent.noTools')}
+                />
+              ) : (
+                /* Attaching a tool is what makes it callable during a turn, so
+                   the switch saves immediately rather than waiting for a form
+                   to be submitted somewhere else. */
+                <VStack gap={3} width="100%">
+                  <Text color="secondary" type="supporting">{t('agent.toolsHint')}</Text>
+                  {workspaceTools.map((item) => (
+                    <Card key={item.id} padding={4} width="100%">
+                      <HStack gap={3} hAlign="between" vAlign="center" width="100%">
+                        <HStack gap={3} vAlign="center">
+                          <Text type="display-3">{item.icon || '🔌'}</Text>
+                          <VStack gap={0}>
+                            <Text type="label">{item.name}</Text>
+                            <Text color="secondary" type="supporting">
+                              {item.description || item.base_url}
+                            </Text>
+                            <Text color="secondary" type="supporting">
+                              {t('tool.actionCount', {count: item.action_count})}
+                            </Text>
+                          </VStack>
+                        </HStack>
+                        <Switch
+                          isDisabled={isReadOnly || item.action_count === 0}
+                          isLabelHidden
+                          label={item.name}
+                          onChange={(checked: boolean) => void setToolAttached(item.id, checked)}
+                          value={attachedToolIDs.includes(item.id)}
+                        />
+                      </HStack>
+                    </Card>
+                  ))}
+                </VStack>
+              )
             ) : null}
 
             {tab === 'knowledge' ? (

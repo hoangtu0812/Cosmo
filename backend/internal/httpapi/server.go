@@ -224,6 +224,8 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/agents/{agentID}/avatar", s.agentAvatar)
 		protected.Put("/api/agents/{agentID}/avatar", s.uploadAgentAvatar)
 		protected.Delete("/api/agents/{agentID}/avatar", s.deleteAgentAvatar)
+		protected.Get("/api/agents/{agentID}/tools", s.listAgentTools)
+		protected.Put("/api/agents/{agentID}/tools", s.setAgentTools)
 		protected.Get("/api/tools", s.listTools)
 		protected.Post("/api/tools", s.createTool)
 		protected.Get("/api/tools/{toolID}", s.getTool)
@@ -920,6 +922,17 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	// An agent with tools gets to use them before it answers. Nothing happens
+	// here for a plain model chat, which has none attached.
+	if conversationAgentID != "" {
+		definitions, definitionErr := s.tools.Definitions(r.Context(), conversationAgentID)
+		if definitionErr != nil {
+			s.logger.Error("tool definitions failed", "agent_id", conversationAgentID, "error", definitionErr)
+		} else if len(definitions) > 0 {
+			history = s.runToolRounds(r.Context(), w, flusher, conversationAgentID, history, definitions, options, models, chatRun.ID)
+		}
+	}
+
 	writeSSE(w, "status", map[string]string{"stage": "writing", "message": "Đang soạn câu trả lời…"})
 	flusher.Flush()
 	writeSSE(w, "meta", map[string]any{"user_message": userMessage, "assistant_message_id": assistantID, "model": models.ResolveModel(options), "run_id": chatRun.ID})

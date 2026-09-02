@@ -196,3 +196,42 @@ func (s *Server) testToolAction(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": result})
 }
+
+// listAgentTools and setAgentTools are the Capabilities tab. They live with the
+// tool handlers rather than the agent ones because the rule they enforce is
+// about tools: you may only attach what you can already see.
+func (s *Server) listAgentTools(w http.ResponseWriter, r *http.Request) {
+	item, _, _, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
+	if !ok {
+		return
+	}
+	ids, err := s.tools.AgentToolIDs(r.Context(), item.ID)
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tool_ids": ids})
+}
+
+func (s *Server) setAgentTools(w http.ResponseWriter, r *http.Request) {
+	item, user, workspaceID, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
+	if !ok {
+		return
+	}
+	var input struct {
+		ToolIDs []string `json:"tool_ids"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.tools.SetAgentTools(r.Context(), item.ID, user.ID, workspaceID, input.ToolIDs); err != nil {
+		writeToolError(w, err)
+		return
+	}
+	ids, err := s.tools.AgentToolIDs(r.Context(), item.ID)
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tool_ids": ids})
+}

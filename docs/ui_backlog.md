@@ -39,11 +39,15 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 
 ## Tool
 
-Tool HTTP đã chạy thật: tạo tool, khai báo action, chạy thử. Còn lại:
+Tool HTTP đã chạy trọn vòng: tạo tool, khai báo action, chạy thử, gắn vào agent
+và model tự gọi trong lượt trả lời. Còn lại:
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
-| Gắn tool vào agent | Editor agent › Năng lực | Bảng `agent_tools` đã có; cần UI chọn và vòng gọi tool khi model yêu cầu | 2 |
+| Tool theo phiên bản agent | Publish agent | Snapshot danh sách tool vào `agent_versions` như đã làm với KB | chưa xếp |
+
+| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
+|---|---|---|---|
 | Tạo bằng AI | Nút Thêm tool | Model sinh action từ mô tả hoặc từ OpenAPI spec | chưa xếp |
 | MCP server | Nút Thêm tool | Client MCP, đăng ký server, liệt kê tool từ server | 2 |
 | Marketplace | Nút Thêm tool | Registry tool dùng chung, cài vào workspace | 6 |
@@ -65,7 +69,7 @@ Tool HTTP đã chạy thật: tạo tool, khai báo action, chạy thử. Còn l
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
-| Tab Năng lực | Editor agent | Tool và Skill gắn được vào agent | 2 |
+| Tab Năng lực › Skill | Editor agent | Skill registry, gắn skill vào agent | 2 |
 | Nhân bản | Menu ⋯ trên card | Clone definition, không dùng chung cấu hình | 1 (Sprint 4) |
 | Sửa thông tin | Menu ⋯ trên card (agent, KB) | Dialog sửa tên, mô tả, ảnh, thẻ ngay từ danh sách | chưa xếp |
 | Cách gọi | Menu ⋯ trên card | Endpoint và ví dụ gọi agent từ ngoài | chưa xếp |

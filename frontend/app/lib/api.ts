@@ -377,6 +377,13 @@ export const api = {
       `/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}/test${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
       {method: 'POST', body: JSON.stringify({arguments: args})},
     ),
+  agentTools: (agentID: string, workspaceID?: string) =>
+    request<{tool_ids: string[]}>(`/api/agents/${encodeURIComponent(agentID)}/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  setAgentTools: (agentID: string, toolIDs: string[], workspaceID?: string) =>
+    request<{tool_ids: string[]}>(
+      `/api/agents/${encodeURIComponent(agentID)}/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
+      {method: 'PUT', body: JSON.stringify({tool_ids: toolIDs})},
+    ),
   agents: (workspaceID?: string) =>
     request<{agents: Agent[]}>(`/api/agents${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   agent: (agentID: string, workspaceID?: string) =>

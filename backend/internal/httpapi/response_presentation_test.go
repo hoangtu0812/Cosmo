@@ -10,7 +10,9 @@ import (
 func TestWithResponsePresentationPrependsSystemGuide(t *testing.T) {
 	history := []modelgateway.Message{{Role: "user", Content: "Compare the services"}}
 	got := withResponsePresentation(history)
-	if len(got) != 2 || got[0].Role != "system" || got[1] != history[0] {
+	// Compared field by field rather than whole: a Message carries a slice of
+	// tool calls now, so the struct is no longer comparable with !=.
+	if len(got) != 2 || got[0].Role != "system" || got[1].Role != history[0].Role || got[1].Content != history[0].Content {
 		t.Fatalf("unexpected presented history: %#v", got)
 	}
 	for _, instruction := range []string{"Markdown table", "Do not use a table for a single fact", "Do not decorate every heading"} {

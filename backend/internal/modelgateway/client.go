@@ -18,6 +18,13 @@ var ErrNotConfigured = errors.New("model gateway is not configured")
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	// Set on a tool result so the model can match it to the call it asked for.
+	// Omitted everywhere else, because a gateway that does not know the field
+	// should not be sent it.
+	ToolCallID string `json:"tool_call_id,omitempty"`
+	// Carried back verbatim on the assistant turn that requested the calls;
+	// most gateways require the request to be echoed before its results.
+	ToolCalls []map[string]any `json:"tool_calls,omitempty"`
 }
 
 type Client struct {

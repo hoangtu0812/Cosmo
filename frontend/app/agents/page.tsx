@@ -4,7 +4,7 @@ import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {BarChart3, Bot, Copy, ExternalLink, ImageUp, KeyRound, MoreHorizontal, Pencil, Search, Settings2, ShieldCheck, Sparkles, Trash2, Workflow} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
-import {Avatar} from '@astryxdesign/core/Avatar';
+import {Avatar, AvatarStatusDot} from '@astryxdesign/core/Avatar';
 import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -232,7 +232,19 @@ function AgentsView() {
                           <HStack gap={2} hAlign="between" vAlign="start">
                             {/* The face zooms inside its band rather than
                                 moving with the card, as the reference does. */}
-                            <Avatar className={coverZoom} name={agent.avatar || agent.name} size="xl" />
+                            {/* The reference marks an unpublished agent with a
+                                dot on its face, which is where the eye already
+                                is on a wall of cards. Astryx offers success,
+                                neutral and error; unpublished is a state, not
+                                a fault. */}
+                            <Avatar
+                              className={coverZoom}
+                              name={agent.avatar || agent.name}
+                              size="xl"
+                              status={agent.has_unpublished_changes
+                                ? <AvatarStatusDot label={t('agent.unpublished')} variant="neutral" />
+                                : undefined}
+                            />
                             {agent.is_editable ? (
                               /* The reference offers this set from the card.
                                  What Cosmo cannot do yet is disabled rather
@@ -291,10 +303,15 @@ function AgentsView() {
                   <Text type="label">{t('agent.type')}</Text>
                   <HStack gap={3} width="100%">
                     <SelectableCard isSelected label={t('agent.typePrompt')} onChange={() => undefined} width="100%">
-                      <HStack gap={2} vAlign="center">
-                        <Bot size={18} />
-                        <Text type="label">{t('agent.typePrompt')}</Text>
-                      </HStack>
+                      {/* What each type is, at the moment of choosing between
+                          them, because the names alone do not say. */}
+                      <VStack gap={1}>
+                        <HStack gap={2} vAlign="center">
+                          <Bot size={18} />
+                          <Text type="label">{t('agent.typePrompt')}</Text>
+                        </HStack>
+                        <Text color="secondary" type="supporting">{t('agent.typePromptBody')}</Text>
+                      </VStack>
                     </SelectableCard>
                     {/* Flow needs a workflow engine Cosmo does not have yet. It
                         is shown, disabled, so the choice it will one day offer
@@ -311,6 +328,7 @@ function AgentsView() {
                           <Workflow size={18} />
                           <Text type="label">{t('agent.typeFlow')}</Text>
                         </HStack>
+                        <Text color="secondary" type="supporting">{t('agent.typeFlowBody')}</Text>
                         <Text color="secondary" type="supporting">{t('agent.typeFlowUnavailable')}</Text>
                       </VStack>
                     </SelectableCard>

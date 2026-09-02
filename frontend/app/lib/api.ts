@@ -117,8 +117,9 @@ export type Tool = {
   workspace_id: string;
   visibility: 'private' | 'workspace';
   base_url: string;
-  /** 'http' for an API described by hand, 'mcp' for a server that describes itself. */
-  kind: 'http' | 'mcp';
+  /** 'http' for an API described by hand, 'mcp' for a server that describes
+      itself, 'builtin' for one that reaches nothing at all. */
+  kind: 'http' | 'mcp' | 'builtin';
   auth_type: 'none' | 'bearer' | 'header';
   auth_header_name: string;
   auth_hint: string;
@@ -147,6 +148,9 @@ export type ToolCatalogEntry = {
   name: string;
   description: string;
   icon: string;
+  category: string;
+  /** 'builtin' reaches nothing and does its work on the server. */
+  kind: 'http' | 'mcp' | 'builtin';
   base_url: string;
   actions: ToolAction[];
 };
@@ -366,7 +370,7 @@ export const api = {
   deleteWorkspaceIcon: (workspaceID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'DELETE'}),
   workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
-  toolCatalog: () => request<{entries: ToolCatalogEntry[]}>('/api/tools/catalog'),
+  toolCatalog: () => request<{entries: ToolCatalogEntry[]; categories: string[]}>('/api/tools/catalog'),
   installCatalogTool: (entryID: string, workspaceID?: string) =>
     request<{tool: Tool}>(`/api/tools/catalog/${encodeURIComponent(entryID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
   draftToolActions: (toolID: string, description: string, workspaceID?: string) =>

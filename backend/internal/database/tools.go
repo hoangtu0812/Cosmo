@@ -76,3 +76,12 @@ var toolKindStatements = []string{
 	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_kind_check`,
 	`ALTER TABLE tools ADD CONSTRAINT tools_kind_check CHECK (kind IN ('http', 'mcp'))`,
 }
+
+// A third kind: one that reaches nothing at all and does its work in this
+// process. Arithmetic and the clock are the two a model most reliably gets
+// wrong on its own. Its own migration for the usual reason - the one above is
+// already applied.
+var builtinKindStatements = []string{
+	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_kind_check`,
+	`ALTER TABLE tools ADD CONSTRAINT tools_kind_check CHECK (kind IN ('http', 'mcp', 'builtin'))`,
+}

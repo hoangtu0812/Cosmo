@@ -325,8 +325,14 @@ func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
 }
 
+// The order of the categories is decided beside the entries rather than in the
+// interface, so a new category cannot appear without someone choosing where it
+// belongs.
 func (s *Server) listToolCatalog(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"entries": tools.Catalog()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries":    tools.Catalog(),
+		"categories": tools.CatalogCategories(),
+	})
 }
 
 // installCatalogTool creates a tool from a catalogue entry with its actions
@@ -344,7 +350,7 @@ func (s *Server) installCatalogTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	item, err := s.tools.Create(r.Context(), user.ID, workspaceID,
-		entry.Name, entry.Description, entry.Icon, nil, entry.BaseURL, tools.KindHTTP)
+		entry.Name, entry.Description, entry.Icon, nil, entry.BaseURL, entry.Kind)
 	if err != nil {
 		writeToolError(w, err)
 		return

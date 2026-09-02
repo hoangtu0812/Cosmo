@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {Boxes, MoreHorizontal, Plug, Search, Settings2, ShieldCheck, Sparkles, Store, Trash2, Wrench} from 'lucide-react';
+import {Bot, Boxes, MoreHorizontal, Plug, Search, Settings2, ShieldCheck, Sparkles, Store, Trash2, Wrench, Zap} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -21,7 +21,8 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Token} from '@astryxdesign/core/Token';
 import {PageHeader} from '../components/PageHeader';
 import {StatusLabel} from '../components/StatusLabel';
-import {api, APIError, Tool, ToolCatalogEntry} from '../lib/api';
+import {api, APIError, Tool} from '../lib/api';
+import {ToolMarket} from './ToolMarket';
 import {useTranslation} from '../lib/i18n';
 
 export default function ToolsPage() {
@@ -53,8 +54,6 @@ function ToolsScreen() {
   // 'mcp' asks the server to describe itself.
   const [route, setRoute] = useState<'plain' | 'ai' | 'mcp'>('plain');
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
-  const [catalog, setCatalog] = useState<ToolCatalogEntry[]>([]);
-  const [installing, setInstalling] = useState('');
 
   const load = useCallback(() => {
     if (!workspaceID) return;
@@ -133,30 +132,11 @@ function ToolsScreen() {
     setIsCreating(true);
   }
 
-  function openCatalog() {
-    setIsCatalogOpen(true);
-    api.toolCatalog().then((result) => setCatalog(result.entries)).catch(() => setCatalog([]));
-  }
-
-  async function install(entry: ToolCatalogEntry) {
-    setInstalling(entry.id);
-    setError('');
-    try {
-      const result = await api.installCatalogTool(entry.id, workspaceID);
-      setIsCatalogOpen(false);
-      router.push(`/tools/${result.tool.id}?workspace=${encodeURIComponent(workspaceID)}`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('tool.createFailed'));
-    } finally {
-      setInstalling('');
-    }
-  }
-
   const addMenu = [
     {icon: <Sparkles size={15} />, label: t('tool.createWithAI'), onClick: () => openCreate('ai')},
     {icon: <Plug size={15} />, label: t('tool.addPlugin'), onClick: () => openCreate('plain')},
     {icon: <Boxes size={15} />, label: t('tool.addMCP'), onClick: () => openCreate('mcp')},
-    {icon: <Store size={15} />, label: t('tool.marketplace'), onClick: openCatalog},
+    {icon: <Store size={15} />, label: t('tool.marketplace'), onClick: () => setIsCatalogOpen(true)},
   ];
 
   return (
@@ -176,10 +156,19 @@ function ToolsScreen() {
                 // empty box, because a workspace with no tools is the normal
                 // starting state, not a failure.
                 <VStack gap={6} hAlign="center" padding={6} width="100%">
+                  {/* Three tiles rather than one icon, because what a tool does
+                      is sit between the agent and the thing it acts on - which
+                      a single wrench does not say. */}
+                  <HStack gap={2} vAlign="center">
+                    <Card padding={4}><Icon icon={Bot} size="md" /></Card>
+                    <Text color="secondary">→</Text>
+                    <Card padding={5}><Icon icon={Wrench} size="lg" /></Card>
+                    <Text color="secondary">→</Text>
+                    <Card padding={4}><Icon icon={Zap} size="md" /></Card>
+                  </HStack>
                   <EmptyState
                     actions={<DropdownMenu alignment="center" button={{label: t('tool.add'), variant: 'primary'}} items={addMenu} />}
                     description={t('tool.emptyBody')}
-                    icon={<Wrench size={64} strokeWidth={1} />}
                     title={t('tool.empty')}
                   />
                   <Grid columns={{minWidth: 200, max: 3}} gap={4} maxWidth={760} width="100%">
@@ -339,42 +328,15 @@ function ToolsScreen() {
         />
       </Dialog>
 
-      <Dialog isOpen={isCatalogOpen} onOpenChange={setIsCatalogOpen} purpose="form" width={640}>
-        <Layout
-          content={
-            <LayoutContent>
-              <VStack gap={3} width="100%">
-                <Text color="secondary" type="supporting">{t('tool.catalogHint')}</Text>
-                {catalog.map((entry) => (
-                  <Card key={entry.id} padding={4} width="100%">
-                    <HStack gap={3} hAlign="between" vAlign="center" width="100%">
-                      <HStack gap={3} vAlign="center">
-                        <Text type="display-3">{entry.icon}</Text>
-                        <VStack gap={0}>
-                          <Text type="label">{entry.name}</Text>
-                          <Text color="secondary" type="supporting">{entry.description}</Text>
-                          <Text color="secondary" type="supporting">
-                            {t('tool.actionCount', {count: entry.actions.length})}
-                          </Text>
-                        </VStack>
-                      </HStack>
-                      <Button
-                        isDisabled={installing !== ''}
-                        isLoading={installing === entry.id}
-                        label={t('tool.install')}
-                        onClick={() => void install(entry)}
-                        size="sm"
-                        variant="secondary"
-                      />
-                    </HStack>
-                  </Card>
-                ))}
-              </VStack>
-            </LayoutContent>
-          }
-          header={<DialogHeader onOpenChange={setIsCatalogOpen} title={t('tool.marketplace')} />}
-        />
-      </Dialog>
+      <ToolMarket
+        isOpen={isCatalogOpen}
+        onInstalled={(tool) => {
+          setIsCatalogOpen(false);
+          router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`);
+        }}
+        onOpenChange={setIsCatalogOpen}
+        workspaceID={workspaceID}
+      />
 
       <AlertDialog
         actionLabel={t('kb.delete')}

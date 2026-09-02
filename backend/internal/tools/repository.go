@@ -115,16 +115,24 @@ func (repository *Repository) Create(ctx context.Context, userID, workspaceID, r
 	if err != nil {
 		return Tool{}, err
 	}
-	baseURL, err := ValidateBaseURL(rawBaseURL)
-	if err != nil {
-		return Tool{}, err
-	}
-	if err := repository.egress.CheckEgress(baseURL); err != nil {
-		return Tool{}, err
+	// Anything unrecognised becomes a plain HTTP tool rather than being
+	// refused: a wrong kind is a mistake in the request, not in the tool.
+	if kind != KindMCP && kind != KindBuiltin {
+		kind = KindHTTP
 	}
 
-	if kind != KindMCP {
-		kind = KindHTTP
+	// A built-in reaches nothing, so demanding a destination for it would be
+	// asking for a URL that could never be called.
+	baseURL := ""
+	if kind != KindBuiltin {
+		validated, err := ValidateBaseURL(rawBaseURL)
+		if err != nil {
+			return Tool{}, err
+		}
+		if err := repository.egress.CheckEgress(validated); err != nil {
+			return Tool{}, err
+		}
+		baseURL = validated
 	}
 	id := newID("tol_")
 	tagJSON, _ := json.Marshal(CleanStringList(tags, 10, 40))

@@ -50,6 +50,11 @@ khi publish, và model tự gọi trong lượt trả lời.
 Cách điền action cho một tool, xếp theo mức đáng tin: hỏi chính MCP server,
 đọc tài liệu OpenAPI của API, hoặc nhờ model soạn. Cả ba đều đã chạy.
 
+Kho tool là màn hình riêng có cột danh mục, tìm kiếm và các nhóm — 17 mục,
+toàn API công khai không cần khoá, cộng nhóm **Built-in** chạy ngay trong tiến
+trình, không ra mạng. Cố ý không có số lượt cài: bản tham chiếu đếm được vì có
+nhiều nơi triển khai, ở đây bịa ra thì thành số liệu giả.
+
 Egress mặc định chỉ ra Internet công cộng. Triển khai nội bộ khai báo host qua
 `TOOL_EGRESS_ALLOWED_HOSTS` (phân tách bằng dấu phẩy); host được khai báo sẽ
 phân giải ra IP tại thời điểm gọi, nên một tên trong danh sách chỉ mở đúng máy

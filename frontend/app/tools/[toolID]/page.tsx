@@ -333,7 +333,12 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
           value={description}
           width="100%"
         />
-        <TextInput isDisabled={!tool.is_editable} label={t('tool.baseURL')} onChange={setBaseURL} value={baseURL} width="100%" />
+        {/* A built-in reaches nothing, so there is no destination to name and
+            no credential to store. Showing empty fields for both would suggest
+            the tool is unfinished when it is complete. */}
+        {tool.kind === 'builtin' ? null : (
+          <TextInput isDisabled={!tool.is_editable} label={t('tool.baseURL')} onChange={setBaseURL} value={baseURL} width="100%" />
+        )}
         <Selector
           isDisabled={!tool.is_editable}
           label={t('agent.visibility')}
@@ -347,7 +352,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
         />
       </VStack>
 
-      <VStack gap={3} width="100%">
+      <VStack gap={3} hidden={tool.kind === 'builtin'} width="100%">
         <Text type="label">{t('tool.auth')}</Text>
         <Selector
           isDisabled={!tool.is_editable}
@@ -413,8 +418,9 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
 
       {/* Three ways to fill a tool with actions, in order of how much they can
           be trusted: the server's own answer, the API's own description, then
-          the model's recollection. */}
-      <VStack gap={3} width="100%">
+          the model's recollection. A built-in's actions are fixed - there is
+          nothing to discover, import or draft. */}
+      <VStack gap={3} hidden={tool.kind === 'builtin'} width="100%">
         <Text type="label">{t('tool.fillActions')}</Text>
         {tool.kind === 'mcp' ? (
           <HStack gap={2} hAlign="start">

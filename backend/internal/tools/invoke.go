@@ -140,9 +140,12 @@ func (policy EgressPolicy) guardedClient(allowedIPs map[string]bool) *http.Clien
 // returns what came back. The response is bounded: an endpoint that streams
 // forever must not be able to exhaust this process or the model's context.
 func (repository *Repository) Invoke(ctx context.Context, tool Tool, action Action, arguments map[string]any) (CallResult, error) {
-	// An MCP server is asked in its own protocol; everything below builds a
-	// plain HTTP request instead.
-	if tool.Kind == KindMCP {
+	// A built-in does the work here and an MCP server is asked in its own
+	// protocol; everything below builds a plain HTTP request instead.
+	switch tool.Kind {
+	case KindBuiltin:
+		return repository.invokeBuiltin(action, arguments)
+	case KindMCP:
 		return repository.invokeMCP(ctx, tool, action, arguments)
 	}
 

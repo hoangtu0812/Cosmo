@@ -527,6 +527,9 @@ export async function streamChat(
     // second replaces the first rather than adding a row.
     onToolCall?: (call: MessageToolCall) => void;
     onSuggestions?: (data: {questions: string[]}) => void;
+    // A conversation is named from its first exchange, after the answer, so
+    // the sidebar renames itself rather than keeping the opening line.
+    onTitle?: (data: {title: string}) => void;
     onDelta: (content: string) => void;
     onDone?: (data: {message: Message}) => void;
   },
@@ -563,6 +566,7 @@ export async function streamChat(
       if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string});
       if (event === 'tool') handlers.onToolCall?.(data as unknown as MessageToolCall);
       if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
+      if (event === 'title') handlers.onTitle?.(data as {title: string});
       if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
       if (event === 'done') handlers.onDone?.(data as {message: Message});
       if (event === 'error') throw new APIError(String(data.message ?? 'Model Gateway không phản hồi.'), 502);

@@ -265,6 +265,9 @@ export default function ChatPage() {
           next[index] = call;
           return next;
         }),
+        onTitle: ({title}) => setConversations((current) => current.map(
+          (item) => item.id === targetID ? {...item, title} : item,
+        )),
         onStatus: ({stage, message}) => {
           setStatus(message);
           setOrbState(activityOrb(stage));
@@ -570,7 +573,7 @@ export default function ChatPage() {
                               >
                                 {answerForDisplay(message.content, message.citations ?? [], isActiveStream)}
                               </AnswerWithToolCalls>
-                              {isActiveStream ? null : <CitationList citations={message.citations ?? []} showEmpty />}
+                              {isActiveStream ? null : <CitationList citations={message.citations ?? []} />}
                             </VStack>
                             : (streaming ? <VStack gap={3}>
                               <AnswerWithToolCalls calls={liveToolCalls}>{''}</AnswerWithToolCalls>
@@ -654,10 +657,8 @@ function providerName(provider?: string) {
   return names[provider.toLowerCase()] ?? provider;
 }
 
-function CitationList({citations, showEmpty = false}: {citations: Citation[]; showEmpty?: boolean}) {
-  if (citations.length === 0) {
-    return showEmpty ? <Text color="secondary" type="supporting">Không dùng tài liệu workspace cho câu trả lời này.</Text> : null;
-  }
+function CitationList({citations}: {citations: Citation[]}) {
+  if (citations.length === 0) return null;
   const groups = groupCitations(citations);
   const list = (
       <List density="compact">

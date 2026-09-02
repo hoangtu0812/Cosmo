@@ -7,6 +7,7 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {VStack} from '@astryxdesign/core/Layout';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
+import {Skeleton} from '@astryxdesign/core/Skeleton';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Agent, api, Workspace} from '../lib/api';
@@ -24,13 +25,20 @@ export function useChatTargets(workspace: Workspace | null) {
   const [models, setModels] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
+  // "Nothing to talk to yet" is a claim about the workspace. Until both reads
+  // land the list does not know enough to make it, and on a cold container it
+  // was making it for several seconds.
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (!workspace) return;
-    api.agents(workspace.id).then((result) => setAgents(result.agents)).catch(() => setAgents([]));
-    api.workspaceModels(workspace.id)
-      .then((result) => setModels(result.models.map((item) => typeof item === 'string' ? item : item.id)))
-      .catch(() => setModels([]));
+    setIsLoading(true);
+    Promise.allSettled([
+      api.agents(workspace.id).then((result) => setAgents(result.agents)).catch(() => setAgents([])),
+      api.workspaceModels(workspace.id)
+        .then((result) => setModels(result.models.map((item) => typeof item === 'string' ? item : item.id)))
+        .catch(() => setModels([])),
+    ]).finally(() => setIsLoading(false));
   }, [workspace]);
 
   const needle = query.trim().toLowerCase();
@@ -43,7 +51,7 @@ export function useChatTargets(workspace: Workspace | null) {
     [models, kind, needle],
   );
 
-  return {query, setQuery, kind, setKind, shownAgents, shownModels};
+  return {query, setQuery, kind, setKind, shownAgents, shownModels, isLoading};
 }
 
 export type ChatTargets = ReturnType<typeof useChatTargets>;
@@ -77,7 +85,14 @@ export function ChatTargetList({targets, workspace, activeTarget, onPick, t}: {
   onPick: (target: string) => void;
   t: ReturnType<typeof useTranslation>;
 }) {
-  const {shownAgents, shownModels} = targets;
+  const {shownAgents, shownModels, isLoading} = targets;
+  if (isLoading) {
+    return (
+      <VStack gap={2} padding={2} width="100%">
+        {[0, 1, 2, 3].map((index) => <Skeleton height={32} index={index} key={index} width="100%" />)}
+      </VStack>
+    );
+  }
   return (
     <>
       {shownAgents.length > 0 ? (

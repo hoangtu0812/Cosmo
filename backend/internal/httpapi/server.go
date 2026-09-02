@@ -821,7 +821,15 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể lưu câu hỏi.")
 		return
 	}
-	_, _ = s.db.Exec(r.Context(), `UPDATE conversations SET title = CASE WHEN title = 'Cuộc trò chuyện mới' THEN LEFT($2, 100) ELSE title END, updated_at = NOW() WHERE id = $1`, conversationID, input.Content)
+	// The opening line stands in as the title until the turn is answered and a
+	// better one can be written from what it was actually about.
+	var isFirstTurn bool
+	_ = s.db.QueryRow(r.Context(), `
+		UPDATE conversations
+		SET title = CASE WHEN title = 'Cuộc trò chuyện mới' THEN LEFT($2, 100) ELSE title END,
+		    updated_at = NOW()
+		WHERE id = $1
+		RETURNING title = LEFT($2, 100)`, conversationID, input.Content).Scan(&isFirstTurn)
 
 	// Chat is the first production path recorded through the common run model.
 	// Only identifiers and execution metadata are stored here; the user's text
@@ -1003,6 +1011,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			s.logger.Warn("chat run finalization failed", "run_id", chatRun.ID, "error", runErr)
 		}
 	}
+	// A conversation is named once, from its first exchange, for the same
+	// reason and with the same tolerance for failure as the suggestions below:
+	// it happens after the answer is saved, so losing it costs nothing.
+	if isFirstTurn {
+		if title := s.agents.SuggestTitle(r.Context(), input.Content, assistantMessage.Content, models, options); title != "" {
+			if _, titleErr := s.db.Exec(r.Context(), `UPDATE conversations SET title = $2 WHERE id = $1`, conversationID, title); titleErr == nil {
+				writeSSE(w, "title", map[string]string{"title": title})
+				flusher.Flush()
+			}
+		}
+	}
+
 	// Suggestions come after the answer is saved, so a failure here can never
 	// cost the reader the reply itself.
 	if agentSuggests {

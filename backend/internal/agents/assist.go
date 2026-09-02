@@ -90,3 +90,60 @@ func ParseSuggestions(reply string) []string {
 	}
 	return suggestions
 }
+
+// The reference names a conversation after what it was about - "HTTP/3 and
+// QUIC relationship" - rather than storing the opening line verbatim. A list
+// of truncated first questions is hard to scan, because the distinguishing
+// part of a question is rarely in its first hundred characters.
+const titleInstruction = `Name this conversation.
+
+Rules:
+- At most 6 words. No trailing punctuation, no quotes, no prefix like "Title:".
+- Name the subject, not the act of asking. "HTTP/3 and QUIC" - not "Question about HTTP/3".
+- Answer in the language the question is written in.
+- Reply with the title and nothing else.
+
+Question: %s
+
+Answer: %s`
+
+// MaxTitleRunes keeps a model that ignores the word limit from writing a
+// paragraph into the sidebar.
+const MaxTitleRunes = 60
+
+// SuggestTitle names a conversation from its first exchange. It runs after the
+// answer is saved and its failure costs nothing: the conversation keeps the
+// opening line it was already given.
+func (repository *Repository) SuggestTitle(ctx context.Context, question, answer string, models *modelgateway.Client, options modelgateway.Options) string {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	reply, err := models.Complete(ctx, []modelgateway.Message{
+		{Role: "user", Content: fmt.Sprintf(titleInstruction, question, answer)},
+	}, options)
+	if err != nil {
+		repository.logger.Error("suggest conversation title", "error", err)
+		return ""
+	}
+	return CleanTitle(reply)
+}
+
+// CleanTitle is separate so it can be tested without a model: the model is
+// asked for a bare title and is not trusted to comply.
+func CleanTitle(reply string) string {
+	line := strings.TrimSpace(reply)
+	if index := strings.IndexAny(line, "\n\r"); index >= 0 {
+		line = line[:index]
+	}
+	line = strings.TrimSpace(line)
+	// Models reach for a label and for quotes even when told not to.
+	for _, prefix := range []string{"Title:", "title:", "Tiêu đề:", "tiêu đề:"} {
+		line = strings.TrimSpace(strings.TrimPrefix(line, prefix))
+	}
+	line = strings.Trim(line, "\"'“”‘’ ")
+	line = strings.TrimRight(line, ".。!?")
+	if runes := []rune(line); len(runes) > MaxTitleRunes {
+		line = strings.TrimSpace(string(runes[:MaxTitleRunes]))
+	}
+	return line
+}

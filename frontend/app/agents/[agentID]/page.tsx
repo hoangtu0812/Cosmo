@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ArrowLeft, Braces, History, MoreHorizontal, Pencil, Plus, SendHorizontal, Trash2, Wrench} from 'lucide-react';
+import {ArrowLeft, Braces, History, MoreHorizontal, Pencil, Plus, SlidersHorizontal, Trash2, Wrench} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -16,6 +16,9 @@ import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/Segment
 import {Tab, TabList} from '@astryxdesign/core/TabList';
 import {Text} from '@astryxdesign/core/Text';
 import {Card} from '@astryxdesign/core/Card';
+import {ChatComposer} from '@astryxdesign/core/Chat';
+import {Popover} from '@astryxdesign/core/Popover';
+import {Token} from '@astryxdesign/core/Token';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Item} from '@astryxdesign/core/Item';
@@ -219,10 +222,10 @@ function AgentEditorView() {
   const modelOptions = models.map((model) => ({label: model, value: model}));
   const isAtKnowledgeLimit = agent.knowledge_base_ids.length >= MAX_KNOWLEDGE_BASES;
 
-  return (
-    <>
-    <Layout
-      header={
+  // The header belongs to the configuration column, not to the window: the
+  // debug panel is the other half of the screen and runs the full height, as
+  // the reference has it.
+  const header = (
         <LayoutHeader hasDivider>
           <Toolbar
             endContent={
@@ -284,10 +287,15 @@ function AgentEditorView() {
             }
           />
         </LayoutHeader>
-      }
+  );
+
+  return (
+    <>
+    <Layout
       end={<AgentChatPanel agent={agent} t={t} workspaceID={workspaceID} />}
       height="fill"
       content={
+        <Layout header={header} height="fill" content={
         <LayoutContent padding={6}>
           <VStack gap={5}>
             {isStale ? (
@@ -497,6 +505,7 @@ function AgentEditorView() {
             ) : null}
           </VStack>
         </LayoutContent>
+        } />
       }
     />
 
@@ -746,9 +755,24 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     }
   }
 
+  const composer = (
+    <ChatComposer
+      isDisabled={isSending || !agent.model}
+      onChange={setDraft}
+      onSubmit={() => void send()}
+      placeholder={t('agent.chatPlaceholder')}
+      value={draft}
+    />
+  );
+
+  const isEmpty = messages.length === 0 && !streamed;
+
+  // The panel is a surface of its own rather than the other half of the same
+  // sheet: a different ground and a rounded inner edge, so what is being
+  // configured and what is being tried are told apart at a glance.
   return (
-    <VStack gap={3} height="100%" padding={4} width={768}>
-      <HStack gap={2} hAlign="between" vAlign="center">
+    <VStack className="rounded-l-2xl bg-[var(--color-background-body)]" gap={0} height="100%" width={768}>
+      <HStack gap={2} hAlign="between" padding={3} vAlign="center" width="100%">
         <HStack gap={2} vAlign="center">
           {/* The reference names the panel's modes here. Only the first has
               anything behind it - see docs/ui_backlog.md. */}
@@ -756,114 +780,142 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
             <SegmentedControlItem label={t('agent.panelDebug')} value="debug" />
             <SegmentedControlItem isDisabled label={t('agent.panelOptimise')} value="optimise" />
           </SegmentedControl>
-          <StatusLabel label={t('agent.runsDraft')} variant="accent" />
+          {/* Not a mode but a reminder: what happens here is a draft, and
+              nobody else sees it until the agent is published. */}
+          <Token label={t('agent.debugIsDraft')} size="sm" />
         </HStack>
-        <Button icon={<Plus size={14} />} label={t('agent.chatNew')} onClick={() => void startNew()} size="sm" variant="ghost" />
+        <HStack gap={1} vAlign="center">
+          <IconButton
+            icon={<Plus size={15} />}
+            label={t('agent.chatNew')}
+            onClick={() => void startNew()}
+            size="sm"
+            variant="ghost"
+          />
+          <DropdownMenu
+            alignment="end"
+            button={{icon: <History size={15} />, isIconOnly: true, label: t('agent.chatHistory'), size: 'sm', variant: 'ghost'}}
+            hasChevron={false}
+            items={conversations.length > 0
+              ? conversations.map((item) => ({
+                label: item.title,
+                onClick: () => void openConversation(item.id),
+              }))
+              : [{isDisabled: true, label: t('agent.chatNoHistory')}]}
+          />
+          <Divider orientation="vertical" />
+          <Popover
+            content={
+              <VStack gap={3} padding={3} width={280}>
+                <Text type="label">{t('agent.debugSettings')}</Text>
+                <HStack gap={2} hAlign="between" vAlign="center" width="100%">
+                  <Text type="body">{t('agent.memory')}</Text>
+                  <Token label={agent.is_memory_enabled ? t('agent.memoryOn') : t('agent.memoryOff')} size="sm" />
+                </HStack>
+                <Text color="secondary" type="supporting">{t('agent.debugSettingsHint')}</Text>
+              </VStack>
+            }
+          >
+            <Button icon={<SlidersHorizontal size={15} />} label={t('agent.debugSettings')} size="sm" variant="ghost" />
+          </Popover>
+        </HStack>
       </HStack>
-      {conversations.length > 0 ? (
-        <Selector
-          isLabelHidden
-          label={t('agent.chatHistory')}
-          onChange={(value) => void openConversation(value)}
-          options={conversations.map((item) => ({label: item.title, value: item.id}))}
-          size="sm"
-          value={conversationID}
-          width="100%"
-        />
+
+      {!agent.model || chatError ? (
+        <VStack gap={2} padding={3} width="100%">
+          {!agent.model ? <Banner status="warning" title={t('agent.chatNoModel')} /> : null}
+          {chatError ? <Banner isDismissable onDismiss={() => setChatError('')} status="error" title={chatError} /> : null}
+        </VStack>
       ) : null}
-      <Divider />
-      {!agent.model ? <Banner status="warning" title={t('agent.chatNoModel')} /> : null}
-      {chatError ? <Banner isDismissable onDismiss={() => setChatError('')} status="error" title={chatError} /> : null}
-      <VStack gap={3} isScrollable height="100%" width="100%">
-        {messages.length === 0 && !streamed ? (
-          <VStack gap={2} hAlign="center" padding={6} width="100%">
+
+      {isEmpty ? (
+        // Nothing has been asked yet, so the greeting and the box to ask in
+        // are one centred block - not a heading marooned at the top with the
+        // composer pinned to the floor.
+        <VStack gap={5} hAlign="center" height="100%" padding={6} vAlign="center" width="100%">
+          <VStack gap={2} hAlign="center">
             <Avatar name={agent.avatar || agent.name} size="lg" />
             <Text type="large">{agent.name}</Text>
             {agent.opening_line ? (
-              <Markdown headingLevelStart={3}>{agent.opening_line}</Markdown>
+              <Text color="secondary" type="body">{agent.opening_line}</Text>
             ) : (
               <Text color="secondary" type="supporting">{t('agent.chatEmpty')}</Text>
             )}
           </VStack>
-        ) : null}
-        {messages.map((message) => (
-          <Card key={message.id} padding={3} width="100%" xstyle={entry}>
-            <VStack gap={1}>
-              <Text color="secondary" type="supporting">{message.role === 'user' ? agent.owner_name || 'You' : agent.name}</Text>
-              {message.role === 'assistant'
-                ? <Markdown headingLevelStart={3}>{message.content}</Markdown>
-                : <Text type="body">{message.content}</Text>}
-            </VStack>
-          </Card>
-        ))}
-        {streamed ? (
-          <Card padding={3} width="100%">
-            <VStack gap={1}>
-              <Text color="secondary" type="supporting">{agent.name}</Text>
-              <Markdown headingLevelStart={3} isStreaming>{revealed}</Markdown>
-            </VStack>
-          </Card>
-        ) : null}
-        {suggestions.length > 0 && !isSending ? (
-          <VStack gap={2} width="100%">
-            {suggestions.map((question) => (
-              <Button key={question} label={question} onClick={() => setDraft(question)} size="sm" variant="secondary" />
-            ))}
-          </VStack>
-        ) : null}
-        {agent.preset_questions.length > 0 && messages.length === 0 ? (
-          <VStack gap={2} width="100%">
+          <VStack gap={2} maxWidth={520} width="100%">
+            {composer}
             {agent.preset_questions.map((question, index) => (
-              <Button key={index} label={question} onClick={() => setDraft(question)} size="sm" variant="secondary" />
+              <Button
+                key={index}
+                label={question}
+                onClick={() => setDraft(question)}
+                size="sm"
+                variant="secondary"
+                width="100%"
+              />
             ))}
           </VStack>
-        ) : null}
-      </VStack>
-      {steps.length > 0 ? (
-        <VStack gap={2} width="100%">
-          <HStack gap={2} hAlign="between" vAlign="center">
-            <Text color="secondary" type="supporting">{t('agent.lastTurn')}</Text>
-            <Button
-              label={isInspectorOpen ? t('agent.hideDetail') : t('agent.showDetail')}
-              onClick={() => setIsInspectorOpen(!isInspectorOpen)}
-              size="sm"
-              variant="ghost"
-            />
-          </HStack>
-          {isInspectorOpen ? (
-            <List>
-              {steps.map((step) => (
-                <Item
-                  as="li"
-                  description={stepDetail(step, t)}
-                  endContent={<StatusLabel label={step.status} variant={step.status === 'succeeded' ? 'success' : step.status === 'failed' ? 'error' : 'neutral'} />}
-                  key={step.id}
-                  label={step.name || step.type}
-                />
-              ))}
-            </List>
-          ) : null}
         </VStack>
-      ) : null}
-      <HStack gap={2} vAlign="end" width="100%">
-        <TextArea
-          isLabelHidden
-          label={t('agent.chatPlaceholder')}
-          onChange={setDraft}
-          placeholder={t('agent.chatPlaceholder')}
-          rows={3}
-          value={draft}
-          width="100%"
-        />
-        <IconButton
-          icon={<SendHorizontal size={16} />}
-          isDisabled={!draft.trim() || isSending || !agent.model}
-          isLoading={isSending}
-          label={t('agent.chatSend')}
-          onClick={() => void send()}
-          variant="primary"
-        />
-      </HStack>
+      ) : (
+        <>
+          <VStack gap={3} height="100%" isScrollable padding={4} width="100%">
+            {messages.map((message) => (
+              <Card key={message.id} padding={3} width="100%" xstyle={entry}>
+                <VStack gap={1}>
+                  <Text color="secondary" type="supporting">{message.role === 'user' ? agent.owner_name || 'You' : agent.name}</Text>
+                  {message.role === 'assistant'
+                    ? <Markdown headingLevelStart={3}>{message.content}</Markdown>
+                    : <Text type="body">{message.content}</Text>}
+                </VStack>
+              </Card>
+            ))}
+            {streamed ? (
+              <Card padding={3} width="100%">
+                <VStack gap={1}>
+                  <Text color="secondary" type="supporting">{agent.name}</Text>
+                  <Markdown headingLevelStart={3} isStreaming>{revealed}</Markdown>
+                </VStack>
+              </Card>
+            ) : null}
+            {suggestions.length > 0 && !isSending ? (
+              <VStack gap={2} width="100%">
+                {suggestions.map((question) => (
+                  <Button key={question} label={question} onClick={() => setDraft(question)} size="sm" variant="secondary" width="100%" />
+                ))}
+              </VStack>
+            ) : null}
+          </VStack>
+          <VStack gap={2} padding={3} width="100%">
+            {steps.length > 0 ? (
+              <VStack gap={2} width="100%">
+                <HStack gap={2} hAlign="between" vAlign="center">
+                  <Text color="secondary" type="supporting">{t('agent.lastTurn')}</Text>
+                  <Button
+                    label={isInspectorOpen ? t('agent.hideDetail') : t('agent.showDetail')}
+                    onClick={() => setIsInspectorOpen(!isInspectorOpen)}
+                    size="sm"
+                    variant="ghost"
+                  />
+                </HStack>
+                {isInspectorOpen ? (
+                  <List>
+                    {steps.map((step) => (
+                      <Item
+                        as="li"
+                        description={stepDetail(step, t)}
+                        endContent={<StatusLabel label={step.status} variant={step.status === 'succeeded' ? 'success' : step.status === 'failed' ? 'error' : 'neutral'} />}
+                        key={step.id}
+                        label={step.name || step.type}
+                      />
+                    ))}
+                  </List>
+                ) : null}
+              </VStack>
+            ) : null}
+            {composer}
+          </VStack>
+        </>
+      )}
     </VStack>
   );
 }

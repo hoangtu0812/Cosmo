@@ -89,6 +89,8 @@ nó trỏ tới.
 | Biến trong prompt | Editor agent › Prompt | Thay thế biến khi chạy, khai báo biến theo agent | chưa xếp |
 | Tạo bằng AI | Nút Agent mới | Model sinh prompt và cấu hình từ mô tả | chưa xếp |
 | Cải thiện prompt | Editor agent › panel | Model viết lại prompt và so sánh kết quả | chưa xếp |
+| Thiết lập chạy thử | Editor agent › panel Debug | Bật/tắt ghi nhớ riêng cho phiên chạy thử, hiện chỉ hiển thị trạng thái | chưa xếp |
+| Tệp đính kèm khi chạy thử | Editor agent › panel Debug | Gửi tệp kèm câu hỏi trong panel Debug | chưa xếp |
 
 ## Đã dựng UI và **có** chức năng thật
 

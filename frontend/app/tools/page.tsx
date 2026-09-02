@@ -23,6 +23,7 @@ import {PageHeader} from '../components/PageHeader';
 import {StatusLabel} from '../components/StatusLabel';
 import {api, APIError, Tool} from '../lib/api';
 import {ToolMarket} from './ToolMarket';
+import {cardHover} from '../components/motion';
 import {useTranslation} from '../lib/i18n';
 
 export default function ToolsPage() {
@@ -177,7 +178,7 @@ function ToolsScreen() {
                       {key: 'plugin', icon: Plug, title: t('tool.wayPlugin'), body: t('tool.wayPluginBody')},
                       {key: 'custom', icon: Settings2, title: t('tool.wayCustom'), body: t('tool.wayCustomBody')},
                     ].map((way) => (
-                      <Card key={way.key} padding={4}>
+                      <Card className={cardHover} key={way.key} padding={4}>
                         <VStack gap={2}>
                           <Icon icon={way.icon} size="md" />
                           <Text type="label">{way.title}</Text>
@@ -204,7 +205,7 @@ function ToolsScreen() {
 
                   <Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
                     {visible.map((tool) => (
-                      <Card key={tool.id} onClick={() => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)} padding={0} width="100%">
+                      <Card className={cardHover} key={tool.id} onClick={() => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)} padding={0} width="100%">
                         <VStack gap={0} height="100%">
                           <Section padding={5} variant="muted">
                             <HStack hAlign="center" width="100%">

@@ -10,9 +10,11 @@ import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
 import {useEntryAnimation} from '@astryxdesign/core/hooks';
+import {cardHover, coverFrame, coverZoom} from '../components/motion';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
+import {Skeleton} from '@astryxdesign/core/Skeleton';
 import {Grid} from '@astryxdesign/core/Grid';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {HStack, Layout, LayoutContent, LayoutFooter, VStack} from '@astryxdesign/core/Layout';
@@ -70,11 +72,15 @@ function AgentsView() {
   // Only animates cards inserted after the first paint, so arriving on the
   // page stays still and a newly created agent is the thing that moves.
   const entry = useEntryAnimation('scaleIn');
+  // "No agents yet" is a claim about the workspace. Until the first read
+  // lands, the page does not know enough to make it.
+  const [isLoading, setIsLoading] = useState(true);
 
   const load = useCallback(() => {
     api.agents(workspaceID)
       .then((result) => setAgents(result.agents))
-      .catch((caught) => setError(caught instanceof APIError ? caught.message : ''));
+      .catch((caught) => setError(caught instanceof APIError ? caught.message : ''))
+      .finally(() => setIsLoading(false));
   }, [workspaceID]);
 
   useEffect(load, [load]);
@@ -200,7 +206,11 @@ function AgentsView() {
                   />
                 </HStack>
               ) : null}
-              {agents.length === 0 ? (
+              {isLoading ? (
+                <Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
+                  {[0, 1, 2].map((index) => <Skeleton height={290} index={index} key={index} width="100%" />)}
+                </Grid>
+              ) : agents.length === 0 ? (
                 <EmptyState
                   description={t('agent.emptyBody')}
                   icon={<Bot size={64} strokeWidth={1} />}
@@ -214,13 +224,15 @@ function AgentsView() {
                   {visible.map((agent) => (
                     // Portrait card, as the reference has it: the face on a band
                     // of its own, then the name, then what the agent is for.
-                    <Card key={agent.id} onClick={() => openAgent(agent)} padding={0} width="100%" xstyle={entry}>
+                    <Card className={cardHover} key={agent.id} onClick={() => openAgent(agent)} padding={0} width="100%" xstyle={entry}>
                       <VStack gap={0} height="100%">
                         {/* The face sits on a tinted band, as the reference
                             has it, so a wall of cards reads as faces first. */}
-                        <Section padding={3} variant="muted">
+                        <Section className={coverFrame} padding={3} variant="muted">
                           <HStack gap={2} hAlign="between" vAlign="start">
-                            <Avatar name={agent.avatar || agent.name} size="xl" />
+                            {/* The face zooms inside its band rather than
+                                moving with the card, as the reference does. */}
+                            <Avatar className={coverZoom} name={agent.avatar || agent.name} size="xl" />
                             {agent.is_editable ? (
                               /* The reference offers this set from the card.
                                  What Cosmo cannot do yet is disabled rather

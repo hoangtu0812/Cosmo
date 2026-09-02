@@ -15,6 +15,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Token} from '@astryxdesign/core/Token';
 import {api, ToolCatalogEntry} from '../lib/api';
+import {cardHover} from '../components/motion';
 import {useTranslation} from '../lib/i18n';
 
 // The market is a place rather than a prompt: the reference gives it the whole
@@ -156,7 +157,7 @@ export function ToolMarket({isOpen, onOpen, onOpenChange, workspaceID}: {
                       </HStack>
                       <Grid columns={{minWidth: 240, max: 3}} gap={3} width="100%">
                         {inCategory.map((entry) => (
-                          <Card key={entry.id} padding={4} width="100%">
+                          <Card className={cardHover} key={entry.id} padding={4} width="100%">
                             <VStack gap={3} height="100%" width="100%">
                               <HStack gap={3} vAlign="start">
                                 <Card padding={2}>

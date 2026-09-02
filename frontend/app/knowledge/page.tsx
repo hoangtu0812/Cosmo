@@ -27,6 +27,7 @@ import {PageHeader} from '../components/PageHeader';
 import {StatusLabel} from '../components/StatusLabel';
 import {api, APIError, KnowledgeBase, Workspace, WorkspaceRef} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
+import {cardHover, coverFrame, coverZoom} from '../components/motion';
 import {KnowledgeIconPicker} from './KnowledgeIconPicker';
 
 type Translate = ReturnType<typeof useTranslation>;
@@ -334,11 +335,13 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
 	workspaceID: string;
 }) {
   return (
-    <Card padding={0} width="100%">
+    <Card className={cardHover} padding={0} width="100%">
       <VStack gap={0} height="100%">
-        <Section padding={5} variant="muted">
+        {/* The icon zooms inside its band rather than moving with the card,
+            so the hover reads as one gesture. */}
+        <Section className={coverFrame} padding={5} variant="muted">
           <HStack hAlign="center" width="100%">
-            <Card padding={3}>
+            <Card className={coverZoom} padding={3}>
               <Text type="display-3">{base.icon || '📚'}</Text>
             </Card>
           </HStack>

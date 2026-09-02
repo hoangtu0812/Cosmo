@@ -245,6 +245,13 @@ func (s *Server) Router() http.Handler {
 		protected.Put("/api/tools/{toolID}/actions/{actionID}", s.saveToolAction)
 		protected.Delete("/api/tools/{toolID}/actions/{actionID}", s.deleteToolAction)
 		protected.Post("/api/tools/{toolID}/actions/{actionID}/test", s.testToolAction)
+		protected.Get("/api/tools/{toolID}/shares", s.listToolShares)
+		protected.Put("/api/tools/{toolID}/shares", s.setToolShares)
+
+		protected.Get("/api/workspaces/{workspaceID}/tools", s.listWorkspaceTools)
+		protected.Put("/api/workspaces/{workspaceID}/tools/{toolID}", s.installWorkspaceTool)
+		protected.Delete("/api/workspaces/{workspaceID}/tools/{toolID}", s.uninstallWorkspaceTool)
+		protected.Put("/api/workspaces/{workspaceID}/tools/{toolID}/auto-call", s.setWorkspaceToolAutoCall)
 
 		protected.Get("/api/workflows", s.listWorkflows)
 		protected.Post("/api/workflows", s.createWorkflow)
@@ -965,17 +972,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// The answer is accumulated across both phases: a tool round can narrate
 	// before it calls, and that narration is part of the same answer.
 	var assistant strings.Builder
-	// An agent with tools gets to use them before it answers. Nothing happens
-	// here for a plain model chat, which has none attached.
-	if conversationAgentID != "" {
-		// A conversation pinned to a published version calls the tools that
-		// version froze; a draft run calls whatever is attached right now.
-		definitions, definitionErr := s.tools.Definitions(r.Context(), conversationAgentID, agentTools)
-		if definitionErr != nil {
-			s.logger.Error("tool definitions failed", "agent_id", conversationAgentID, "error", definitionErr)
-		} else if len(definitions) > 0 {
-			history, toolCalls = s.runToolRounds(r.Context(), w, flusher, conversationAgentID, history, definitions, agentTools, options, models, chatRun.ID, &assistant)
-		}
+	// What this turn may call. An agent brings what it was wired to; a plain
+	// chat brings what the workspace installed and switched on - nothing at
+	// all until somebody does both, so the ordinary chat pays for none of this.
+	set, setErr := s.toolSetFor(r.Context(), conversationAgentID, conversationWorkspaceID, agentTools)
+	if setErr != nil {
+		s.logger.Error("tool set failed", "conversation_id", conversationID, "error", setErr)
+	} else if !set.isEmpty() {
+		history, toolCalls = s.runToolRounds(r.Context(), w, flusher, set, history, options, models, chatRun.ID, &assistant)
 	}
 
 	writeSSE(w, "status", map[string]string{"stage": "writing", "message": "Đang soạn câu trả lời…"})

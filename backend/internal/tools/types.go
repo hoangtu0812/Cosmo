@@ -18,6 +18,10 @@ const (
 	// workspace it was made in. Same two words agents use, deliberately.
 	Private = "private"
 	Shared  = "workspace"
+	// Offered beyond the owning workspace: to named ones, or to all of them.
+	// Only an offer - the other workspace still has to install it.
+	Selected = "selected"
+	Everyone = "everyone"
 
 	// Authentication styles a tool can carry. Anything the caller sends that
 	// is not one of these is refused rather than silently downgraded to none,
@@ -197,10 +201,13 @@ func ValidateBaseURL(raw string) (string, error) {
 }
 
 // NormalizeVisibility narrows anything unrecognised to private. Widening on a
-// typo would expose a credentialled integration to the whole workspace.
+// typo would expose a credentialled integration to the whole workspace, and
+// now to every workspace, so the direction of the fallback matters more than
+// it did.
 func NormalizeVisibility(raw string) string {
-	if strings.TrimSpace(raw) == Shared {
-		return Shared
+	switch strings.TrimSpace(raw) {
+	case Shared, Selected, Everyone:
+		return strings.TrimSpace(raw)
 	}
 	return Private
 }

@@ -14,6 +14,9 @@ import (
 // rule in the tools package, so it is never restated here.
 func writeToolError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, tools.ErrNotOffered), errors.Is(err, tools.ErrNotInstalled),
+		errors.Is(err, tools.ErrKeyedAutoCall):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, tools.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, tools.ErrDuplicateAction):
@@ -416,4 +419,110 @@ func (s *Server) importOpenAPI(w http.ResponseWriter, r *http.Request) {
 		saved = append(saved, result)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
+}
+
+// listWorkspaceTools is what the workspace has installed, with the switch that
+// decides whether a plain chat may reach for each one.
+func (s *Server) listWorkspaceTools(w http.ResponseWriter, r *http.Request) {
+	user, workspaceID, ok := s.agentWorkspace(w, r, chi.URLParam(r, "workspaceID"))
+	if !ok {
+		return
+	}
+	installs, err := s.tools.InstalledInWorkspace(r.Context(), workspaceID, user.ID)
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"installs": installs})
+}
+
+// installWorkspaceTool makes a tool available here. Available is not callable:
+// the switch below is a second, separate act.
+func (s *Server) installWorkspaceTool(w http.ResponseWriter, r *http.Request) {
+	user, workspaceID, ok := s.agentWorkspace(w, r, chi.URLParam(r, "workspaceID"))
+	if !ok {
+		return
+	}
+	if !s.isWorkspaceAdmin(r.Context(), user, workspaceID) {
+		writeError(w, http.StatusForbidden, "Chỉ quản trị viên workspace mới được cài tool.")
+		return
+	}
+	if err := s.tools.InstallToWorkspace(r.Context(), workspaceID, chi.URLParam(r, "toolID"), user.ID); err != nil {
+		writeToolError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) uninstallWorkspaceTool(w http.ResponseWriter, r *http.Request) {
+	user, workspaceID, ok := s.agentWorkspace(w, r, chi.URLParam(r, "workspaceID"))
+	if !ok {
+		return
+	}
+	if !s.isWorkspaceAdmin(r.Context(), user, workspaceID) {
+		writeError(w, http.StatusForbidden, "Chỉ quản trị viên workspace mới được gỡ tool.")
+		return
+	}
+	if err := s.tools.UninstallFromWorkspace(r.Context(), workspaceID, chi.URLParam(r, "toolID")); err != nil {
+		writeToolError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// setWorkspaceToolAutoCall is the flag that lets the model reach for a tool on
+// its own. Separate from installing, and refused for a tool holding a key.
+func (s *Server) setWorkspaceToolAutoCall(w http.ResponseWriter, r *http.Request) {
+	user, workspaceID, ok := s.agentWorkspace(w, r, chi.URLParam(r, "workspaceID"))
+	if !ok {
+		return
+	}
+	if !s.isWorkspaceAdmin(r.Context(), user, workspaceID) {
+		writeError(w, http.StatusForbidden, "Chỉ quản trị viên workspace mới đổi được thiết lập này.")
+		return
+	}
+	var input struct {
+		AutoCall bool `json:"auto_call"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.tools.SetAutoCall(r.Context(), workspaceID, chi.URLParam(r, "toolID"), input.AutoCall); err != nil {
+		writeToolError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// listToolShares says which workspaces a tool is offered to. Only its owner
+// may look: the list is a statement about other workspaces.
+func (s *Server) listToolShares(w http.ResponseWriter, r *http.Request) {
+	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	if !ok {
+		return
+	}
+	shares, err := s.tools.Shares(r.Context(), item.ID)
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workspaces": shares})
+}
+
+func (s *Server) setToolShares(w http.ResponseWriter, r *http.Request) {
+	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	if !ok {
+		return
+	}
+	var input struct {
+		Workspaces []string `json:"workspaces"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.tools.SetShares(r.Context(), item.ID, input.Workspaces); err != nil {
+		writeToolError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

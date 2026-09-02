@@ -131,3 +131,41 @@ var workflowStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS workflows_workspace_idx ON workflows(owner_workspace_id, updated_at DESC)`,
 }
+
+// Installing a tool into a workspace, so a plain chat can call it - the same
+// two-level shape knowledge bases already use, and for the same reason: the
+// workspace decides what is available, an agent narrows that to what it needs.
+//
+// Three rules the user settled, each with a home here:
+//   - Installing is not permission to call. `auto_call` is the separate flag,
+//     and it is per install: workspace A may want a tool answering questions
+//     while workspace B keeps it for its agents only.
+//   - Only what an owner has offered can be installed, which is the same
+//     visibility ladder a knowledge base climbs - hence 'selected' and
+//     'everyone' joining the two values tools already had.
+//   - A tool holding a credential may not be called automatically. Enforced on
+//     write here and again on read, because a tool can be given a key after it
+//     was installed and must stop answering questions when it is.
+var workspaceToolStatements = []string{
+	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_visibility_check`,
+	`ALTER TABLE tools ADD CONSTRAINT tools_visibility_check
+		CHECK (visibility IN ('private', 'workspace', 'selected', 'everyone'))`,
+
+	`CREATE TABLE IF NOT EXISTS tool_shares (
+		tool_id TEXT NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (tool_id, workspace_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_tool_shares_workspace ON tool_shares(workspace_id)`,
+
+	`CREATE TABLE IF NOT EXISTS workspace_tools (
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		tool_id TEXT NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+		auto_call BOOLEAN NOT NULL DEFAULT FALSE,
+		installed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (workspace_id, tool_id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_workspace_tools_workspace ON workspace_tools(workspace_id)`,
+}

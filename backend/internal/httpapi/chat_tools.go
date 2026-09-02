@@ -12,6 +12,23 @@ import (
 	"cosmo/backend/internal/tools"
 )
 
+// toolSet is what a turn may call, and where it came from.
+//
+// The runner used to be handed an agent id, which is the one thing a plain
+// chat has not got. It is handed the set instead: an agent's attachments, or
+// what the workspace has installed and switched on. Describing and calling
+// them is the same either way, so only the gathering differs.
+type toolSet struct {
+	// "agent" or "workspace", for the log - the two fail differently and it is
+	// worth knowing which one was in play.
+	source      string
+	tools       []tools.Tool
+	actions     map[string][]tools.Action
+	definitions []modelgateway.ToolDefinition
+}
+
+func (set toolSet) isEmpty() bool { return len(set.definitions) == 0 }
+
 // ToolCall is one call as the reader sees it: which tool, which action, how it
 // went and how long it took. It is streamed twice - once running, once
 // settled - and the settled set is stored on the message it produced.
@@ -61,10 +78,8 @@ func (s *Server) runToolRounds(
 	ctx context.Context,
 	w http.ResponseWriter,
 	flusher http.Flusher,
-	agentID string,
+	set toolSet,
 	history []modelgateway.Message,
-	definitions []modelgateway.ToolDefinition,
-	pinned []string,
 	options modelgateway.Options,
 	models *modelgateway.Client,
 	runID string,
@@ -72,11 +87,11 @@ func (s *Server) runToolRounds(
 ) ([]modelgateway.Message, []ToolCall) {
 	reported := []ToolCall{}
 	for round := 0; round < maxToolRounds; round++ {
-		narration, calls, err := models.Decide(ctx, history, definitions, options)
+		narration, calls, err := models.Decide(ctx, history, set.definitions, options)
 		if err != nil {
 			// A failed round is not a failed answer: the model can still reply
 			// from what it already has, so this is reported and stepped over.
-			s.logger.Error("tool round failed", "agent_id", agentID, "error", err)
+			s.logger.Error("tool round failed", "source", set.source, "error", err)
 			writeSSE(w, "status", map[string]string{"stage": "tool_failed", "message": "Không gọi được tool."})
 			flusher.Flush()
 			return history, reported
@@ -139,7 +154,7 @@ func (s *Server) runToolRounds(
 				step, stepErr = s.runs.TransitionStep(ctx, step.ID, runs.Running, nil, "", "", "")
 			}
 
-			result, callErr := s.tools.InvokeNamed(ctx, agentID, call.Name, call.Arguments, pinned)
+			result, callErr := s.tools.InvokeInSet(ctx, set.tools, set.actions, call.Name, call.Arguments)
 			content := result.Body
 			if callErr != nil {
 				// The failure is handed to the model rather than hidden: told
@@ -180,4 +195,32 @@ func (s *Server) runToolRounds(
 		}
 	}
 	return history, reported
+}
+
+// toolSetFor gathers what a turn may call.
+//
+// An agent brings what it was wired to - frozen by version when the
+// conversation is pinned, live when it is a draft. A plain chat brings what
+// the workspace installed *and* switched on, which is two deliberate acts by
+// somebody with the right to perform them, and never a tool holding a
+// credential.
+//
+// A workspace with nothing installed produces an empty set, and an empty set
+// skips the whole tool phase - so an ordinary chat costs exactly what it cost
+// before this existed.
+func (s *Server) toolSetFor(ctx context.Context, agentID, workspaceID string, pinned []string) (toolSet, error) {
+	if agentID != "" {
+		list, actions, err := s.tools.AttachedTools(ctx, agentID, pinned)
+		if err != nil {
+			return toolSet{}, err
+		}
+		return toolSet{source: "agent", tools: list, actions: actions,
+			definitions: tools.DescribeSet(list, actions)}, nil
+	}
+	list, actions, err := s.tools.AutoCallable(ctx, workspaceID)
+	if err != nil {
+		return toolSet{}, err
+	}
+	return toolSet{source: "workspace", tools: list, actions: actions,
+		definitions: tools.DescribeSet(list, actions)}, nil
 }

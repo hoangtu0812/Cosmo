@@ -40,6 +40,7 @@ var migrations = []Migration{
 	{Version: 9, Name: "message_tool_calls", Statements: messageToolCallStatements},
 	{Version: 10, Name: "action_result_shape", Statements: actionResultStatements},
 	{Version: 11, Name: "workflows", Statements: workflowStatements},
+	{Version: 12, Name: "workspace_tools", Statements: workspaceToolStatements},
 }
 
 var runEngineStatements = []string{

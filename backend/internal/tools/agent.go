@@ -210,7 +210,15 @@ func (repository *Repository) Definitions(ctx context.Context, agentID string, p
 	if err != nil {
 		return nil, err
 	}
+	return DescribeSet(list, actions), nil
+}
 
+// DescribeSet turns a set of tools into what a model is shown.
+//
+// Separated from where the set came from, because a plain chat has no agent to
+// be keyed by and the description does not care: the same tools described the
+// same way, whether an agent attached them or a workspace installed them.
+func DescribeSet(list []Tool, actions map[string][]Action) []modelgateway.ToolDefinition {
 	prefixes := callPrefixes(list)
 	definitions := []modelgateway.ToolDefinition{}
 	for _, tool := range list {
@@ -252,11 +260,11 @@ func (repository *Repository) Definitions(ctx context.Context, agentID string, p
 				Parameters:  schema,
 			})
 			if len(definitions) >= MaxDefinitions {
-				return definitions, nil
+				return definitions
 			}
 		}
 	}
-	return definitions, nil
+	return definitions
 }
 
 // describeResult states what an action gives back, in the sentence the model
@@ -284,7 +292,14 @@ func (repository *Repository) InvokeNamed(ctx context.Context, agentID, name, ra
 	if err != nil {
 		return CallResult{}, err
 	}
+	return repository.InvokeInSet(ctx, list, actions, name, rawArguments)
+}
 
+// InvokeInSet runs the call a model asked for, resolved against the set it was
+// shown. A model that invents a name - or is talked into naming a tool outside
+// that set - reaches nothing, which is the same guarantee as before now stated
+// against the set rather than against an agent.
+func (repository *Repository) InvokeInSet(ctx context.Context, list []Tool, actions map[string][]Action, name, rawArguments string) (CallResult, error) {
 	arguments := map[string]any{}
 	if strings.TrimSpace(rawArguments) != "" {
 		if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {

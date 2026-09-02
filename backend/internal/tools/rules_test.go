@@ -117,14 +117,19 @@ func TestCleanParameters(t *testing.T) {
 }
 
 func TestNormalizeVisibilityNarrows(t *testing.T) {
-	// A tool carries a credential, so a typo must never widen who can use it.
-	for _, raw := range []string{"", "public", "everyone", "WORKSPACE"} {
+	// A tool can carry a credential and can now be offered to every workspace,
+	// so the fallback matters more than it did: anything unrecognised lands on
+	// private, never on a wider rung.
+	for _, raw := range []string{"", "public", "all", "WORKSPACE", "Everyone", "shared"} {
 		if got := NormalizeVisibility(raw); got != Private {
-			t.Fatalf("NormalizeVisibility(%q) = %q, want %q", raw, got, Private)
+			t.Errorf("NormalizeVisibility(%q) = %q, want %q", raw, got, Private)
 		}
 	}
-	if got := NormalizeVisibility(Shared); got != Shared {
-		t.Fatalf("NormalizeVisibility(%q) = %q", Shared, got)
+	// The four rungs that exist are kept exactly.
+	for _, raw := range []string{Private, Shared, Selected, Everyone} {
+		if got := NormalizeVisibility(raw); got != raw {
+			t.Errorf("NormalizeVisibility(%q) = %q", raw, got)
+		}
 	}
 }
 

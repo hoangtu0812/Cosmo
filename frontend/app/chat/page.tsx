@@ -3,7 +3,7 @@
 import {useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb, type OrbState} from 'thinking-orbs';
-import {Bot, Brain, Building2, Check, Cloud, Cpu, FolderOpen, Gem, History, MessageSquare, Plus, Settings, Sparkles, SquarePen, UserPlus, UserRound} from 'lucide-react';
+import {Bot, Brain, Building2, Check, Cloud, Cpu, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Pencil, Plus, Settings, Sparkles, SquarePen, Trash2, UserPlus, UserRound, X} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -21,8 +21,9 @@ import {DropdownMenu, DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign
 import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
+import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
-import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
 import {Link} from '@astryxdesign/core/Link';
 import {List} from '@astryxdesign/core/List';
 import {Token} from '@astryxdesign/core/Token';
@@ -89,6 +90,7 @@ export default function ChatPage() {
   // streaming placeholder so deltas land on an id that no longer exists.
   const hydratedRef = useRef('');
   const [renaming, setRenaming] = useState<Conversation | null>(null);
+  const [isRecentOpen, setIsRecentOpen] = useState(false);
   const [renameTitle, setRenameTitle] = useState('');
   const [deleting, setDeleting] = useState<Conversation | null>(null);
   const [busy, setBusy] = useState(false);
@@ -512,6 +514,51 @@ export default function ChatPage() {
   return (
     <>
       <Layout
+        end={isRecentOpen ? (
+          <LayoutPanel hasDivider label={t('chat.recentChats')} padding={4} role="complementary" width={340}>
+            <VStack gap={3} width="100%">
+              <HStack hAlign="between" vAlign="center" width="100%">
+                <Text type="label">{t('chat.recentChats')}</Text>
+                <IconButton icon={<X size={16} />} label={t('conv.closeRecent')} onClick={() => setIsRecentOpen(false)} size="sm" variant="ghost" />
+              </HStack>
+              {conversations.length === 0 ? (
+                <EmptyState description={t('chat.empty')} isCompact title="—" />
+              ) : (
+                <VStack gap={1} width="100%">
+                  {conversations.map((item) => (
+                    <HStack gap={1} key={item.id} vAlign="center" width="100%">
+                      <ClickableCard
+                        /* The title can be long; without this the row grows
+                           past the panel and drags a scrollbar with it. */
+                        className="min-w-0"
+                        label={item.title}
+                        onClick={() => openConversation(item)}
+                        padding={3}
+                        width="100%"
+                      >
+                        <VStack gap={0}>
+                          <Text maxLines={1} type="label">{item.title}</Text>
+                          <Text color="secondary" type="supporting">
+                            <Timestamp format="relative" value={item.created_at} />
+                          </Text>
+                        </VStack>
+                      </ClickableCard>
+                      <DropdownMenu
+                        alignment="end"
+                        button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('conv.options'), size: 'sm', variant: 'ghost'}}
+                        hasChevron={false}
+                        items={[
+                          {icon: <Pencil size={15} />, label: t('conv.rename'), onClick: () => setRenaming(item)},
+                          {icon: <Trash2 size={15} />, label: t('conv.delete'), onClick: () => setDeleting(item), variant: 'destructive' as const},
+                        ]}
+                      />
+                    </HStack>
+                  ))}
+                </VStack>
+              )}
+            </VStack>
+          </LayoutPanel>
+        ) : undefined}
         height="fill"
         header={
           <LayoutHeader hasDivider>
@@ -540,7 +587,7 @@ export default function ChatPage() {
                 <HStack gap={1} vAlign="center">
                   <Button icon={<Icon icon={SquarePen} size="sm" />} label={t('chat.newChat')} onClick={startNewChat} size="sm" variant="ghost" />
                   <Button icon={<Icon icon={FolderOpen} size="sm" />} isDisabled isIconOnly label={t('chat.files')} size="sm" variant="ghost" />
-                  <Button icon={<Icon icon={History} size="sm" />} isDisabled isIconOnly label={t('chat.recentChats')} size="sm" variant="ghost" />
+                  <Button icon={<Icon icon={History} size="sm" />} isIconOnly label={t('chat.recentChats')} onClick={() => setIsRecentOpen((open) => !open)} size="sm" variant="ghost" />
                 </HStack>
               }
             />

@@ -121,15 +121,15 @@ export const cosmoTheme = defineTheme({
     // Light mode keeps the standard ladder (white surfaces float on tinted
     // body; shadows do most of the lifting):
     //   surface  T100 #ffffff
-    //   body     T95  #f1f1f1
+    //   body     T98  #fafafa  — the canvas the rail and columns sit on
     //   card     T100 #ffffff
     //   popover  T100 #ffffff
-    //   muted    T95  #f1f1f1
+    //   muted    T95  #f1f1f1  — still a step below body, so tinted bands read
     //
     // All values use the OKLCH Neutral tonal palette (chroma=0).
     // =========================================================================
     '--color-background-surface': ['#ffffff', '#262626'],
-    '--color-background-body': ['#f1f1f1', '#1b1b1b'],
+    '--color-background-body': ['#fafafa', '#1b1b1b'],
     '--color-background-card': ['#ffffff', '#1b1b1b'],
     '--color-background-popover': ['#ffffff', '#1b1b1b'],
     '--color-background-muted': ['#f1f1f1', '#1b1b1b'],

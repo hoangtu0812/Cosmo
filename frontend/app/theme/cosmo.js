@@ -99,7 +99,7 @@ export const cosmoTheme = {
     "--color-syntax-punctuation": "light-dark(#a3a3a3, #525252)",
     "--color-syntax-background": "light-dark(#fafafa, #0a0a0a)",
     "--color-background-surface": "light-dark(#ffffff, #262626)",
-    "--color-background-body": "light-dark(#f1f1f1, #1b1b1b)",
+    "--color-background-body": "light-dark(#fafafa, #1b1b1b)",
     "--color-background-card": "light-dark(#ffffff, #1b1b1b)",
     "--color-background-popover": "light-dark(#ffffff, #1b1b1b)",
     "--color-background-muted": "light-dark(#f1f1f1, #1b1b1b)",

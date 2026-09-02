@@ -30,7 +30,6 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
 | Tệp | Header hội thoại | Đính kèm tệp theo hội thoại, lưu trữ và trích dẫn | chưa xếp |
-| Hội thoại gần đây | Header hội thoại | Bảng hội thoại đầy đủ, tìm kiếm và lọc | chưa xếp |
 
 ## Knowledge base
 
@@ -67,6 +66,7 @@ Ghi lại để khỏi nhầm là vỏ:
 - Ghi nhớ, gợi ý câu hỏi tiếp theo, render markdown
 - Tìm kiếm và lọc trên danh sách agent
 - Chọn avatar bằng emoji hoặc tải ảnh lên
+- Ngăn hội thoại gần đây mở từ header, đổi tên và xoá ngay trong ngăn
 
 ## Nguyên tắc khi thêm vỏ mới
 

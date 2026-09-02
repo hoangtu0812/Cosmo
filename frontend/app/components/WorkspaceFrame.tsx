@@ -2,16 +2,14 @@
 
 import {Suspense, useEffect, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {Archive, BarChart3, Bell, Bookmark, Bot, Building2, Check, Clock, FolderKanban, Library, MessageSquare, MoreHorizontal, Search, Settings, SquarePen, Trash2, UserPlus, UserRound, Workflow, Wrench, Zap} from 'lucide-react';
-import {AlertDialog} from '@astryxdesign/core/AlertDialog';
+import {Archive, BarChart3, Bell, Bookmark, Bot, Box, Building2, Check, Clock, FolderKanban, Library, MessageSquare, Search, Settings, SquarePen, UserPlus, UserRound, Workflow, Wrench, Zap} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
-import {DropdownMenu, DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
+import {DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
 import {Icon} from '@astryxdesign/core/Icon';
 import {HStack} from '@astryxdesign/core/Layout';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
-import {api, Conversation, User, Workspace} from '../lib/api';
+import {api, User, Workspace} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {ChatTargetFilters, ChatTargetList, useChatTargets} from './ChatTargetNav';
 import {Token} from '@astryxdesign/core/Token';
@@ -19,6 +17,9 @@ import {UserProfileCard} from './UserProfileCard';
 
 // The areas that live inside the workspace application. Anything outside it -
 // signing in, accepting an invite - is its own page and gets no rail.
+// The areas the second column lists when you are inside the workspace.
+const WORKSPACE_ROUTES = ['/agents', '/knowledge', '/workflow', '/tools', '/skills', '/observability', '/settings'];
+
 const FRAMED_ROUTES = ['/chat', '/knowledge', '/agents', '/projects', '/schedule', '/library', '/notifications', '/workflow', '/tools', '/skills', '/observability', '/settings'];
 
 // Chat and Knowledge are one workspace application. Keeping the frame above
@@ -46,9 +47,6 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
   const [user, setUser] = useState<User | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [deleting, setDeleting] = useState<Conversation | null>(null);
-  const [isDeleteBusy, setIsDeleteBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,9 +63,6 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
       setWorkspace(selected);
       if (!selected) return;
       await api.selectWorkspace(selected.id).catch(() => undefined);
-      const history = await api.conversations(selected.id).catch(() => ({conversations: []}));
-      if (cancelled) return;
-      setConversations(history.conversations);
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [requestedWorkspaceID]);
@@ -94,23 +89,6 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
     await api.selectWorkspace(next.id);
     const target = pathname.startsWith('/knowledge') ? '/knowledge' : '/chat';
     router.push(`${target}?workspace=${encodeURIComponent(next.id)}`);
-  }
-
-  // Deleting the conversation being read leaves nothing to show, so the frame
-  // moves to a new chat rather than a dead conversation id.
-  async function deleteConversation() {
-    if (!deleting) return;
-    setIsDeleteBusy(true);
-    try {
-      await api.deleteConversation(deleting.id);
-      setConversations((current) => current.filter((item) => item.id !== deleting.id));
-      if (search.get('conversation') === deleting.id) goTo('/chat');
-      setDeleting(null);
-    } catch {
-      setDeleting(null);
-    } finally {
-      setIsDeleteBusy(false);
-    }
   }
 
   const workspaceMenu = (
@@ -150,7 +128,25 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
         <HStack gap={0} height="100%">
           <SideNav
             className="w-60"
-            footer={user ? <UserProfileCard user={user} /> : undefined}
+            footer={
+              <>
+                {/* The workspace's own areas live in the second column, which
+                    chat replaces with its list of things to talk to. Without a
+                    way back in, agents and knowledge became unreachable from
+                    chat - the reference keeps this entry at the foot of the
+                    rail for exactly that reason. */}
+                <SideNavSection isHeaderHidden title={t('nav.workspaceArea')}>
+                  <SideNavItem
+                    icon={<Icon icon={Box} size="sm" />}
+                    isSelected={WORKSPACE_ROUTES.some((route) => pathname.startsWith(route))}
+                    label={t('nav.workspaceArea')}
+                    onClick={() => goTo('/agents')}
+                    size="md"
+                  />
+                </SideNavSection>
+                {user ? <UserProfileCard user={user} /> : null}
+              </>
+            }
             header={<SideNavHeading heading="Cosmo" icon={<Icon icon={Bot} size="sm" />} />}
           >
             <SideNavSection isHeaderHidden title={t('nav.product')}>
@@ -220,44 +216,12 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             <SideNavItem icon={<Icon icon={Library} size="sm" />} isSelected={pathname.startsWith('/knowledge')} label={t('kb.title')} onClick={() => goTo('/knowledge')} />
           </SideNavSection>
           </>)}
-          {isChatRoute ? (<>
-          <SideNavSection title={t('chat.recent')}>
-            {conversations.map((item) => (
-              <SideNavItem
-                endContent={
-                  <DropdownMenu
-                    alignment="end"
-                    button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('conv.options'), size: 'sm', variant: 'ghost'}}
-                    hasChevron={false}
-                    items={[{icon: <Trash2 size={15} />, label: t('conv.delete'), onClick: () => setDeleting(item), variant: 'destructive'}]}
-                  />
-                }
-                icon={<Icon icon={MessageSquare} size="sm" />}
-                isSelected={pathname === '/chat' && search.get('conversation') === item.id}
-                key={item.id}
-                label={item.title}
-                onClick={() => router.push(`/chat?workspace=${encodeURIComponent(workspace?.id ?? item.workspace_id)}&conversation=${encodeURIComponent(item.id)}`)}
-              />
-            ))}
-          </SideNavSection>
-          {conversations.length === 0 && <EmptyState description={t('chat.empty')} isCompact title="—" />}
-          </>) : null}
           </SideNav>
           ) : null}
         </HStack>
       }
     >
       {children}
-      <AlertDialog
-        actionLabel={t('conv.delete')}
-        cancelLabel={t('common.cancel')}
-        description={t('conv.deleteBody')}
-        isActionLoading={isDeleteBusy}
-        isOpen={deleting !== null}
-        onAction={() => void deleteConversation()}
-        onOpenChange={(open) => { if (!open) setDeleting(null); }}
-        title={t('conv.deleteTitle')}
-      />
     </AppShell>
   );
 }

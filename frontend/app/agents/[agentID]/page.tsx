@@ -30,7 +30,8 @@ import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {StatusLabel} from '../../components/StatusLabel';
-import {APIError, Agent, AgentVersion, Conversation, KnowledgeBase, Message, RunStep, Tool, api, streamChat} from '../../lib/api';
+import {ToolCallTrail} from '../../components/ToolCallTrail';
+import {APIError, Agent, AgentVersion, Conversation, KnowledgeBase, Message, MessageToolCall, RunStep, Tool, api, streamChat} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 const MAX_KNOWLEDGE_BASES = 5;
@@ -657,6 +658,10 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [streamed, setStreamed] = useState('');
+  // Calls arrive twice - running, then settled - so they are held by id and
+  // the second arrival replaces the first rather than adding a row.
+  const [liveToolCalls, setLiveToolCalls] = useState<MessageToolCall[]>([]);
+
   const [suggestions, setSuggestions] = useState<string[]>([]);
   // What the last turn actually did, read back from the run the chat recorded.
   const [steps, setSteps] = useState<RunStep[]>([]);
@@ -729,13 +734,24 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
         setConversationID(target);
       }
       setMessages((current) => [...current, {id: `local_${Date.now()}`, conversation_id: target, role: 'user', content, created_at: new Date().toISOString()} as Message]);
+      setLiveToolCalls([]);
       await streamChat(target, content, {}, {
+        onToolCall: (call) => setLiveToolCalls((current) => {
+          const index = current.findIndex((item) => item.id === call.id);
+          if (index < 0) return [...current, call];
+          const next = [...current];
+          next[index] = call;
+          return next;
+        }),
         onDelta: (delta) => setStreamed((current) => current + delta),
         onMeta: (data) => { if (data.run_id) runID.current = data.run_id; },
         onSuggestions: (data) => setSuggestions(data.questions),
         onDone: (data) => {
           setMessages((current) => [...current, data.message]);
           setStreamed('');
+          // The saved message carries the calls now, so the live copy would
+          // only draw them a second time.
+          setLiveToolCalls([]);
         },
       });
       // Read after the reply, so inspecting never delays the answer.
@@ -765,7 +781,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     />
   );
 
-  const isEmpty = messages.length === 0 && !streamed;
+  const isEmpty = messages.length === 0 && !streamed && liveToolCalls.length === 0;
 
   // The panel is a surface of its own rather than the other half of the same
   // sheet: a different ground and a rounded inner edge, so what is being
@@ -863,17 +879,21 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
               <Card key={message.id} padding={3} width="100%" xstyle={entry}>
                 <VStack gap={1}>
                   <Text color="secondary" type="supporting">{message.role === 'user' ? agent.owner_name || 'You' : agent.name}</Text>
+                  {message.role === 'assistant' && message.tool_calls?.length
+                    ? <ToolCallTrail calls={message.tool_calls} />
+                    : null}
                   {message.role === 'assistant'
                     ? <Markdown headingLevelStart={3}>{message.content}</Markdown>
                     : <Text type="body">{message.content}</Text>}
                 </VStack>
               </Card>
             ))}
-            {streamed ? (
+            {liveToolCalls.length > 0 || streamed ? (
               <Card padding={3} width="100%">
-                <VStack gap={1}>
+                <VStack gap={2}>
                   <Text color="secondary" type="supporting">{agent.name}</Text>
-                  <Markdown headingLevelStart={3} isStreaming>{revealed}</Markdown>
+                  {liveToolCalls.length > 0 ? <ToolCallTrail calls={liveToolCalls} /> : null}
+                  {streamed ? <Markdown headingLevelStart={3} isStreaming>{revealed}</Markdown> : null}
                 </VStack>
               </Card>
             ) : null}

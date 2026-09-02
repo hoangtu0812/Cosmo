@@ -98,3 +98,9 @@ var toolCatalogStatements = []string{
 	`CREATE UNIQUE INDEX IF NOT EXISTS tools_catalog_idx
 		ON tools (owner_workspace_id, catalog_id) WHERE catalog_id <> ''`,
 }
+
+// What a turn called is evidence for its answer, the same as a citation, and
+// belongs on the message rather than only in the run log the inspector reads.
+var messageToolCallStatements = []string{
+	`ALTER TABLE messages ADD COLUMN IF NOT EXISTS tool_calls JSONB NOT NULL DEFAULT '[]'::jsonb`,
+}

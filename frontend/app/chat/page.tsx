@@ -30,7 +30,8 @@ import {Token} from '@astryxdesign/core/Token';
 import {Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {Agent, api, APIError, Citation, Conversation, GatewayModel, Message, streamChat, User, Workspace} from '../lib/api';
+import {Agent, api, APIError, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
+import {ToolCallTrail} from '../components/ToolCallTrail';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Markdown} from '@astryxdesign/core/Markdown';
@@ -63,6 +64,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [streaming, setStreaming] = useState(false);
+  const [liveToolCalls, setLiveToolCalls] = useState<MessageToolCall[]>([]);
   const [status, setStatus] = useState('');
   const [orbState, setOrbState] = useState<OrbState>('working');
   const [error, setError] = useState('');
@@ -246,6 +248,7 @@ export default function ChatPage() {
     const optimisticAssistant: Message = {id: `stream-${crypto.randomUUID()}`, conversation_id: targetID, role: 'assistant', content: '', created_at: new Date().toISOString()};
     setMessages((current) => [...current, optimisticUser, optimisticAssistant]);
     setStreaming(true);
+    setLiveToolCalls([]);
     setStatus(t('chat.thinking'));
     setOrbState('working');
     try {
@@ -254,6 +257,15 @@ export default function ChatPage() {
           setStatus(t('chat.writing'));
           setOrbState('composing');
         },
+        // Calls arrive twice - running, then settled - so they are held by id
+        // and the second arrival replaces the first rather than adding a row.
+        onToolCall: (call) => setLiveToolCalls((current) => {
+          const index = current.findIndex((item) => item.id === call.id);
+          if (index < 0) return [...current, call];
+          const next = [...current];
+          next[index] = call;
+          return next;
+        }),
         onStatus: ({stage, message}) => {
           setStatus(message);
           setOrbState(activityOrb(stage));
@@ -263,7 +275,12 @@ export default function ChatPage() {
           setOrbState('composing');
           setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? {...item, content: item.content + delta} : item));
         },
-        onDone: ({message}) => setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? message : item)),
+        onDone: ({message}) => {
+          setMessages((current) => current.map((item) => item.id === optimisticAssistant.id ? message : item));
+          // The saved message carries the calls now; the live copy would only
+          // draw them a second time.
+          setLiveToolCalls([]);
+        },
       });
       const refreshed = await api.conversations(workspace.id);
       setConversations(refreshed.conversations);
@@ -548,12 +565,14 @@ export default function ChatPage() {
                         >
                           {message.content
                             ? <VStack gap={3}>
+                              <ToolCallTrail calls={isActiveStream ? liveToolCalls : message.tool_calls ?? []} />
                               <Markdown density="compact" isStreaming={isActiveStream} headingLevelStart={3}>
                                 {answerForDisplay(message.content, message.citations ?? [], isActiveStream)}
                               </Markdown>
                               {isActiveStream ? null : <CitationList citations={message.citations ?? []} showEmpty />}
                             </VStack>
                             : (streaming ? <VStack gap={3}>
+                              <ToolCallTrail calls={liveToolCalls} />
                               <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state={orbState} /><Text color="secondary" type="supporting">{status}</Text></HStack>
                               <CitationList citations={message.citations ?? []} />
                             </VStack> : '')}

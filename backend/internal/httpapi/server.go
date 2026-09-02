@@ -94,6 +94,7 @@ type Message struct {
 	Content        string     `json:"content"`
 	Model          string     `json:"model,omitempty"`
 	Citations      []Citation `json:"citations,omitempty"`
+	ToolCalls      []ToolCall `json:"tool_calls,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
 
@@ -708,7 +709,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id, conversation_id, role, content, COALESCE(model, ''), citations, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`, conversationID)
+	rows, err := s.db.Query(r.Context(), `SELECT id, conversation_id, role, content, COALESCE(model, ''), citations, tool_calls, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`, conversationID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải nội dung hội thoại.")
 		return
@@ -718,8 +719,10 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item Message
 		var citationsJSON []byte
-		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model, &citationsJSON, &item.CreatedAt) == nil {
+		var toolCallsJSON []byte
+		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model, &citationsJSON, &toolCallsJSON, &item.CreatedAt) == nil {
 			_ = json.Unmarshal(citationsJSON, &item.Citations)
+			_ = json.Unmarshal(toolCallsJSON, &item.ToolCalls)
 			items = append(items, item)
 		}
 	}
@@ -900,6 +903,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var citations []Citation
+	// What the turn called, for the transcript to keep beside the answer.
+	var toolCalls []ToolCall
 	retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
 	passages, retrievalErr := s.retrievalContextFor(retrievalCtx, conversationWorkspaceID, input.Content, agentKnowledge)
 	cancelRetrieval()
@@ -940,7 +945,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		if definitionErr != nil {
 			s.logger.Error("tool definitions failed", "agent_id", conversationAgentID, "error", definitionErr)
 		} else if len(definitions) > 0 {
-			history = s.runToolRounds(r.Context(), w, flusher, conversationAgentID, history, definitions, agentTools, options, models, chatRun.ID)
+			history, toolCalls = s.runToolRounds(r.Context(), w, flusher, conversationAgentID, history, definitions, agentTools, options, models, chatRun.ID)
 		}
 	}
 
@@ -974,9 +979,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	citations = citationsUsedByAnswer(assistant.String(), citations)
-	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options), Citations: citations}
+	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options), Citations: citations, ToolCalls: toolCalls}
 	citationsJSON, _ := json.Marshal(citations)
-	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, citations, created_at) VALUES($1, $2, $3, $4, $5, $6, $7)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, assistantMessage.CreatedAt)
+	toolCallsJSON, _ := json.Marshal(toolCalls)
+	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, created_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, assistantMessage.CreatedAt)
 	if err != nil {
 		if runErr == nil {
 			_, _ = s.runs.TransitionStep(context.Background(), generationStep.ID, runs.Failed, nil, "", "history_write", err.Error())

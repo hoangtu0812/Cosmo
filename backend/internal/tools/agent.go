@@ -55,6 +55,18 @@ func callName(prefix string, action Action) string {
 	return prefix + nameSeparator + action.Name
 }
 
+// SplitCallName turns the name a model called back into the tool and the
+// action, for showing the reader. A name that does not carry a separator is
+// its own action under no particular tool, which is what a caller should show
+// rather than guessing.
+func SplitCallName(name string) (string, string) {
+	tool, action, found := strings.Cut(name, nameSeparator)
+	if !found {
+		return "", name
+	}
+	return tool, action
+}
+
 // sanitise turns a tool's display name into something a model can call back.
 // Names are free text - "Tra cứu khách hàng" is a reasonable tool name - but a
 // call name is an identifier.

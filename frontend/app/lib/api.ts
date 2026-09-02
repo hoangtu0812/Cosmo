@@ -249,7 +249,11 @@ export type Conversation = {
   updated_at: string;
 };
 export type Citation = {index: number; kb_id: string; document_id: string; title: string; source: string; section?: string; page?: string};
-export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; created_at: string};
+// One call a turn made, as the transcript shows it: what was reached, how it
+// went, how long it took.
+export type ToolCallStatus = 'running' | 'complete' | 'error';
+export type MessageToolCall = {id: string; tool: string; action: string; status: ToolCallStatus; duration_ms?: number; detail?: string};
+export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; tool_calls?: MessageToolCall[]; created_at: string};
 export type RunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
 export type Run = {
   id: string;
@@ -519,6 +523,9 @@ export async function streamChat(
   handlers: {
     onMeta?: (data: {assistant_message_id: string; model: string; run_id?: string}) => void;
     onStatus?: (data: {stage: string; message: string}) => void;
+    // Sent twice per call - once running, once settled - keyed by id so the
+    // second replaces the first rather than adding a row.
+    onToolCall?: (call: MessageToolCall) => void;
     onSuggestions?: (data: {questions: string[]}) => void;
     onDelta: (content: string) => void;
     onDone?: (data: {message: Message}) => void;
@@ -554,6 +561,7 @@ export async function streamChat(
       const data = JSON.parse(rawData) as Record<string, unknown>;
       if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; run_id?: string});
       if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string});
+      if (event === 'tool') handlers.onToolCall?.(data as unknown as MessageToolCall);
       if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
       if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
       if (event === 'done') handlers.onDone?.(data as {message: Message});

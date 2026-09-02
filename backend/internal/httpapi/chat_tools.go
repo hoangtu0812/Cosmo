@@ -5,10 +5,37 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"cosmo/backend/internal/modelgateway"
 	"cosmo/backend/internal/runs"
+	"cosmo/backend/internal/tools"
 )
+
+// ToolCall is one call as the reader sees it: which tool, which action, how it
+// went and how long it took. It is streamed twice - once running, once
+// settled - and the settled set is stored on the message it produced.
+type ToolCall struct {
+	ID         string `json:"id"`
+	Tool       string `json:"tool"`
+	Action     string `json:"action"`
+	Status     string `json:"status"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+}
+
+// A tool answer can be a whole document. What goes on screen is a glance at it;
+// the run inspector holds the rest.
+const toolDetailRunes = 300
+
+func summarise(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	runes := []rune(trimmed)
+	if len(runes) > toolDetailRunes {
+		return string(runes[:toolDetailRunes]) + "…"
+	}
+	return trimmed
+}
 
 // A model may ask for tools, be given results, and ask again. Three rounds is
 // enough for "look this up, then look that up in what came back"; past that it
@@ -34,7 +61,8 @@ func (s *Server) runToolRounds(
 	options modelgateway.Options,
 	models *modelgateway.Client,
 	runID string,
-) []modelgateway.Message {
+) ([]modelgateway.Message, []ToolCall) {
+	reported := []ToolCall{}
 	for round := 0; round < maxToolRounds; round++ {
 		_, calls, err := models.Decide(ctx, history, definitions, options)
 		if err != nil {
@@ -43,10 +71,10 @@ func (s *Server) runToolRounds(
 			s.logger.Error("tool round failed", "agent_id", agentID, "error", err)
 			writeSSE(w, "status", map[string]string{"stage": "tool_failed", "message": "Không gọi được tool."})
 			flusher.Flush()
-			return history
+			return history, reported
 		}
 		if len(calls) == 0 {
-			return history
+			return history, reported
 		}
 
 		// The assistant turn that asked has to be echoed before its results, or
@@ -65,8 +93,14 @@ func (s *Server) runToolRounds(
 		history = append(history, modelgateway.Message{Role: "assistant", ToolCalls: requested})
 
 		for _, call := range calls {
+			toolName, actionName := tools.SplitCallName(call.Name)
+			shown := ToolCall{ID: call.ID, Tool: toolName, Action: actionName, Status: "running"}
+			writeSSE(w, "tool", shown)
+			// The one-line status stays for readers of the plain stream; the
+			// event above is what the transcript draws from.
 			writeSSE(w, "status", map[string]string{"stage": "tool", "message": fmt.Sprintf("Đang gọi %s…", call.Name)})
 			flusher.Flush()
+			startedAt := time.Now()
 
 			step, stepErr := s.runs.CreateStep(ctx, runs.NewStep{
 				RunID:     runID,
@@ -100,6 +134,18 @@ func (s *Server) runToolRounds(
 				content = fmt.Sprintf("(empty response, status %d)", result.Status)
 			}
 
+			shown.DurationMS = time.Since(startedAt).Milliseconds()
+			if callErr != nil {
+				shown.Status = "error"
+				shown.Detail = callErr.Error()
+			} else {
+				shown.Status = "complete"
+				shown.Detail = summarise(result.Body)
+			}
+			reported = append(reported, shown)
+			writeSSE(w, "tool", shown)
+			flusher.Flush()
+
 			history = append(history, modelgateway.Message{
 				Role:       "tool",
 				ToolCallID: call.ID,
@@ -107,5 +153,5 @@ func (s *Server) runToolRounds(
 			})
 		}
 	}
-	return history
+	return history, reported
 }

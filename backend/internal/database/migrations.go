@@ -37,6 +37,7 @@ var migrations = []Migration{
 	{Version: 6, Name: "tool_kind", Statements: toolKindStatements},
 	{Version: 7, Name: "builtin_tool_kind", Statements: builtinKindStatements},
 	{Version: 8, Name: "tool_catalog_origin", Statements: toolCatalogStatements},
+	{Version: 9, Name: "message_tool_calls", Statements: messageToolCallStatements},
 }
 
 var runEngineStatements = []string{

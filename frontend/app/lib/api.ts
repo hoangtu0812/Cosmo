@@ -128,6 +128,9 @@ export type Tool = {
   owner_user_id: string;
   owner_name: string;
   workspace_id: string;
+  /** The name of the workspace that owns it - worth showing on a tool another
+      workspace offered you, where the id says nothing. */
+  workspace_name: string;
   /** Four rungs: kept to the author, open to the owning workspace, offered to
       named workspaces, offered to all of them. */
   visibility: 'private' | 'workspace' | 'selected' | 'everyone';

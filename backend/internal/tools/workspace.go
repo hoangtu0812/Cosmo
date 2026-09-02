@@ -92,9 +92,10 @@ func (repository *Repository) SetAutoCall(ctx context.Context, workspaceID, tool
 type WorkspaceInstall struct {
 	Tool     Tool `json:"tool"`
 	AutoCall bool `json:"auto_call"`
-	// False when the tool has since been given a credential. The install
-	// survives; the automatic calling does not, and the reader is told why
-	// rather than watching a switch they set quietly stop working.
+	// True when the switch is on but the tool has since been given a key. The
+	// install survives and the switch still reads as on; the calling does not
+	// happen, because the read-time guard refuses it. Saying so is better than
+	// letting somebody watch a switch they set quietly stop working.
 	IsBlockedByKey bool `json:"is_blocked_by_key"`
 }
 
@@ -103,7 +104,7 @@ type WorkspaceInstall struct {
 // unshared disappears from a workspace that had installed it.
 func (repository *Repository) InstalledInWorkspace(ctx context.Context, workspaceID, userID string) ([]WorkspaceInstall, error) {
 	rows, err := repository.db.Query(ctx, `
-		SELECT `+columns+`, wt.auto_call, (t.auth_secret IS NOT NULL)
+		SELECT `+columns+workspaceColumns("$1")+`
 		FROM workspace_tools wt
 		JOIN tools t ON t.id = wt.tool_id
 		LEFT JOIN users u ON u.id = t.owner_user_id
@@ -116,22 +117,18 @@ func (repository *Repository) InstalledInWorkspace(ctx context.Context, workspac
 
 	list := []WorkspaceInstall{}
 	for rows.Next() {
-		var item WorkspaceInstall
-		var tool Tool
-		var tagsRaw []byte
-		if err := rows.Scan(
-			&tool.ID, &tool.Name, &tool.Description, &tool.Icon, &tagsRaw, &tool.OwnerUserID,
-			&tool.OwnerName, &tool.WorkspaceID, &tool.Visibility, &tool.BaseURL,
-			&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
-			&tool.ActionCount, &tool.ReferenceCount, &tool.CreatedAt, &tool.UpdatedAt,
-			&item.AutoCall, &item.IsBlockedByKey,
-		); err != nil {
+		tool, err := scanInWorkspace(rows, userID)
+		if err != nil {
 			return nil, err
 		}
-		tool.Tags = decodeStrings(tagsRaw)
-		tool.IsEditable = tool.OwnerUserID == userID
-		item.Tool = tool
-		list = append(list, item)
+		list = append(list, WorkspaceInstall{
+			Tool:     tool,
+			AutoCall: tool.AutoCall,
+			// The key is what the read-time guard checks, so the same fact
+			// answers both questions: this one is only worth raising while the
+			// switch says the tool should be answering.
+			IsBlockedByKey: tool.AutoCall && tool.HasSecret,
+		})
 	}
 	return list, rows.Err()
 }

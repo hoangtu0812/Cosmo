@@ -14,10 +14,11 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
 import {List} from '@astryxdesign/core/List';
 import {Section} from '@astryxdesign/core/Section';
+import {Switch} from '@astryxdesign/core/Switch';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
-import {api, APIError, Invitation, LLMSettings, Member, User, Workspace} from '../lib/api';
+import {api, APIError, Invitation, LLMSettings, Member, Tool, User, Workspace} from '../lib/api';
 import {PageHeader} from '../components/PageHeader';
 import {resizeToSquare} from '../lib/image';
 import {useTranslation} from '../lib/i18n';
@@ -95,6 +96,7 @@ export default function SettingsPage() {
                     </VStack>
                   </Card>
                   <ModelSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
+                  <InstalledToolSettings canAdmin={!!canAdmin} onError={setError} workspaceID={workspaceID} />
                   <MemberSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
                 </>
               ) : null}
@@ -451,6 +453,98 @@ function WorkspaceSettings({onError, onNotice, onUpdated, workspace}: {
         </Card>
       )}
 
+    </VStack>
+  );
+}
+
+type Install = {tool: Tool; auto_call: boolean; is_blocked_by_key: boolean};
+
+/**
+ * The tools this workspace has installed, and which of them a plain question
+ * may reach.
+ *
+ * The same switch as on the tool card, gathered where the workspace is
+ * administered - because "what can this workspace call on its own" is a
+ * question about the workspace, and reading it card by card is not an answer.
+ */
+function InstalledToolSettings({canAdmin, onError, workspaceID}: {canAdmin: boolean; onError: (value: string) => void; workspaceID: string}) {
+  const t = useTranslation();
+  const [installs, setInstalls] = useState<Install[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [busy, setBusy] = useState('');
+
+  const load = useCallback(() => {
+    api.workspaceTools(workspaceID)
+      .then((result) => setInstalls(result.installs))
+      .catch((caught) => onError(caught instanceof Error ? caught.message : t('tool.loadFailed')))
+      .finally(() => setIsLoading(false));
+  }, [onError, t, workspaceID]);
+
+  useEffect(load, [load]);
+
+  async function setAutoCall(install: Install, autoCall: boolean) {
+    setBusy(install.tool.id);
+    try {
+      await api.setToolAutoCall(workspaceID, install.tool.id, autoCall);
+      setInstalls((current) => current.map((item) => item.tool.id === install.tool.id
+        ? {...item, auto_call: autoCall, is_blocked_by_key: autoCall && item.tool.has_secret}
+        : item));
+    } catch (caught) {
+      onError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  const blocked = installs.filter((item) => item.is_blocked_by_key);
+
+  return (
+    <VStack gap={4}>
+      <Text size="lg" type="large">{t('settings.installedTools')}</Text>
+
+      {/* Raised here rather than at the switch: the switch reads as on, and
+          the tool is not being called, and nothing on the card can say so. */}
+      {blocked.length > 0 ? (
+        <Banner
+          description={blocked.map((item) => item.tool.name).join(', ')}
+          status="warning"
+          title={t('tool.blockedByKey')}
+        />
+      ) : null}
+
+      <Card padding={0} width="100%">
+        {isLoading ? (
+          <Section padding={4}>
+            <Text color="secondary" type="supporting">{t('chat.loading')}</Text>
+          </Section>
+        ) : installs.length === 0 ? (
+          <Section padding={4}>
+            <Text color="secondary" type="supporting">{t('tool.noneInstalled')}</Text>
+          </Section>
+        ) : (
+          installs.map((install, index) => (
+            <Section dividers={index < installs.length - 1 ? ['bottom'] : []} key={install.tool.id} padding={4}>
+              <HStack gap={3} hAlign="between" vAlign="center" width="100%">
+                <VStack gap={1}>
+                  <Text type="label">{install.tool.name}</Text>
+                  <Text color="secondary" type="supporting">
+                    {install.tool.workspace_id === workspaceID
+                      ? install.tool.description || install.tool.base_url
+                      : t('tool.from', {workspace: install.tool.workspace_name})}
+                  </Text>
+                </VStack>
+                <Switch
+                  isDisabled={!canAdmin || busy === install.tool.id || install.tool.has_secret}
+                  label={t('tool.autoCall')}
+                  onChange={(checked: boolean) => void setAutoCall(install, checked)}
+                  size="sm"
+                  value={install.auto_call}
+                />
+              </HStack>
+            </Section>
+          ))
+        )}
+      </Card>
     </VStack>
   );
 }

@@ -16,7 +16,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {PageHeader} from '../components/PageHeader';
-import {api, APIError, Tool, WorkspaceRef} from '../lib/api';
+import {api, APIError, Tool, Workspace, WorkspaceRef} from '../lib/api';
 import {ToolMarket} from './ToolMarket';
 import {ToolCard} from './ToolCard';
 import {ToolShareDialog} from './ToolShareDialog';
@@ -45,6 +45,7 @@ function ToolsScreen() {
   const [deleting, setDeleting] = useState<Tool | null>(null);
   const [sharing, setSharing] = useState<Tool | null>(null);
   const [directory, setDirectory] = useState<WorkspaceRef[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   // The install and the switch are separate acts on the server, so they are
   // separate here too; `busy` names the tool a request is in flight for, so
   // one card's spinner does not freeze the rest.
@@ -57,7 +58,7 @@ function ToolsScreen() {
       {icon: <Settings2 size={15} />, label: t('kb.configure'), onClick: () => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)},
       {icon: <Share2 size={15} />, label: t('tool.share'), onClick: () => setSharing(tool)},
     ] : []),
-    ...(tool.is_installed ? [
+    ...(tool.is_installed && canInstall ? [
       {icon: <PackageMinus size={15} />, label: t('tool.uninstall'), onClick: () => void uninstall(tool)},
     ] : []),
     ...(tool.is_editable ? [
@@ -90,12 +91,23 @@ function ToolsScreen() {
   useEffect(load, [load]);
 
   // Loaded with the tools rather than when the dialog opens, so the dialog
-  // never appears with an empty list of workspaces to offer to.
+  // never appears with an empty list of workspaces to offer to. The reader's
+  // own workspaces come along for the role, which decides whether installing
+  // is even offered.
   useEffect(() => {
-    api.workspaceDirectory()
-      .then((result) => setDirectory(result.workspaces))
+    Promise.all([api.workspaces(), api.workspaceDirectory()])
+      .then(([mine, all]) => {
+        setWorkspaces(mine.workspaces);
+        setDirectory(all.workspaces);
+      })
       .catch(() => setDirectory([]));
   }, []);
+
+  // Installing a tool into a workspace, and letting it answer questions there,
+  // are the workspace's decisions rather than any member's. The server refuses
+  // them for everyone else; the card stops offering them.
+  const workspace = workspaces.find((item) => item.id === workspaceID);
+  const canInstall = workspace?.role === 'owner' || workspace?.role === 'admin';
 
   async function create() {
     setIsSaving(true);
@@ -266,11 +278,13 @@ function ToolsScreen() {
                     {visible.map((tool) => (
                       <ToolCard
                         actions={toolActions(tool)}
+                        canInstall={canInstall}
                         isBusy={busy === tool.id}
                         key={tool.id}
                         onAutoCall={(autoCall) => void setAutoCall(tool, autoCall)}
                         onInstall={() => void install(tool)}
                         onOpen={() => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)}
+                        origin={tool.workspace_id === workspaceID ? '' : tool.workspace_name}
                         tool={tool}
                       />
                     ))}

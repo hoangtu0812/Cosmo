@@ -20,10 +20,16 @@ import {useTranslation} from '../lib/i18n';
  * decisions - open it, install it, let it answer questions - and reading them
  * together is easier than reading them threaded through the screen around it.
  */
-export function ToolCard({tool, actions, isBusy, onOpen, onInstall, onAutoCall}: {
+export function ToolCard({tool, actions, canInstall, isBusy, origin, onOpen, onInstall, onAutoCall}: {
   tool: Tool;
   actions: CardMenuItems;
+  /** Whether this reader may install into the workspace at all. The server
+      allows only its owners and admins, so for everyone else the card states
+      the tool's condition and offers nothing to change it. */
+  canInstall: boolean;
   isBusy: boolean;
+  /** The owning workspace's name, when it is not the one being read. */
+  origin: string;
   onOpen: () => void;
   onInstall: () => void;
   onAutoCall: (autoCall: boolean) => void;
@@ -60,6 +66,10 @@ export function ToolCard({tool, actions, isBusy, onOpen, onInstall, onAutoCall}:
                   {tool.reference_count === 1 ? t('capability.referencesOne') : t('capability.references', {count: tool.reference_count})}
                 </Text>
                 {tool.has_secret ? <Token label={t('tool.keySet', {hint: tool.auth_hint})} size="sm" /> : null}
+                {/* Whose tool this is, said only where it is not obvious: in
+                    the workspace that owns it, every card would say the same
+                    thing. */}
+                {origin ? <Token label={t('tool.from', {workspace: origin})} size="sm" /> : null}
                 <StatusLabel label={t(visibilityKey(tool))} variant="neutral" />
               </HStack>
 
@@ -71,15 +81,15 @@ export function ToolCard({tool, actions, isBusy, onOpen, onInstall, onAutoCall}:
               <HStack gap={2} onClick={(event) => event.stopPropagation()} vAlign="center" width="100%">
                 {tool.is_installed ? (
                   <Switch
-                    isDisabled={isBusy || tool.has_secret}
+                    isDisabled={isBusy || tool.has_secret || !canInstall}
                     label={t('tool.autoCall')}
                     onChange={(checked: boolean) => onAutoCall(checked)}
                     size="sm"
                     value={tool.auto_call}
                   />
-                ) : (
+                ) : canInstall ? (
                   <Button isLoading={isBusy} label={t('tool.install')} onClick={onInstall} size="sm" variant="secondary" />
-                )}
+                ) : null}
               </HStack>
             </VStack>
           </Section>

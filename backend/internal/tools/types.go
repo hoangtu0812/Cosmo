@@ -76,6 +76,10 @@ type Tool struct {
 	OwnerUserID string   `json:"owner_user_id"`
 	OwnerName   string   `json:"owner_name"`
 	WorkspaceID string   `json:"workspace_id"`
+	// The name of the workspace that owns it, for the workspaces it was
+	// offered to: an offer arriving from nobody in particular is hard to
+	// judge, and the id says nothing to a reader.
+	WorkspaceName string `json:"workspace_name"`
 	Visibility  string   `json:"visibility"`
 	BaseURL     string   `json:"base_url"`
 	// "http" for an API described by hand, "mcp" for a server that
@@ -88,8 +92,10 @@ type Tool struct {
 	AuthHint    string `json:"auth_hint"`
 	HasSecret   bool   `json:"has_secret"`
 	ActionCount int    `json:"action_count"`
-	// How many agents have this tool attached. Worth knowing before changing
-	// or deleting it, which is the moment the question gets asked.
+	// How many agents in the reading workspace have this tool attached. Worth
+	// knowing before changing or removing it, which is the moment the question
+	// gets asked - and counted per workspace, so a tool offered elsewhere does
+	// not report how much of its owner's estate runs on it.
 	ReferenceCount int `json:"reference_count"`
 	// Whether the workspace framing this read has installed the tool, and
 	// whether it lets a plain chat reach for it. Two states, not one: a tool

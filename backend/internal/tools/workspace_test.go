@@ -51,9 +51,12 @@ func TestSharedColumnsCarryNoPlaceholder(t *testing.T) {
 	if strings.Contains(columns, "$") {
 		t.Error("the shared projection names a placeholder; it is pasted into queries with different arguments")
 	}
-	// The workspace-framed reads add their own, and it is $2 by convention:
-	// $1 is the reader, $2 the workspace they are reading as.
-	if !strings.Contains(installColumn, "$2") {
-		t.Error("the install column does not read the workspace it was written for")
+	// The workspace-framed reads add their own, told where the workspace sits
+	// among their arguments - $2 for a listing, $1 for a read that starts from
+	// the workspace itself.
+	for _, param := range []string{"$1", "$2"} {
+		if strings.Count(workspaceColumns(param), param) != 2 {
+			t.Errorf("workspaceColumns(%s) does not use it for both the count and the install", param)
+		}
 	}
 }

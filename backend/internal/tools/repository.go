@@ -38,16 +38,25 @@ const columns = `
 	COALESCE(u.name, ''), t.owner_workspace_id, t.visibility, t.base_url,
 	t.kind, t.auth_type, t.auth_header_name, t.auth_hint, (t.auth_secret IS NOT NULL),
 	COALESCE((SELECT COUNT(*) FROM tool_actions a WHERE a.tool_id = t.id), 0),
-	COALESCE((SELECT COUNT(*) FROM agent_tools at WHERE at.tool_id = t.id), 0),
+	COALESCE((SELECT w.name FROM workspaces w WHERE w.id = t.owner_workspace_id), ''),
 	t.created_at, t.updated_at`
 
-// installColumn carries what one workspace has decided about a tool: NULL for
-// no install row at all, which is a different thing from installed and not
-// allowed to answer on its own. Only for reads that pass a workspace as $2;
-// append it, and scan with scanInstalled.
-const installColumn = `,
+// workspaceColumns carry the two things that are only true of a tool relative
+// to one workspace: how much of that workspace leans on it, and what it has
+// decided about it. NULL auto_call means no install row at all, which is a
+// different thing from installed and not allowed to answer on its own.
+//
+// param names the placeholder holding the workspace id, because the queries
+// that need these put the workspace in different positions. Append them, and
+// scan with scanInWorkspace.
+func workspaceColumns(param string) string {
+	return `,
+	COALESCE((SELECT COUNT(*) FROM agent_tools at
+	          JOIN agents ag ON ag.id = at.agent_id
+	          WHERE at.tool_id = t.id AND ag.owner_workspace_id = ` + param + `), 0),
 	(SELECT wt.auto_call FROM workspace_tools wt
-	 WHERE wt.tool_id = t.id AND wt.workspace_id = $2)`
+	 WHERE wt.tool_id = t.id AND wt.workspace_id = ` + param + `)`
+}
 
 // visibleSQL is the one place that decides who may see a tool.
 //
@@ -72,7 +81,7 @@ func scan(row pgx.Row, userID string) (Tool, error) {
 		&tool.ID, &tool.Name, &tool.Description, &tool.Icon, &tagsRaw, &tool.OwnerUserID,
 		&tool.OwnerName, &tool.WorkspaceID, &tool.Visibility, &tool.BaseURL,
 		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
-		&tool.ActionCount, &tool.ReferenceCount, &tool.CreatedAt, &tool.UpdatedAt,
+		&tool.ActionCount, &tool.WorkspaceName, &tool.CreatedAt, &tool.UpdatedAt,
 	); err != nil {
 		return Tool{}, err
 	}
@@ -81,8 +90,9 @@ func scan(row pgx.Row, userID string) (Tool, error) {
 	return tool, nil
 }
 
-// scanInstalled reads a row selected with columns + installColumn.
-func scanInstalled(row pgx.Row, userID string) (Tool, error) {
+// scanInWorkspace reads a row selected with columns + workspaceColumns, which
+// append after the timestamps rather than in the middle of the shared list.
+func scanInWorkspace(row pgx.Row, userID string) (Tool, error) {
 	var tool Tool
 	var tagsRaw []byte
 	var autoCall *bool
@@ -90,7 +100,8 @@ func scanInstalled(row pgx.Row, userID string) (Tool, error) {
 		&tool.ID, &tool.Name, &tool.Description, &tool.Icon, &tagsRaw, &tool.OwnerUserID,
 		&tool.OwnerName, &tool.WorkspaceID, &tool.Visibility, &tool.BaseURL,
 		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
-		&tool.ActionCount, &tool.ReferenceCount, &tool.CreatedAt, &tool.UpdatedAt, &autoCall,
+		&tool.ActionCount, &tool.WorkspaceName, &tool.CreatedAt, &tool.UpdatedAt,
+		&tool.ReferenceCount, &autoCall,
 	); err != nil {
 		return Tool{}, err
 	}
@@ -114,7 +125,7 @@ func decodeStrings(raw []byte) []string {
 
 func (repository *Repository) List(ctx context.Context, userID, workspaceID string) ([]Tool, error) {
 	rows, err := repository.db.Query(ctx, `
-		SELECT `+columns+installColumn+`
+		SELECT `+columns+workspaceColumns("$2")+`
 		FROM tools t LEFT JOIN users u ON u.id = t.owner_user_id
 		WHERE `+visibleSQL+`
 		ORDER BY t.updated_at DESC`, userID, workspaceID)
@@ -125,7 +136,7 @@ func (repository *Repository) List(ctx context.Context, userID, workspaceID stri
 
 	list := []Tool{}
 	for rows.Next() {
-		tool, err := scanInstalled(rows, userID)
+		tool, err := scanInWorkspace(rows, userID)
 		if err != nil {
 			return nil, err
 		}
@@ -136,10 +147,10 @@ func (repository *Repository) List(ctx context.Context, userID, workspaceID stri
 
 func (repository *Repository) Get(ctx context.Context, id, userID, workspaceID string) (Tool, error) {
 	row := repository.db.QueryRow(ctx, `
-		SELECT `+columns+installColumn+`
+		SELECT `+columns+workspaceColumns("$2")+`
 		FROM tools t LEFT JOIN users u ON u.id = t.owner_user_id
 		WHERE t.id = $3 AND `+visibleSQL, userID, workspaceID, id)
-	tool, err := scanInstalled(row, userID)
+	tool, err := scanInWorkspace(row, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Tool{}, ErrNotFound
 	}

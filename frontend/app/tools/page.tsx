@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {Bot, Boxes, MoreHorizontal, Plug, Search, Settings2, ShieldCheck, Sparkles, Store, Trash2, Wrench, Zap} from 'lucide-react';
+import {Bot, Boxes, Plug, Search, Settings2, ShieldCheck, Sparkles, Store, Trash2, Wrench, Zap} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -23,6 +23,7 @@ import {StatusLabel} from '../components/StatusLabel';
 import {api, APIError, Tool} from '../lib/api';
 import {ToolMarket} from './ToolMarket';
 import {CapabilityHero} from '../components/CapabilityHero';
+import {CardContextMenu, CardMenuButton, CardMenuItems} from '../components/CardMenu';
 import {cardHover} from '../components/motion';
 import {useTranslation} from '../lib/i18n';
 
@@ -45,6 +46,14 @@ function ToolsScreen() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [deleting, setDeleting] = useState<Tool | null>(null);
+
+  // Named once, then read by both the ⋯ and right-click, so the two cannot
+  // come to say different things about the same card.
+  const toolActions = (tool: Tool): CardMenuItems => [
+    {icon: <Settings2 size={15} />, label: t('kb.configure'), onClick: () => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)},
+    {type: 'divider' as const},
+    {icon: <Trash2 size={15} />, label: t('kb.delete'), onClick: () => setDeleting(tool), variant: 'destructive' as const},
+  ];
 
   const [isCreating, setIsCreating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -188,7 +197,8 @@ function ToolsScreen() {
 
                   <Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
                     {visible.map((tool) => (
-                      <Card className={cardHover} key={tool.id} onClick={() => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)} padding={0} width="100%">
+                      <CardContextMenu items={tool.is_editable ? toolActions(tool) : []} key={tool.id} label={t('kb.manage')}>
+                      <Card className={cardHover} onClick={() => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)} padding={0} width="100%">
                         <VStack gap={0} height="100%">
                           <Section padding={5} variant="muted">
                             <HStack hAlign="center" width="100%">
@@ -202,16 +212,7 @@ function ToolsScreen() {
                               <HStack gap={2} hAlign="between" vAlign="center" width="100%">
                                 <Text maxLines={1} type="label">{tool.name}</Text>
                                 {tool.is_editable ? (
-                                  <DropdownMenu
-                                    alignment="end"
-                                    button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('kb.manage'), size: 'sm', variant: 'ghost'}}
-                                    hasChevron={false}
-                                    items={[
-                                      {icon: <Settings2 size={15} />, label: t('kb.configure'), onClick: () => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)},
-                                      {type: 'divider' as const},
-                                      {icon: <Trash2 size={15} />, label: t('kb.delete'), onClick: () => setDeleting(tool), variant: 'destructive' as const},
-                                    ]}
-                                  />
+                                  <CardMenuButton items={toolActions(tool)} label={t('kb.manage')} />
                                 ) : null}
                               </HStack>
                               <Text color="secondary" maxLines={2} type="supporting">
@@ -236,6 +237,7 @@ function ToolsScreen() {
                           </Section>
                         </VStack>
                       </Card>
+                      </CardContextMenu>
                     ))}
                   </Grid>
                 </>

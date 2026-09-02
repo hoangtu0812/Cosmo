@@ -2,13 +2,12 @@
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {BookOpen, MoreHorizontal, Pencil, Search, Settings2, Share2, ShieldCheck, Trash2} from 'lucide-react';
+import {BookOpen, Pencil, Search, Settings2, Share2, ShieldCheck, Trash2} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
-import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
@@ -28,6 +27,7 @@ import {StatusLabel} from '../components/StatusLabel';
 import {api, APIError, KnowledgeBase, Workspace, WorkspaceRef} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {cardHover, coverFrame, coverZoom} from '../components/motion';
+import {CardContextMenu, CardMenuButton, CardMenuItems} from '../components/CardMenu';
 import {KnowledgeIconPicker} from './KnowledgeIconPicker';
 
 type Translate = ReturnType<typeof useTranslation>;
@@ -173,22 +173,21 @@ export default function KnowledgePage() {
     );
   }
 
+  // Named once, then read by both the ⋯ and right-click, so the two cannot
+  // come to say different things about the same card.
+  function managementItems(base: KnowledgeBase): CardMenuItems {
+    return [
+      {icon: <Settings2 size={15} />, label: t('kb.configure'), onClick: () => router.push(`/knowledge/${base.id}?workspace=${encodeURIComponent(workspaceID)}`)},
+      {icon: <Share2 size={15} />, label: t('kb.share'), onClick: () => setSharing(base)},
+      {icon: <ShieldCheck size={15} />, isDisabled: true, label: t('kb.accessControl')},
+      {type: 'divider' as const},
+      {icon: <Pencil size={15} />, isDisabled: true, label: t('kb.edit')},
+      {icon: <Trash2 size={15} />, label: t('kb.delete'), onClick: () => setDeleting(base), variant: 'destructive' as const},
+    ];
+  }
+
   function managementActions(base: KnowledgeBase) {
-    return (
-      <DropdownMenu
-        alignment="end"
-        button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('kb.manage'), size: 'sm', variant: 'ghost'}}
-        hasChevron={false}
-        items={[
-          {icon: <Settings2 size={15} />, label: t('kb.configure'), onClick: () => router.push(`/knowledge/${base.id}?workspace=${encodeURIComponent(workspaceID)}`)},
-          {icon: <Share2 size={15} />, label: t('kb.share'), onClick: () => setSharing(base)},
-          {icon: <ShieldCheck size={15} />, isDisabled: true, label: t('kb.accessControl')},
-          {type: 'divider' as const},
-          {icon: <Pencil size={15} />, isDisabled: true, label: t('kb.edit')},
-          {icon: <Trash2 size={15} />, label: t('kb.delete'), onClick: () => setDeleting(base), variant: 'destructive' as const},
-        ]}
-      />
-    );
+    return <CardMenuButton items={managementItems(base)} label={t('kb.manage')} />;
   }
 
   return (
@@ -257,14 +256,19 @@ export default function KnowledgePage() {
 				) : (
 					<Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
 						{visibleBases.map((base) => (
-							<KnowledgeCard
-								base={base}
+							<CardContextMenu
+								items={base.access === 'owner' ? managementItems(base) : []}
 								key={base.id}
-								primary={installationAction(base)}
-								secondary={base.access === 'owner' ? managementActions(base) : undefined}
-								t={t}
-								workspaceID={workspaceID}
-							/>
+								label={t('kb.manage')}
+							>
+								<KnowledgeCard
+									base={base}
+									primary={installationAction(base)}
+									secondary={base.access === 'owner' ? managementActions(base) : undefined}
+									t={t}
+									workspaceID={workspaceID}
+								/>
+							</CardContextMenu>
 						))}
 					</Grid>
 				)}

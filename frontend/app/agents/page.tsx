@@ -28,6 +28,7 @@ import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {PageHeader} from '../components/PageHeader';
 import {StatusLabel} from '../components/StatusLabel';
+import {CardContextMenu, CardMenuButton, CardMenuItems} from '../components/CardMenu';
 import {Agent, api, APIError} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {AgentAvatarPicker} from './AgentAvatarPicker';
@@ -221,10 +222,28 @@ function AgentsView() {
                 <Text color="secondary" type="supporting">{t('agent.noMatch')}</Text>
               ) : (
                 <Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
-                  {visible.map((agent) => (
+                  {visible.map((agent) => {
+                    // Named once, then read by both the ⋯ and right-click, so
+                    // the two cannot come to say different things about the
+                    // same card. What Cosmo cannot do yet is disabled rather
+                    // than absent, so the shape is visible and nothing
+                    // pretends to work.
+                    const actions: CardMenuItems = [
+                      {icon: <Settings2 size={15} />, label: t('agent.configure'), onClick: () => openAgent(agent)},
+                      {icon: <Pencil size={15} />, isDisabled: true, label: t('agent.edit')},
+                      {icon: <Copy size={15} />, isDisabled: true, label: t('agent.copy')},
+                      {icon: <ExternalLink size={15} />, isDisabled: true, label: t('agent.access')},
+                      {icon: <KeyRound size={15} />, isDisabled: true, label: t('agent.apiKeys')},
+                      {icon: <ShieldCheck size={15} />, isDisabled: true, label: t('agent.accessControl')},
+                      {icon: <BarChart3 size={15} />, isDisabled: true, label: t('agent.observability')},
+                      {type: 'divider' as const},
+                      {icon: <Trash2 size={15} />, label: t('conv.delete'), onClick: () => setDeleting(agent), variant: 'destructive' as const},
+                    ];
+                    return (
                     // Portrait card, as the reference has it: the face on a band
                     // of its own, then the name, then what the agent is for.
-                    <Card className={cardHover} key={agent.id} onClick={() => openAgent(agent)} padding={0} width="100%" xstyle={entry}>
+                    <CardContextMenu items={agent.is_editable ? actions : []} key={agent.id} label={t('agent.moreActions')}>
+                    <Card className={cardHover} onClick={() => openAgent(agent)} padding={0} width="100%" xstyle={entry}>
                       <VStack gap={0} height="100%">
                         {/* The face sits on a tinted band, as the reference
                             has it, so a wall of cards reads as faces first. */}
@@ -246,26 +265,7 @@ function AgentsView() {
                                 : undefined}
                             />
                             {agent.is_editable ? (
-                              /* The reference offers this set from the card.
-                                 What Cosmo cannot do yet is disabled rather
-                                 than absent, so the shape is visible and
-                                 nothing pretends to work. */
-                              <DropdownMenu
-                                alignment="end"
-                                button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('agent.moreActions'), size: 'sm', variant: 'ghost'}}
-                                hasChevron={false}
-                                items={[
-                                  {icon: <Settings2 size={15} />, label: t('agent.configure'), onClick: () => openAgent(agent)},
-                                  {icon: <Pencil size={15} />, isDisabled: true, label: t('agent.edit')},
-                                  {icon: <Copy size={15} />, isDisabled: true, label: t('agent.copy')},
-                                  {icon: <ExternalLink size={15} />, isDisabled: true, label: t('agent.access')},
-                                  {icon: <KeyRound size={15} />, isDisabled: true, label: t('agent.apiKeys')},
-                                  {icon: <ShieldCheck size={15} />, isDisabled: true, label: t('agent.accessControl')},
-                                  {icon: <BarChart3 size={15} />, isDisabled: true, label: t('agent.observability')},
-                                  {type: 'divider' as const},
-                                  {icon: <Trash2 size={15} />, label: t('conv.delete'), onClick: () => setDeleting(agent), variant: 'destructive' as const},
-                                ]}
-                              />
+                              <CardMenuButton items={actions} label={t('agent.moreActions')} />
                             ) : null}
                           </HStack>
                         </Section>
@@ -286,7 +286,9 @@ function AgentsView() {
                         </Section>
                       </VStack>
                     </Card>
-                  ))}
+                    </CardContextMenu>
+                    );
+                  })}
                 </Grid>
               )}
             </VStack>

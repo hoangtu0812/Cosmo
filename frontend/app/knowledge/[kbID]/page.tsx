@@ -1,8 +1,8 @@
 'use client';
 
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ExternalLink, FileText, FlaskConical, Search, SlidersHorizontal, Trash2, Upload, X} from 'lucide-react';
+import {ArrowLeft, ExternalLink, FileText, FlaskConical, Home, Plus, Search, SlidersHorizontal, Trash2, Upload} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -10,17 +10,18 @@ import {Card} from '@astryxdesign/core/Card';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Grid} from '@astryxdesign/core/Grid';
+import {Collapsible} from '@astryxdesign/core/Collapsible';
+import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
-import {PowerSearch, PowerSearchFilter, usePowerSearchConfig} from '@astryxdesign/core/PowerSearch';
 import {Section} from '@astryxdesign/core/Section';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {Step, Stepper} from '@astryxdesign/core/Stepper';
 import {Selector} from '@astryxdesign/core/Selector';
-import {proportional, Table, TableColumn, toSearchFilters, useTableFiltering, useTableFilterState} from '@astryxdesign/core/Table';
 import {Text} from '@astryxdesign/core/Text';
+import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
 import {NumberInput} from '@astryxdesign/core/NumberInput';
@@ -37,24 +38,6 @@ import {useTranslation} from '../../lib/i18n';
 // rather than running for as long as the page is open.
 const POLL_INTERVAL = 4000;
 
-// Built from the string table, so the filter reads in whatever language the
-// rest of the screen does. A function rather than a constant because the
-// table is only reachable from inside a component.
-function documentSearchFields(t: ReturnType<typeof useTranslation>) {
-  return [
-    {key: 'name', type: 'string', label: t('kbd.docName')},
-    {
-      key: 'status', type: 'enum', label: t('kbd.status'), enumValues: [
-        {value: 'pending', label: t('kbd.pending')},
-        {value: 'processing', label: t('kbd.processing')},
-        {value: 'ready', label: t('kbd.ready')},
-        {value: 'failed', label: t('kbd.failed')},
-      ],
-    },
-  ] as const;
-}
-
-type DocumentRow = KnowledgeDocument & Record<string, unknown> & {name: string};
 
 export default function KnowledgeDetailPage() {
   const t = useTranslation();
@@ -76,27 +59,14 @@ export default function KnowledgeDetailPage() {
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
   const [detail, setDetail] = useState<KnowledgeDocumentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [searchFilters, setSearchFilters] = useState<ReadonlyArray<PowerSearchFilter>>([]);
+  const [query, setQuery] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
-  const searchFields = useMemo(() => documentSearchFields(t), [t]);
-  const {config: searchConfig, applyFilters} = usePowerSearchConfig(searchFields, 'KnowledgeDocuments');
-  const {filters: tableFilters, onFilterChange} = useTableFilterState();
 
   const canEdit = base?.access === 'owner';
 
-  const statusLabel = useCallback((status: KnowledgeDocument['status']) => {
-    if (status === 'ready') return t('kb.statusReady');
-    if (status === 'failed') return t('kb.statusFailed');
-    return t('kb.statusProcessing');
-  }, [t]);
   const isSettling = documents.some((item) => item.status === 'processing' || item.status === 'pending');
 	const processingCount = documents.filter((item) => item.status === 'processing' || item.status === 'pending').length;
 	const failedCount = documents.filter((item) => item.status === 'failed').length;
-
-  const rows = useMemo<DocumentRow[]>(
-    () => documents.map((document) => ({...document, name: document.title || document.filename})),
-    [documents],
-  );
 
   const loadDocuments = useCallback(
     () => api.knowledgeDocuments(kbID).then((result) => setDocuments(result.documents)),
@@ -119,66 +89,6 @@ export default function KnowledgeDetailPage() {
       setDetailLoading(false);
     }
   }, [kbID, t]);
-
-  const columns = useMemo<TableColumn<DocumentRow>[]>(
-    () => [
-      {
-        key: 'name', header: t('kbd.docName'), width: proportional(3), filter: 'name',
-        renderCell: (document) => (
-          <Button label={document.name} onClick={() => void openDocument(document)} size="sm" variant="ghost" />
-        ),
-      },
-      {key: 'size_bytes', header: t('kbd.size'), width: proportional(1), renderCell: (document) => <Text>{formatSize(document.size_bytes)}</Text>},
-      {key: 'chunk_count', header: 'Chunks', align: 'end', width: proportional(1), renderCell: (document) => <Text>{document.chunk_count}</Text>},
-      {
-        key: 'pipeline', header: t('kbd.pipeline'), width: proportional(1),
-        renderCell: (document) => (
-          <Button label={t('kb.pipelineView')} onClick={() => setPipelineDocument(document)} size="sm" variant="secondary" />
-        ),
-      },
-      {
-        key: 'status', header: t('kbd.status'), width: proportional(1), filter: 'status',
-        renderCell: (document) => <StatusLabel label={statusLabel(document.status)} variant={statusVariant(document.status)} />,
-      },
-      {
-        // Two controls plus cell padding need more than the 120px floor a bare
-        // proportional column gets; without the room they overflow the column
-        // and sit right of the header they are aligned to.
-        key: 'open', header: t('kbd.source'), align: 'end', width: proportional(1, {minWidth: 160}),
-        renderCell: (document) => (
-          <HStack gap={1} hAlign="end">
-            <Button
-              icon={<ExternalLink size={14} />}
-              label={t('kbd.open')}
-              onClick={() => window.open(api.documentOriginalURL(kbID, document.id), '_blank', 'noopener,noreferrer')}
-              size="sm"
-              variant="secondary"
-            />
-            {canEdit ? (
-              <IconButton
-                icon={<Trash2 size={14} />}
-                label={t('kb.docDelete')}
-                onClick={() => setDeleting(document)}
-                size="sm"
-                variant="ghost"
-              />
-            ) : null}
-          </HStack>
-        ),
-      },
-    ],
-    [canEdit, kbID, openDocument, statusLabel, t],
-  );
-  const filterPlugin = useTableFiltering<DocumentRow>({
-    filters: tableFilters,
-    onFilterChange,
-    searchConfig,
-    variant: 'popover',
-  });
-  const filteredDocuments = applyFilters(
-    [...searchFilters, ...toSearchFilters(tableFilters, columns, searchConfig)],
-    rows,
-  );
 
   useEffect(() => {
     api.knowledgeBases(workspaceID || undefined)
@@ -254,22 +164,105 @@ export default function KnowledgeDetailPage() {
     }
   }
 
+  const needle = query.trim().toLowerCase();
+  const visibleDocuments = documents.filter(
+    (item) => !needle || (item.title || item.filename).toLowerCase().includes(needle),
+  );
+
   return (
     <>
       <Layout
-        end={selectedDocument ? (
-          <LayoutPanel hasDivider label={t('kbd.detailPanel')} padding={4} role="complementary" width={420}>
-            <DocumentDetailPanel
-              detail={detail}
-              isLoading={detailLoading}
-              kbID={kbID}
-              onClose={() => { setSelectedDocument(null); setDetail(null); }}
-              onSettled={handleSettled}
-              selectedDocument={selectedDocument}
-            />
-          </LayoutPanel>
-        ) : undefined}
         height="fill"
+        start={
+          /* The reference gives documents a column of their own beside the
+             workspace's, so opening one changes what you are reading and
+             nothing else. This list replaces the table that used to fill the
+             content area. */
+          <LayoutPanel hasDivider label={t('kb.documents')} padding={3} role="navigation" width={320}>
+            <VStack gap={3} height="100%" width="100%">
+              <HStack gap={2} vAlign="center" width="100%">
+                <IconButton
+                  icon={<ArrowLeft size={16} />}
+                  label={t('kb.backToList')}
+                  onClick={() => router.push(`/knowledge?workspace=${encodeURIComponent(workspaceID)}`)}
+                  size="sm"
+                  variant="ghost"
+                />
+                <Text maxLines={1} type="label">{base?.name ?? ''}</Text>
+              </HStack>
+
+              <HStack gap={1} vAlign="center" width="100%">
+                <TextInput
+                  className="min-w-0"
+                  isLabelHidden
+                  label={t('kbd.searchDocuments')}
+                  onChange={setQuery}
+                  placeholder={t('kbd.searchDocuments')}
+                  size="sm"
+                  startIcon={<Icon icon={Search} size="sm" />}
+                  value={query}
+                  width="100%"
+                />
+                <IconButton
+                  icon={<Plus size={16} />}
+                  isDisabled={!canEdit || uploading || !base?.embedding_model}
+                  label={t('kb.uploadMany')}
+                  onClick={() => fileRef.current?.click()}
+                  size="sm"
+                  variant="ghost"
+                />
+              </HStack>
+
+              <VStack gap={1} isScrollable height="100%" width="100%">
+                <SelectableCard
+                  isSelected={selectedDocument === null}
+                  label={t('kb.overview')}
+                  onChange={() => { setSelectedDocument(null); setDetail(null); }}
+                  padding={2}
+                  width="100%"
+                >
+                  <HStack gap={2} vAlign="center">
+                    <Icon icon={Home} size="sm" />
+                    <Text type="label">{t('kb.overview')}</Text>
+                  </HStack>
+                </SelectableCard>
+
+                {visibleDocuments.map((item) => (
+                  <SelectableCard
+                    isSelected={selectedDocument?.id === item.id}
+                    key={item.id}
+                    label={item.title || item.filename}
+                    onChange={() => openDocument(item)}
+                    padding={2}
+                    width="100%"
+                  >
+                    <HStack gap={2} vAlign="center" width="100%">
+                      <Icon icon={FileText} size="sm" />
+                      <Text maxLines={1}>{item.title || item.filename}</Text>
+                    </HStack>
+                  </SelectableCard>
+                ))}
+
+                {documents.length === 0 ? (
+                  <EmptyState description={t('kb.noDocuments')} isCompact title="—" />
+                ) : null}
+              </VStack>
+
+              {/* The reference closes this column with the base's own actions. */}
+              <VStack gap={1} width="100%">
+                <Button icon={<FlaskConical size={14} />} isDisabled label={t('kb.recallTest')} size="sm" variant="ghost" />
+                <Button
+                  icon={<SlidersHorizontal size={14} />}
+                  isDisabled={!canEdit}
+                  label={t('kb.settings')}
+                  onClick={() => setSettingsOpen(true)}
+                  size="sm"
+                  variant="ghost"
+                />
+              </VStack>
+            </VStack>
+          </LayoutPanel>
+        }
         header={
           <LayoutHeader hasDivider>
             <Toolbar
@@ -279,22 +272,6 @@ export default function KnowledgeDetailPage() {
                     <StatusLabel
                       label={base && base.version > 0 ? t('kb.published', {version: base.version}) : t('kb.draft')}
                       variant={base && base.version > 0 ? 'neutral' : 'warning'}
-                    />
-                    <IconButton
-                      icon={<SlidersHorizontal size={14} />}
-                      label={t('kb.layoutMode')}
-                      onClick={() => setSettingsOpen(true)}
-                      size="sm"
-                      variant="ghost"
-                    />
-                    <Button
-                      icon={<Upload size={14} />}
-										isDisabled={uploading || !base?.embedding_model}
-                      isLoading={uploading}
-                      label={t('kb.uploadMany')}
-                      onClick={() => fileRef.current?.click()}
-                      size="sm"
-                      variant="secondary"
                     />
                     <Button
                       isDisabled={publishing || !documents.some((item) => item.status === 'ready')}
@@ -308,54 +285,25 @@ export default function KnowledgeDetailPage() {
                 ) : undefined
               }
               label={base?.name ?? ''}
-              startContent={<Text type="label">{base?.name ?? ''}</Text>}
+              startContent={
+                <Text color="secondary" type="supporting">
+                  {selectedDocument
+                    ? `${base?.name ?? ''} · ${selectedDocument.title || selectedDocument.filename}`
+                    : `${t('kb.title')} · ${t('kb.overview')}`}
+                </Text>
+              }
             />
           </LayoutHeader>
         }
         content={
           <LayoutContent padding={6}>
-            <VStack gap={4}>
+            {/* The reference centres this column rather than pinning it to the
+                left edge, so the reading measure stays comfortable however
+                wide the window is. */}
+            <HStack hAlign="center" width="100%">
+            <VStack gap={5} maxWidth={700} width="100%">
               {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
-						{base && !base.embedding_model ? (
-							<Banner status="warning" title={t('kbd.needEmbedding')} />
-						) : null}
-
-						{baseLoading ? (
-							<Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
-								{[0, 1, 2].map((index) => <Skeleton height={88} index={index} key={index} width="100%" />)}
-							</Grid>
-						) : (
-							<VStack gap={4} width="100%">
-								{/* The reference opens with what the base is before what is in
-								    it: icon, name, description, then the counts in words. */}
-								<HStack gap={3} vAlign="center">
-									<Text type="display-3">{base?.icon || '📚'}</Text>
-									<VStack gap={0}>
-										<Text type="large">{base?.name}</Text>
-										<Text color="secondary" type="supporting">
-											{base?.description || t('kb.noDescription')}
-										</Text>
-									</VStack>
-								</HStack>
-								<Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
-									<MetricCard label={t('kbd.totalDocuments')} value={documents.length} />
-									<MetricCard isActive={processingCount > 0} label={t('kbd.processingCount')} value={processingCount} />
-									<MetricCard isError={failedCount > 0} label={t('kbd.failedCount')} value={failedCount} />
-								</Grid>
-								{/* Recall test is the reference's third action. Cosmo measures
-								    retrieval from a script, not from here, so the button shows
-								    the shape and stays disabled. Tracked in docs/ui_backlog.md. */}
-								<HStack gap={2} vAlign="center">
-									<Button
-										icon={<FlaskConical size={14} />}
-										isDisabled
-										label={t('kb.recallTest')}
-										size="sm"
-										variant="secondary"
-									/>
-								</HStack>
-							</VStack>
-						)}
+              {base && !base.embedding_model ? <Banner status="warning" title={t('kbd.needEmbedding')} /> : null}
 
               <input
                 accept=".txt,.md,.markdown,.csv,.json,.pdf,.docx,.pptx,.html,.htm"
@@ -370,31 +318,74 @@ export default function KnowledgeDetailPage() {
                 type="file"
               />
 
-              {documents.length === 0 ? (
-                <EmptyState description={t('kb.noDocuments')} icon={<FileText size={64} strokeWidth={1} />} title={t('kb.documents')} />
+              {selectedDocument ? (
+                <DocumentReader
+                  detail={detail}
+                  isLoading={detailLoading}
+                  kbID={kbID}
+                  onDelete={canEdit ? () => setDeleting(selectedDocument) : undefined}
+                  onSettled={handleSettled}
+                  selectedDocument={selectedDocument}
+                />
+              ) : baseLoading ? (
+                <Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
+                  {[0, 1, 2].map((index) => <Skeleton height={88} index={index} key={index} width="100%" />)}
+                </Grid>
               ) : (
-                <VStack gap={4}>
-                  <PowerSearch
-                    config={searchConfig}
-                    filters={searchFilters}
-                    label={t('kbd.searchDocuments')}
-                    onChange={(nextFilters) => setSearchFilters(nextFilters)}
-                    placeholder={t('kbd.searchHint')}
-                    resultCount={filteredDocuments.length}
-                    size="sm"
-                  />
-                  <Table
-                    columns={columns}
-                    data={filteredDocuments}
-                    density="compact"
-                    dividers="rows"
-                    hasHover
-                    plugins={{filter: filterPlugin}}
-                    textOverflow="truncate"
-                  />
+                <VStack gap={5} width="100%">
+                  {/* The reference opens with what the base is before what is
+                      in it: icon, name, description, then the counts. */}
+                  <HStack gap={3} vAlign="center">
+                    <Text type="display-3">{base?.icon || '📚'}</Text>
+                    <VStack gap={0}>
+                      <Text size="xl" type="large">{base?.name}</Text>
+                      <Text color="secondary" type="supporting">
+                        {base?.description || t('kb.noDescription')}
+                      </Text>
+                    </VStack>
+                  </HStack>
+
+                  <HStack gap={4} vAlign="center" wrap="wrap">
+                    <Text color="secondary" type="supporting">
+                      {t('kb.documentCount', {count: documents.length})}
+                    </Text>
+                    <Text color="secondary" type="supporting">
+                      {t('kbd.chunkCount', {count: documents.reduce((total, item) => total + (item.chunk_count ?? 0), 0)})}
+                    </Text>
+                  </HStack>
+
+                  <Grid columns={{minWidth: 180, max: 3}} gap={3} width="100%">
+                    <MetricCard label={t('kbd.totalDocuments')} value={documents.length} />
+                    <MetricCard isActive={processingCount > 0} label={t('kbd.processingCount')} value={processingCount} />
+                    <MetricCard isError={failedCount > 0} label={t('kbd.failedCount')} value={failedCount} />
+                  </Grid>
+
+                  {/* The reference's three actions, in its order. Recall test
+                      has no endpoint yet - see docs/ui_backlog.md. */}
+                  <HStack gap={2} vAlign="center" wrap="wrap">
+                    <Button
+                      icon={<Upload size={14} />}
+                      isDisabled={!canEdit || uploading || !base?.embedding_model}
+                      isLoading={uploading}
+                      label={t('kb.importData')}
+                      onClick={() => fileRef.current?.click()}
+                      size="sm"
+                      variant="primary"
+                    />
+                    <Button icon={<FlaskConical size={14} />} isDisabled label={t('kb.recallTest')} size="sm" variant="secondary" />
+                    <Button
+                      icon={<SlidersHorizontal size={14} />}
+                      isDisabled={!canEdit}
+                      label={t('kb.settings')}
+                      onClick={() => setSettingsOpen(true)}
+                      size="sm"
+                      variant="secondary"
+                    />
+                  </HStack>
                 </VStack>
               )}
             </VStack>
+            </HStack>
           </LayoutContent>
         }
       />
@@ -635,76 +626,99 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
   );
 }
 
-function DocumentDetailPanel({
+// A document is read, not inspected: the reference gives it a title, a line of
+// facts and then the text it managed to parse. What the pipeline did with it
+// matters when something goes wrong, so it stays - folded away underneath.
+function DocumentReader({
   detail,
   isLoading,
   kbID,
-  onClose,
+  onDelete,
   onSettled,
   selectedDocument,
 }: {
   detail: KnowledgeDocumentDetail | null;
   isLoading: boolean;
   kbID: string;
-  onClose: () => void;
+  onDelete?: () => void;
   onSettled: () => void;
   selectedDocument: KnowledgeDocument;
 }) {
   const t = useTranslation();
   const document = detail?.document ?? selectedDocument;
   const inspection = detail?.inspection;
+  const status = document.status === 'ready'
+    ? t('kb.statusReady')
+    : document.status === 'failed' ? t('kb.statusFailed') : t('kb.statusProcessing');
+
   return (
-    <VStack gap={4}>
-      <HStack hAlign="between" vAlign="center">
-        <Text type="large">{document.title || document.filename}</Text>
-        <IconButton icon={<X size={16} />} label={t('kbd.closeDetail')} onClick={onClose} size="sm" variant="ghost" />
+    <VStack gap={4} width="100%">
+      <HStack gap={2} hAlign="between" vAlign="start" width="100%">
+        <Text size="xl" type="large">{document.title || document.filename}</Text>
+        <HStack gap={1} vAlign="center">
+          <IconButton
+            icon={<ExternalLink size={16} />}
+            label={t('kbd.openOriginal')}
+            onClick={() => window.open(api.documentOriginalURL(kbID, document.id), '_blank', 'noopener,noreferrer')}
+            size="sm"
+            variant="ghost"
+          />
+          {onDelete ? (
+            <IconButton icon={<Trash2 size={16} />} label={t('kb.docDelete')} onClick={onDelete} size="sm" variant="ghost" />
+          ) : null}
+        </HStack>
       </HStack>
-      <Button
-        icon={<ExternalLink size={14} />}
-        label={t('kbd.openOriginal')}
-        onClick={() => window.open(api.documentOriginalURL(kbID, document.id), '_blank', 'noopener,noreferrer')}
-        variant="secondary"
-      />
-      {isLoading ? <Text color="secondary">{t('kbd.loadingDetail')}</Text> : null}
-      <Section dividers={['top', 'bottom']} padding={3}>
-        <VStack gap={2}>
-          <Text type="label">Metadata</Text>
+
+      <HStack gap={2} vAlign="center" wrap="wrap">
+        <StatusLabel
+          label={status}
+          variant={document.status === 'ready' ? 'success' : document.status === 'failed' ? 'error' : 'warning'}
+        />
+        <Text color="secondary" type="supporting">·</Text>
+        <Text color="secondary" type="supporting">{t('kbd.chunkCount', {count: inspection?.total ?? 0})}</Text>
+        <Text color="secondary" type="supporting">·</Text>
+        <Text color="secondary" type="supporting">{formatSize(document.size_bytes)}</Text>
+        <Text color="secondary" type="supporting">·</Text>
+        <Text color="secondary" type="supporting">{document.content_type || t('kbd.unknownKind')}</Text>
+      </HStack>
+
+      {detail?.index_error ? <Banner status="error" title={detail.index_error} /> : null}
+
+      {isLoading ? (
+        <VStack gap={2} width="100%">
+          {[0, 1, 2].map((index) => <Skeleton height={72} index={index} key={index} width="100%" />)}
+        </VStack>
+      ) : inspection?.chunks.length ? (
+        <VStack gap={4} width="100%">
+          {inspection.chunks.map((chunk) => (
+            <VStack gap={1} key={chunk.chunk_index} width="100%">
+              {chunk.section || chunk.page ? (
+                <Text color="secondary" type="supporting">
+                  {[chunk.section, chunk.page ? `${t('kbd.page')} ${chunk.page}` : ''].filter(Boolean).join(' · ')}
+                </Text>
+              ) : null}
+              <Text>{chunk.text}</Text>
+            </VStack>
+          ))}
+          {inspection.truncated ? (
+            <Text color="secondary" type="supporting">{t('kbd.truncated')}</Text>
+          ) : null}
+        </VStack>
+      ) : (
+        <EmptyState description={t('kbd.noProcessed')} icon={<FileText size={48} strokeWidth={1} />} isCompact title="—" />
+      )}
+
+      <Collapsible trigger={<Text type="label">{t('kbd.pipelineDetail')}</Text>}>
+        <VStack gap={3} width="100%">
           <List>
             <Item label={t('kbd.file')} description={document.filename} />
-            <Item label={t('kbd.kind')} description={document.content_type || t('kbd.unknownKind')} />
-            <Item label={t('kbd.size')} description={formatSize(document.size_bytes)} />
             <Item label={t('kbd.version')} description={`v${document.version}`} />
-          </List>
-        </VStack>
-      </Section>
-      <Section dividers={['bottom']} padding={3}>
-        <VStack gap={2}>
-          <Text type="label">Qdrant</Text>
-          <List>
             <Item label={t('kbd.status')} description={inspection?.indexed ? t('kbd.indexed') : t('kbd.notIndexed')} />
             <Item label={t('kbd.chunksRead')} description={String(inspection?.total ?? 0)} />
           </List>
-          {detail?.index_error ? <Banner status="error" title={detail.index_error} /> : null}
+          <IngestionLog document={document} kbID={kbID} onSettled={onSettled} />
         </VStack>
-      </Section>
-      <Section dividers={['bottom']} padding={3}>
-        <VStack gap={2}>
-          <Text type="label">{t('kbd.processed')}</Text>
-          {inspection?.chunks.length ? (
-            <List>
-              {inspection.chunks.map((chunk) => (
-                <Item
-                  description={chunk.text}
-                  key={chunk.chunk_index}
-                  label={`Chunk ${chunk.chunk_index + 1}${chunk.section ? ` · ${chunk.section}` : ''}${chunk.page ? ` · ${t('kbd.page')} ${chunk.page}` : ''}`}
-                />
-              ))}
-            </List>
-          ) : <Text color="secondary" type="supporting">{t('kbd.noProcessed')}</Text>}
-          {inspection?.truncated ? <Text color="secondary" type="supporting">{t('kbd.truncated')}</Text> : null}
-        </VStack>
-      </Section>
-      <IngestionLog document={document} kbID={kbID} onSettled={onSettled} />
+      </Collapsible>
     </VStack>
   );
 }
@@ -713,12 +727,6 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function statusVariant(status: KnowledgeDocument['status']): 'success' | 'error' | 'neutral' {
-  if (status === 'ready') return 'success';
-  if (status === 'failed') return 'error';
-  return 'neutral';
 }
 
 /**

@@ -82,6 +82,71 @@ export type GatewayModel = {
   default_reasoning_effort?: string;
 };
 
+// A tool is one HTTP integration: a base URL, a credential, and the actions
+// underneath it. The credential itself never arrives here - only auth_hint,
+// which is enough to show which key is configured.
+export type ToolParameter = {
+  name: string;
+  description: string;
+  type: 'string' | 'number' | 'boolean';
+  in: 'query' | 'path' | 'body';
+  is_required: boolean;
+};
+
+export type ToolAction = {
+  id: string;
+  tool_id: string;
+  name: string;
+  description: string;
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  path: string;
+  parameters: ToolParameter[];
+  position: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Tool = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  tags: string[];
+  owner_user_id: string;
+  owner_name: string;
+  workspace_id: string;
+  visibility: 'private' | 'workspace';
+  base_url: string;
+  auth_type: 'none' | 'bearer' | 'header';
+  auth_header_name: string;
+  auth_hint: string;
+  has_secret: boolean;
+  action_count: number;
+  is_editable: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ToolUpdate = Partial<{
+  name: string;
+  description: string;
+  icon: string;
+  tags: string[];
+  visibility: string;
+  base_url: string;
+  auth_type: string;
+  auth_header_name: string;
+  /** An empty string clears the stored credential; omit it to leave it alone. */
+  auth_secret: string;
+}>;
+
+export type ToolCallResult = {
+  status: number;
+  duration_ms: number;
+  body: string;
+  is_truncated: boolean;
+};
+
 export type Agent = {
   id: string;
   name: string;
@@ -290,6 +355,28 @@ export const api = {
   deleteWorkspaceIcon: (workspaceID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'DELETE'}),
   workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
+  tools: (workspaceID?: string) =>
+    request<{tools: Tool[]}>(`/api/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  tool: (toolID: string, workspaceID?: string) =>
+    request<{tool: Tool; actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  createTool: (input: {name: string; description: string; icon: string; tags: string[]; base_url: string}, workspaceID?: string) =>
+    request<{tool: Tool}>(`/api/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify(input)}),
+  updateTool: (toolID: string, changes: ToolUpdate, workspaceID?: string) =>
+    request<{tool: Tool}>(`/api/tools/${encodeURIComponent(toolID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PATCH', body: JSON.stringify(changes)}),
+  deleteTool: (toolID: string, workspaceID?: string) =>
+    request<void>(`/api/tools/${encodeURIComponent(toolID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
+  saveToolAction: (toolID: string, actionID: string, input: Partial<ToolAction>, workspaceID?: string) =>
+    request<{action: ToolAction}>(
+      `/api/tools/${encodeURIComponent(toolID)}/actions${actionID ? `/${encodeURIComponent(actionID)}` : ''}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
+      {method: actionID ? 'PUT' : 'POST', body: JSON.stringify(input)},
+    ),
+  deleteToolAction: (toolID: string, actionID: string, workspaceID?: string) =>
+    request<void>(`/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
+  testToolAction: (toolID: string, actionID: string, args: Record<string, unknown>, workspaceID?: string) =>
+    request<{result: ToolCallResult}>(
+      `/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}/test${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
+      {method: 'POST', body: JSON.stringify({arguments: args})},
+    ),
   agents: (workspaceID?: string) =>
     request<{agents: Agent[]}>(`/api/agents${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   agent: (agentID: string, workspaceID?: string) =>

@@ -37,6 +37,17 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 |---|---|---|---|
 | Kiểm tra truy xuất | Chi tiết KB | Đưa `rag-service/app/evaluate.py` thành API và màn hình | 5 |
 
+## Tool
+
+Tool HTTP đã chạy thật: tạo tool, khai báo action, chạy thử. Còn lại:
+
+| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
+|---|---|---|---|
+| Gắn tool vào agent | Editor agent › Năng lực | Bảng `agent_tools` đã có; cần UI chọn và vòng gọi tool khi model yêu cầu | 2 |
+| Tạo bằng AI | Nút Thêm tool | Model sinh action từ mô tả hoặc từ OpenAPI spec | chưa xếp |
+| MCP server | Nút Thêm tool | Client MCP, đăng ký server, liệt kê tool từ server | 2 |
+| Marketplace | Nút Thêm tool | Registry tool dùng chung, cài vào workspace | 6 |
+
 ## Tài khoản
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |

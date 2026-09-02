@@ -258,7 +258,7 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             <SideNavItem icon={<Icon icon={Workflow} size="sm" />} isSelected={pathname === '/workflow'} label={t('nav.workflow')} onClick={() => goTo('/workflow')} />
           </SideNavSection>
           <SideNavSection title={t('nav.capabilities')}>
-            <SideNavItem icon={<Icon icon={Wrench} size="sm" />} isSelected={pathname === '/tools'} label={t('nav.tool')} onClick={() => goTo('/tools')} />
+            <SideNavItem icon={<Icon icon={Wrench} size="sm" />} isSelected={pathname.startsWith('/tools')} label={t('nav.tool')} onClick={() => goTo('/tools')} />
             <SideNavItem icon={<Icon icon={Zap} size="sm" />} isSelected={pathname === '/skills'} label={t('nav.skill')} onClick={() => goTo('/skills')} />
           </SideNavSection>
           <SideNavSection title={t('nav.data')}>

@@ -107,6 +107,12 @@ func guardedClient() *http.Client {
 // returns what came back. The response is bounded: an endpoint that streams
 // forever must not be able to exhaust this process or the model's context.
 func (repository *Repository) Invoke(ctx context.Context, tool Tool, action Action, arguments map[string]any) (CallResult, error) {
+	// An MCP server is asked in its own protocol; everything below builds a
+	// plain HTTP request instead.
+	if tool.Kind == KindMCP {
+		return repository.invokeMCP(ctx, tool, action, arguments)
+	}
+
 	target, body, err := buildRequest(tool, action, arguments)
 	if err != nil {
 		return CallResult{}, err

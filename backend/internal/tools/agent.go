@@ -45,17 +45,37 @@ func sanitise(raw string) string {
 }
 
 // AttachedTools lists the tools an agent may call, with their actions loaded.
-// Visibility is not re-checked here: the attachment was authorised when it was
+//
+// A nil `pinned` means the live attachment - what the draft is wired to now.
+// A non-nil one is a published version's frozen list, and an empty non-nil
+// slice therefore means "this version had no tools", which is not the same
+// thing as "read the draft".
+//
+// Visibility is not re-checked: the attachment was authorised when it was
 // made, and a tool later made private should not silently stop an agent that
 // was already built on it.
-func (repository *Repository) AttachedTools(ctx context.Context, agentID string) ([]Tool, map[string][]Action, error) {
-	rows, err := repository.db.Query(ctx, `
-		SELECT `+columns+`
+func (repository *Repository) AttachedTools(ctx context.Context, agentID string, pinned []string) ([]Tool, map[string][]Action, error) {
+	query := `
+		SELECT ` + columns + `
 		FROM agent_tools at
 		JOIN tools t ON t.id = at.tool_id
 		LEFT JOIN users u ON u.id = t.owner_user_id
 		WHERE at.agent_id = $1
-		ORDER BY at.created_at`, agentID)
+		ORDER BY at.created_at`
+	arguments := []any{agentID}
+	if pinned != nil {
+		if len(pinned) == 0 {
+			return []Tool{}, map[string][]Action{}, nil
+		}
+		query = `
+			SELECT ` + columns + `
+			FROM tools t
+			LEFT JOIN users u ON u.id = t.owner_user_id
+			WHERE t.id = ANY($1)
+			ORDER BY t.created_at`
+		arguments = []any{pinned}
+	}
+	rows, err := repository.db.Query(ctx, query, arguments...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -140,8 +160,8 @@ func (repository *Repository) AgentToolIDs(ctx context.Context, agentID string) 
 // description is the only thing standing between a model and calling the wrong
 // endpoint, so the tool's purpose is folded into each action: on its own,
 // "search" says nothing about what is being searched.
-func (repository *Repository) Definitions(ctx context.Context, agentID string) ([]modelgateway.ToolDefinition, error) {
-	list, actions, err := repository.AttachedTools(ctx, agentID)
+func (repository *Repository) Definitions(ctx context.Context, agentID string, pinned []string) ([]modelgateway.ToolDefinition, error) {
+	list, actions, err := repository.AttachedTools(ctx, agentID, pinned)
 	if err != nil {
 		return nil, err
 	}
@@ -185,8 +205,8 @@ func (repository *Repository) Definitions(ctx context.Context, agentID string) (
 // InvokeNamed runs the call a model asked for. The name is resolved against
 // what the agent is actually attached to, so a model that invents a name - or
 // is talked into naming someone else's tool - reaches nothing.
-func (repository *Repository) InvokeNamed(ctx context.Context, agentID, name, rawArguments string) (CallResult, error) {
-	list, actions, err := repository.AttachedTools(ctx, agentID)
+func (repository *Repository) InvokeNamed(ctx context.Context, agentID, name, rawArguments string, pinned []string) (CallResult, error) {
+	list, actions, err := repository.AttachedTools(ctx, agentID, pinned)
 	if err != nil {
 		return CallResult{}, err
 	}

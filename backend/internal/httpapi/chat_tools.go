@@ -30,6 +30,7 @@ func (s *Server) runToolRounds(
 	agentID string,
 	history []modelgateway.Message,
 	definitions []modelgateway.ToolDefinition,
+	pinned []string,
 	options modelgateway.Options,
 	models *modelgateway.Client,
 	runID string,
@@ -78,7 +79,7 @@ func (s *Server) runToolRounds(
 				step, stepErr = s.runs.TransitionStep(ctx, step.ID, runs.Running, nil, "", "", "")
 			}
 
-			result, callErr := s.tools.InvokeNamed(ctx, agentID, call.Name, call.Arguments)
+			result, callErr := s.tools.InvokeNamed(ctx, agentID, call.Name, call.Arguments, pinned)
 			content := result.Body
 			if callErr != nil {
 				// The failure is handed to the model rather than hidden: told

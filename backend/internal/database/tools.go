@@ -58,3 +58,21 @@ var toolStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS agent_tools_tool_idx ON agent_tools (tool_id)`,
 }
+
+// A published version freezes which tools it may call, exactly as it already
+// freezes which knowledge bases it may read: a conversation pinned to an old
+// version must not pick up a tool attached since. Its own migration because
+// the one above has already been applied, and an applied migration is never
+// edited - the checksum exists to catch exactly that.
+var agentVersionToolStatements = []string{
+	`ALTER TABLE agent_versions ADD COLUMN IF NOT EXISTS tool_ids JSONB NOT NULL DEFAULT '[]'::jsonb`,
+}
+
+// A tool is either an HTTP API described by hand or an MCP server that
+// describes itself. They differ only in how a call is made, so they share a
+// table and are told apart by a column.
+var toolKindStatements = []string{
+	`ALTER TABLE tools ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'http'`,
+	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_kind_check`,
+	`ALTER TABLE tools ADD CONSTRAINT tools_kind_check CHECK (kind IN ('http', 'mcp'))`,
+}

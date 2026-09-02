@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"cosmo/backend/internal/tools"
 
@@ -81,11 +82,12 @@ func (s *Server) createTool(w http.ResponseWriter, r *http.Request) {
 		Icon        string   `json:"icon"`
 		Tags        []string `json:"tags"`
 		BaseURL     string   `json:"base_url"`
+		Kind        string   `json:"kind"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	item, err := s.tools.Create(r.Context(), user.ID, workspaceID, input.Name, input.Description, input.Icon, input.Tags, input.BaseURL)
+	item, err := s.tools.Create(r.Context(), user.ID, workspaceID, input.Name, input.Description, input.Icon, input.Tags, input.BaseURL, input.Kind)
 	if err != nil {
 		writeToolError(w, err)
 		return
@@ -234,4 +236,129 @@ func (s *Server) setAgentTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tool_ids": ids})
+}
+
+// generateToolActions drafts a tool's actions with the model rather than
+// asking the reader to type a dozen fields per endpoint. The draft goes
+// through the same validation as a hand-typed action, so a confident-sounding
+// invention is refused exactly as a typo would be, and nothing is called until
+// someone opens an action and runs it.
+func (s *Server) generateToolActions(w http.ResponseWriter, r *http.Request) {
+	item, _, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	if !ok {
+		return
+	}
+	models := s.modelsFor(r.Context(), workspaceID)
+	if !models.HasGateway() {
+		writeError(w, http.StatusServiceUnavailable, "Workspace chưa cấu hình Model Gateway.")
+		return
+	}
+
+	var input struct {
+		Description string `json:"description"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	description := input.Description
+	if strings.TrimSpace(description) == "" {
+		description = item.Description
+	}
+
+	drafted, err := tools.DraftActions(r.Context(), models, item.BaseURL, description)
+	if err != nil {
+		s.logger.Error("draft tool actions", "tool_id", item.ID, "error", err)
+		writeError(w, http.StatusBadGateway, "Model Gateway hiện không phản hồi. Vui lòng thử lại.")
+		return
+	}
+
+	saved := []tools.Action{}
+	for _, action := range drafted {
+		// A name the tool already uses is skipped rather than failing the
+		// batch: drafting twice should add what is new, not refuse everything.
+		result, saveErr := s.tools.SaveAction(r.Context(), item.ID, "", action)
+		if saveErr != nil {
+			continue
+		}
+		saved = append(saved, result)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
+}
+
+// discoverMCPTools asks an MCP server what it offers and stores the answer.
+// The server is the authority on its own tools, so this replaces what we hold
+// rather than merging: a tool the server has dropped should disappear here too.
+func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
+	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	if !ok {
+		return
+	}
+	if item.Kind != tools.KindMCP {
+		writeError(w, http.StatusBadRequest, "Chỉ tool MCP mới dò được danh sách action.")
+		return
+	}
+
+	discovered, err := s.tools.DiscoverMCP(r.Context(), item)
+	if err != nil {
+		s.logger.Error("discover mcp tools", "tool_id", item.ID, "error", err)
+		writeError(w, http.StatusBadGateway, "Không kết nối được MCP server.")
+		return
+	}
+
+	existing, err := s.tools.Actions(r.Context(), item.ID)
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
+	for _, action := range existing {
+		_ = s.tools.DeleteAction(r.Context(), item.ID, action.ID)
+	}
+
+	saved := []tools.Action{}
+	for _, action := range discovered {
+		result, saveErr := s.tools.SaveAction(r.Context(), item.ID, "", action)
+		if saveErr != nil {
+			continue
+		}
+		saved = append(saved, result)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
+}
+
+func (s *Server) listToolCatalog(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"entries": tools.Catalog()})
+}
+
+// installCatalogTool creates a tool from a catalogue entry with its actions
+// already described, so the first call works rather than landing the reader in
+// an empty editor.
+func (s *Server) installCatalogTool(w http.ResponseWriter, r *http.Request) {
+	user, workspaceID, ok := s.agentWorkspace(w, r, r.URL.Query().Get("workspace"))
+	if !ok {
+		return
+	}
+	entry, found := tools.CatalogEntryByID(chi.URLParam(r, "entryID"))
+	if !found {
+		writeError(w, http.StatusNotFound, "Không tìm thấy tool trong danh mục.")
+		return
+	}
+
+	item, err := s.tools.Create(r.Context(), user.ID, workspaceID,
+		entry.Name, entry.Description, entry.Icon, nil, entry.BaseURL, tools.KindHTTP)
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
+	for _, action := range entry.Actions {
+		if _, saveErr := s.tools.SaveAction(r.Context(), item.ID, "", action); saveErr != nil {
+			s.logger.Error("install catalog action", "tool_id", item.ID, "action", action.Name, "error", saveErr)
+		}
+	}
+
+	installed, err := s.tools.Get(r.Context(), item.ID, user.ID, workspaceID)
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"tool": installed})
 }

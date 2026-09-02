@@ -35,7 +35,7 @@ func newID(prefix string) string {
 const columns = `
 	t.id, t.name, t.description, t.icon, t.tags, COALESCE(t.owner_user_id, ''),
 	COALESCE(u.name, ''), t.owner_workspace_id, t.visibility, t.base_url,
-	t.auth_type, t.auth_header_name, t.auth_hint, (t.auth_secret IS NOT NULL),
+	t.kind, t.auth_type, t.auth_header_name, t.auth_hint, (t.auth_secret IS NOT NULL),
 	COALESCE((SELECT COUNT(*) FROM tool_actions a WHERE a.tool_id = t.id), 0),
 	t.created_at, t.updated_at`
 
@@ -50,7 +50,7 @@ func scan(row pgx.Row, userID string) (Tool, error) {
 	if err := row.Scan(
 		&tool.ID, &tool.Name, &tool.Description, &tool.Icon, &tagsRaw, &tool.OwnerUserID,
 		&tool.OwnerName, &tool.WorkspaceID, &tool.Visibility, &tool.BaseURL,
-		&tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
+		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
 		&tool.ActionCount, &tool.CreatedAt, &tool.UpdatedAt,
 	); err != nil {
 		return Tool{}, err
@@ -105,7 +105,7 @@ func (repository *Repository) Get(ctx context.Context, id, userID, workspaceID s
 	return tool, err
 }
 
-func (repository *Repository) Create(ctx context.Context, userID, workspaceID, rawName, rawDescription, icon string, tags []string, rawBaseURL string) (Tool, error) {
+func (repository *Repository) Create(ctx context.Context, userID, workspaceID, rawName, rawDescription, icon string, tags []string, rawBaseURL, kind string) (Tool, error) {
 	name, err := ValidateName(rawName)
 	if err != nil {
 		return Tool{}, err
@@ -122,12 +122,15 @@ func (repository *Repository) Create(ctx context.Context, userID, workspaceID, r
 		return Tool{}, err
 	}
 
+	if kind != KindMCP {
+		kind = KindHTTP
+	}
 	id := newID("tol_")
 	tagJSON, _ := json.Marshal(CleanStringList(tags, 10, 40))
 	if _, err := repository.db.Exec(ctx, `
-		INSERT INTO tools (id, name, description, icon, tags, owner_user_id, owner_workspace_id, base_url)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		id, name, description, icon, tagJSON, userID, workspaceID, baseURL); err != nil {
+		INSERT INTO tools (id, name, description, icon, tags, owner_user_id, owner_workspace_id, base_url, kind)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		id, name, description, icon, tagJSON, userID, workspaceID, baseURL, kind); err != nil {
 		return Tool{}, err
 	}
 	return repository.Get(ctx, id, userID, workspaceID)

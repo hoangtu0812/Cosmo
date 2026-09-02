@@ -226,12 +226,16 @@ func (s *Server) Router() http.Handler {
 		protected.Delete("/api/agents/{agentID}/avatar", s.deleteAgentAvatar)
 		protected.Get("/api/agents/{agentID}/tools", s.listAgentTools)
 		protected.Put("/api/agents/{agentID}/tools", s.setAgentTools)
+		protected.Get("/api/tools/catalog", s.listToolCatalog)
+		protected.Post("/api/tools/catalog/{entryID}", s.installCatalogTool)
 		protected.Get("/api/tools", s.listTools)
 		protected.Post("/api/tools", s.createTool)
 		protected.Get("/api/tools/{toolID}", s.getTool)
 		protected.Patch("/api/tools/{toolID}", s.updateTool)
 		protected.Delete("/api/tools/{toolID}", s.deleteTool)
 		protected.Post("/api/tools/{toolID}/actions", s.saveToolAction)
+		protected.Post("/api/tools/{toolID}/draft", s.generateToolActions)
+		protected.Post("/api/tools/{toolID}/discover", s.discoverMCPTools)
 		protected.Put("/api/tools/{toolID}/actions/{actionID}", s.saveToolAction)
 		protected.Delete("/api/tools/{toolID}/actions/{actionID}", s.deleteToolAction)
 		protected.Post("/api/tools/{toolID}/actions/{actionID}/test", s.testToolAction)
@@ -742,6 +746,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// former, which is what keeps its retrieval workspace-wide.
 	models := s.modelsFor(r.Context(), conversationWorkspaceID)
 	var agentKnowledge []string
+	// Nil while the conversation runs the draft, which means "whatever is
+	// attached now"; a published version fills it with what it froze.
+	var agentTools []string
 	var agentRemembers, agentSuggests bool
 	if conversationAgentID != "" {
 		// A conversation pinned to a version keeps answering from that frozen
@@ -760,6 +767,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		models = s.modelsWith(r.Context(), conversationWorkspaceID, agent.SystemPrompt, agent.Model)
 		agentKnowledge = agent.KnowledgeBaseIDs
+		agentTools = agent.ToolIDs
 		agentRemembers = agent.IsMemoryEnabled
 		agentSuggests = agent.HasSuggestedQuestions
 	}
@@ -925,11 +933,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// An agent with tools gets to use them before it answers. Nothing happens
 	// here for a plain model chat, which has none attached.
 	if conversationAgentID != "" {
-		definitions, definitionErr := s.tools.Definitions(r.Context(), conversationAgentID)
+		// A conversation pinned to a published version calls the tools that
+		// version froze; a draft run calls whatever is attached right now.
+		definitions, definitionErr := s.tools.Definitions(r.Context(), conversationAgentID, agentTools)
 		if definitionErr != nil {
 			s.logger.Error("tool definitions failed", "agent_id", conversationAgentID, "error", definitionErr)
 		} else if len(definitions) > 0 {
-			history = s.runToolRounds(r.Context(), w, flusher, conversationAgentID, history, definitions, options, models, chatRun.ID)
+			history = s.runToolRounds(r.Context(), w, flusher, conversationAgentID, history, definitions, agentTools, options, models, chatRun.ID)
 		}
 	}
 

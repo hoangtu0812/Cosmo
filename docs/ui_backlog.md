@@ -39,18 +39,14 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 
 ## Tool
 
-Tool HTTP đã chạy trọn vòng: tạo tool, khai báo action, chạy thử, gắn vào agent
-và model tự gọi trong lượt trả lời. Còn lại:
+Cả bốn lối vào của bản tham chiếu đều đã chạy: tự khai báo, tạo bằng AI, MCP
+server, và marketplace. Tool gắn được vào agent, được đóng băng theo phiên bản
+khi publish, và model tự gọi trong lượt trả lời.
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
-| Tool theo phiên bản agent | Publish agent | Snapshot danh sách tool vào `agent_versions` như đã làm với KB | chưa xếp |
-
-| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
-|---|---|---|---|
-| Tạo bằng AI | Nút Thêm tool | Model sinh action từ mô tả hoặc từ OpenAPI spec | chưa xếp |
-| MCP server | Nút Thêm tool | Client MCP, đăng ký server, liệt kê tool từ server | 2 |
-| Marketplace | Nút Thêm tool | Registry tool dùng chung, cài vào workspace | 6 |
+| MCP qua stdio | Thêm tool › MCP | Chạy server như tiến trình con; hiện chỉ hỗ trợ Streamable HTTP | chưa xếp |
+| Nhập từ OpenAPI | Thêm tool | Đọc spec để sinh action thay vì nhờ model đoán | chưa xếp |
 
 ## Tài khoản
 

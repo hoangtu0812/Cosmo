@@ -21,7 +21,7 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Token} from '@astryxdesign/core/Token';
 import {PageHeader} from '../components/PageHeader';
 import {StatusLabel} from '../components/StatusLabel';
-import {api, APIError, Tool} from '../lib/api';
+import {api, APIError, Tool, ToolCatalogEntry} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 
 export default function ToolsPage() {
@@ -49,6 +49,12 @@ function ToolsScreen() {
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newBaseURL, setNewBaseURL] = useState('');
+  // 'plain' asks for nothing more, 'ai' has the model describe the actions,
+  // 'mcp' asks the server to describe itself.
+  const [route, setRoute] = useState<'plain' | 'ai' | 'mcp'>('plain');
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [catalog, setCatalog] = useState<ToolCatalogEntry[]>([]);
+  const [installing, setInstalling] = useState('');
 
   const load = useCallback(() => {
     if (!workspaceID) return;
@@ -68,9 +74,23 @@ function ToolsScreen() {
     setError('');
     try {
       const result = await api.createTool(
-        {name: newName, description: newDescription, icon: '🔌', tags: [], base_url: newBaseURL},
+        {
+          name: newName,
+          description: newDescription,
+          icon: route === 'mcp' ? '🧩' : '🔌',
+          tags: [],
+          base_url: newBaseURL,
+          kind: route === 'mcp' ? 'mcp' : 'http',
+        },
         workspaceID,
       );
+      // Describing the actions is best effort: a tool with none is still a
+      // tool, and landing in the editor beats an error over a draft.
+      if (route === 'ai') {
+        await api.draftToolActions(result.tool.id, newDescription, workspaceID).catch(() => undefined);
+      } else if (route === 'mcp') {
+        await api.discoverMCPTools(result.tool.id, workspaceID).catch(() => undefined);
+      }
       closeCreate(true);
       router.push(`/tools/${result.tool.id}?workspace=${encodeURIComponent(workspaceID)}`);
     } catch (caught) {
@@ -108,11 +128,35 @@ function ToolsScreen() {
   // The reference offers four routes to a new tool. Only one of them is built:
   // the rest are named so the shape of the area is visible - see
   // docs/ui_backlog.md.
+  function openCreate(which: 'plain' | 'ai' | 'mcp') {
+    setRoute(which);
+    setIsCreating(true);
+  }
+
+  function openCatalog() {
+    setIsCatalogOpen(true);
+    api.toolCatalog().then((result) => setCatalog(result.entries)).catch(() => setCatalog([]));
+  }
+
+  async function install(entry: ToolCatalogEntry) {
+    setInstalling(entry.id);
+    setError('');
+    try {
+      const result = await api.installCatalogTool(entry.id, workspaceID);
+      setIsCatalogOpen(false);
+      router.push(`/tools/${result.tool.id}?workspace=${encodeURIComponent(workspaceID)}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('tool.createFailed'));
+    } finally {
+      setInstalling('');
+    }
+  }
+
   const addMenu = [
-    {icon: <Sparkles size={15} />, isDisabled: true, label: t('tool.createWithAI')},
-    {icon: <Plug size={15} />, label: t('tool.addPlugin'), onClick: () => setIsCreating(true)},
-    {icon: <Boxes size={15} />, isDisabled: true, label: t('tool.addMCP')},
-    {icon: <Store size={15} />, isDisabled: true, label: t('tool.marketplace')},
+    {icon: <Sparkles size={15} />, label: t('tool.createWithAI'), onClick: () => openCreate('ai')},
+    {icon: <Plug size={15} />, label: t('tool.addPlugin'), onClick: () => openCreate('plain')},
+    {icon: <Boxes size={15} />, label: t('tool.addMCP'), onClick: () => openCreate('mcp')},
+    {icon: <Store size={15} />, label: t('tool.marketplace'), onClick: openCatalog},
   ];
 
   return (
@@ -255,13 +299,19 @@ function ToolsScreen() {
                   width="100%"
                 />
                 <TextInput
-                  label={t('tool.baseURL')}
+                  label={route === 'mcp' ? t('tool.mcpURL') : t('tool.baseURL')}
                   onChange={setNewBaseURL}
                   onEnter={() => void create()}
-                  placeholder="https://api.example.com"
+                  placeholder={route === 'mcp' ? 'https://example.com/mcp' : 'https://api.example.com'}
                   value={newBaseURL}
                   width="100%"
                 />
+                {route === 'ai' ? (
+                  <Text color="secondary" type="supporting">{t('tool.aiHint')}</Text>
+                ) : null}
+                {route === 'mcp' ? (
+                  <Text color="secondary" type="supporting">{t('tool.mcpHint')}</Text>
+                ) : null}
                 {/* Said once, where it is decided, rather than after the fact in
                     an error: a tool reaches the internet and nothing else. */}
                 <HStack gap={2} vAlign="center">
@@ -285,7 +335,44 @@ function ToolsScreen() {
               </HStack>
             </LayoutFooter>
           }
-          header={<DialogHeader onOpenChange={(open) => { if (!open) closeCreate(); }} title={t('tool.createTitle')} />}
+          header={<DialogHeader onOpenChange={(open) => { if (!open) closeCreate(); }} title={route === 'mcp' ? t('tool.addMCP') : route === 'ai' ? t('tool.createWithAI') : t('tool.createTitle')} />}
+        />
+      </Dialog>
+
+      <Dialog isOpen={isCatalogOpen} onOpenChange={setIsCatalogOpen} purpose="form" width={640}>
+        <Layout
+          content={
+            <LayoutContent>
+              <VStack gap={3} width="100%">
+                <Text color="secondary" type="supporting">{t('tool.catalogHint')}</Text>
+                {catalog.map((entry) => (
+                  <Card key={entry.id} padding={4} width="100%">
+                    <HStack gap={3} hAlign="between" vAlign="center" width="100%">
+                      <HStack gap={3} vAlign="center">
+                        <Text type="display-3">{entry.icon}</Text>
+                        <VStack gap={0}>
+                          <Text type="label">{entry.name}</Text>
+                          <Text color="secondary" type="supporting">{entry.description}</Text>
+                          <Text color="secondary" type="supporting">
+                            {t('tool.actionCount', {count: entry.actions.length})}
+                          </Text>
+                        </VStack>
+                      </HStack>
+                      <Button
+                        isDisabled={installing !== ''}
+                        isLoading={installing === entry.id}
+                        label={t('tool.install')}
+                        onClick={() => void install(entry)}
+                        size="sm"
+                        variant="secondary"
+                      />
+                    </HStack>
+                  </Card>
+                ))}
+              </VStack>
+            </LayoutContent>
+          }
+          header={<DialogHeader onOpenChange={setIsCatalogOpen} title={t('tool.marketplace')} />}
         />
       </Dialog>
 

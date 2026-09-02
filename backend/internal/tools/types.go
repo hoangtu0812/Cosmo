@@ -63,18 +63,21 @@ var (
 
 // Tool is one HTTP integration the workspace can call.
 type Tool struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	Icon           string    `json:"icon"`
-	Tags           []string  `json:"tags"`
-	OwnerUserID    string    `json:"owner_user_id"`
-	OwnerName      string    `json:"owner_name"`
-	WorkspaceID    string    `json:"workspace_id"`
-	Visibility     string    `json:"visibility"`
-	BaseURL        string    `json:"base_url"`
-	AuthType       string    `json:"auth_type"`
-	AuthHeaderName string    `json:"auth_header_name"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Icon        string   `json:"icon"`
+	Tags        []string `json:"tags"`
+	OwnerUserID string   `json:"owner_user_id"`
+	OwnerName   string   `json:"owner_name"`
+	WorkspaceID string   `json:"workspace_id"`
+	Visibility  string   `json:"visibility"`
+	BaseURL     string   `json:"base_url"`
+	// "http" for an API described by hand, "mcp" for a server that
+	// describes itself. See internal/tools/mcp.go.
+	Kind           string `json:"kind"`
+	AuthType       string `json:"auth_type"`
+	AuthHeaderName string `json:"auth_header_name"`
 	// The secret itself never leaves the server. The hint is the last few
 	// characters, which is enough for a reader to tell which key is set.
 	AuthHint    string    `json:"auth_hint"`
@@ -130,10 +133,10 @@ type Changes struct {
 // CallResult is what one invocation produced, for the test panel and for the
 // step record a run keeps.
 type CallResult struct {
-	Status     int    `json:"status"`
-	DurationMS int64  `json:"duration_ms"`
-	Body       string `json:"body"`
-	IsTruncated bool  `json:"is_truncated"`
+	Status      int    `json:"status"`
+	DurationMS  int64  `json:"duration_ms"`
+	Body        string `json:"body"`
+	IsTruncated bool   `json:"is_truncated"`
 }
 
 // ValidateName trims and bounds a tool or action title.

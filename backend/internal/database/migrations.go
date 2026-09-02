@@ -33,6 +33,8 @@ var migrations = []Migration{
 	{Version: 2, Name: "run_engine_foundation", Statements: runEngineStatements},
 	{Version: 3, Name: "agent_versioning", Statements: agentVersioningStatements},
 	{Version: 4, Name: "tools", Statements: toolStatements},
+	{Version: 5, Name: "agent_version_tools", Statements: agentVersionToolStatements},
+	{Version: 6, Name: "tool_kind", Statements: toolKindStatements},
 }
 
 var runEngineStatements = []string{

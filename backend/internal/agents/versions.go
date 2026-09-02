@@ -27,13 +27,13 @@ func (repository *Repository) Publish(ctx context.Context, agentID, publishedBy,
 	defer func() { _ = transaction.Rollback(ctx) }()
 
 	var version Version
-	var presets, knowledge []byte
+	var presets, knowledge, toolIDs []byte
 	versionID := newID("agv_")
 	err = transaction.QueryRow(ctx, `
 		INSERT INTO agent_versions (
 			id, agent_id, version_number, model, system_prompt, opening_line,
 			preset_questions, has_suggested_questions, is_memory_enabled,
-			knowledge_base_ids, changelog, published_by
+			knowledge_base_ids, tool_ids, changelog, published_by
 		)
 		SELECT
 			$1, a.id,
@@ -44,16 +44,20 @@ func (repository *Repository) Publish(ctx context.Context, agentID, publishedBy,
 				SELECT jsonb_agg(k.kb_id ORDER BY k.created_at)
 				FROM agent_knowledge_bases k WHERE k.agent_id = a.id
 			), '[]'::jsonb),
+			COALESCE((
+				SELECT jsonb_agg(at.tool_id ORDER BY at.created_at)
+				FROM agent_tools at WHERE at.agent_id = a.id
+			), '[]'::jsonb),
 			$3, $4
 		FROM agents a
 		WHERE a.id = $2
 		RETURNING id, agent_id, version_number, model, system_prompt, opening_line,
 			preset_questions, has_suggested_questions, is_memory_enabled,
-			knowledge_base_ids, changelog, COALESCE(published_by, ''), created_at`,
+			knowledge_base_ids, tool_ids, changelog, COALESCE(published_by, ''), created_at`,
 		versionID, agentID, changelog, publishedBy).Scan(
 		&version.ID, &version.AgentID, &version.VersionNumber, &version.Model,
 		&version.SystemPrompt, &version.OpeningLine, &presets,
-		&version.HasSuggestedQuestions, &version.IsMemoryEnabled, &knowledge,
+		&version.HasSuggestedQuestions, &version.IsMemoryEnabled, &knowledge, &toolIDs,
 		&version.Changelog, &version.PublishedBy, &version.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -129,16 +133,17 @@ func (repository *Repository) SaveDraft(ctx context.Context, current Agent, chan
 // pinned to a version keeps answering from it even after the draft moves on.
 func (repository *Repository) RuntimeForVersion(ctx context.Context, versionID string) (Runtime, error) {
 	var item Runtime
-	var knowledge []byte
+	var knowledge, tools []byte
 	err := repository.db.QueryRow(ctx, `
-		SELECT model, system_prompt, is_memory_enabled, has_suggested_questions, knowledge_base_ids
+		SELECT model, system_prompt, is_memory_enabled, has_suggested_questions, knowledge_base_ids, tool_ids
 		FROM agent_versions WHERE id = $1`, versionID).Scan(
 		&item.Model, &item.SystemPrompt, &item.IsMemoryEnabled,
-		&item.HasSuggestedQuestions, &knowledge)
+		&item.HasSuggestedQuestions, &knowledge, &tools)
 	if err != nil {
 		return Runtime{}, err
 	}
 	item.KnowledgeBaseIDs = decodeStringList(knowledge)
+	item.ToolIDs = decodeStringList(tools)
 	return item, nil
 }
 

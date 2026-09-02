@@ -140,9 +140,12 @@ type Conversation struct {
 // Runtime is the configuration a conversation actually runs on: only the
 // fields the chat pipeline reads, without the presentation an editor needs.
 type Runtime struct {
-	Model                 string
-	SystemPrompt          string
-	KnowledgeBaseIDs      []string
+	Model            string
+	SystemPrompt     string
+	KnowledgeBaseIDs []string
+	// Empty when the conversation runs the draft rather than a published
+	// version; the caller then reads the live attachment instead.
+	ToolIDs               []string
 	IsMemoryEnabled       bool
 	HasSuggestedQuestions bool
 }

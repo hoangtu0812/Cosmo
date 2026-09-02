@@ -140,6 +140,15 @@ export type ToolUpdate = Partial<{
   auth_secret: string;
 }>;
 
+export type ToolCatalogEntry = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  base_url: string;
+  actions: ToolAction[];
+};
+
 export type ToolCallResult = {
   status: number;
   duration_ms: number;
@@ -355,11 +364,18 @@ export const api = {
   deleteWorkspaceIcon: (workspaceID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'DELETE'}),
   workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
+  toolCatalog: () => request<{entries: ToolCatalogEntry[]}>('/api/tools/catalog'),
+  installCatalogTool: (entryID: string, workspaceID?: string) =>
+    request<{tool: Tool}>(`/api/tools/catalog/${encodeURIComponent(entryID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
+  draftToolActions: (toolID: string, description: string, workspaceID?: string) =>
+    request<{actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}/draft${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({description})}),
+  discoverMCPTools: (toolID: string, workspaceID?: string) =>
+    request<{actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}/discover${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
   tools: (workspaceID?: string) =>
     request<{tools: Tool[]}>(`/api/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   tool: (toolID: string, workspaceID?: string) =>
     request<{tool: Tool; actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
-  createTool: (input: {name: string; description: string; icon: string; tags: string[]; base_url: string}, workspaceID?: string) =>
+  createTool: (input: {name: string; description: string; icon: string; tags: string[]; base_url: string; kind?: string}, workspaceID?: string) =>
     request<{tool: Tool}>(`/api/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify(input)}),
   updateTool: (toolID: string, changes: ToolUpdate, workspaceID?: string) =>
     request<{tool: Tool}>(`/api/tools/${encodeURIComponent(toolID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PATCH', body: JSON.stringify(changes)}),

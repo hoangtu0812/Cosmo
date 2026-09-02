@@ -58,24 +58,25 @@ const neutralSyntax = defineSyntaxTheme({
 export const cosmoTheme = defineTheme({
   name: 'cosmo',
 
-  // Typography: Figtree across body, heading, and display sizes (display
+  // Typography: Noto Sans across body, heading, and display sizes (display
   // size tokens inherit from heading.family). Monospace stays as the
   // platform default for code.
   // Scale: base=14, ratio=1.2. Bold weights on h3/h4 for subsection hierarchy.
   typography: {
     scale: {base: 14, ratio: 1.2},
-    // Figtree ships only latin + latin-ext, so U+1EA0-1EF1 (most Vietnamese
-    // accented letters) falls back mid-word. Be Vietnam Pro carries the
-    // vietnamese subset, so the whole UI renders in one face.
+    // Noto Sans, as the reference uses, and it carries the vietnamese subset
+    // (U+1EA0-1EF1) so accented letters do not fall back mid-word. Its
+    // licence (SIL OFL) allows this; the reference's own artwork does not
+    // travel with it.
     body: {
-      family: 'Be Vietnam Pro',
+      family: 'Noto Sans',
       fallbacks:
-        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
     },
     heading: {
-      family: 'Be Vietnam Pro',
+      family: 'Noto Sans',
       fallbacks:
-        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       weights: {3: 'bold', 4: 'bold'},
     },
     code: {

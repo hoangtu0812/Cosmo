@@ -661,7 +661,7 @@ function CitationList({citations}: {citations: Citation[]}) {
   if (citations.length === 0) return null;
   const groups = groupCitations(citations);
   const list = (
-      <List density="compact">
+      <List >
         {groups.map((group) => (
           <Item
             align="start"

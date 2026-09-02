@@ -815,6 +815,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Hãy chọn model cho hội thoại hoặc đặt model mặc định trong Cài đặt workspace.")
 		return
 	}
+	// Whether this is the opening turn decides whether the conversation gets
+	// named from it. Asked before the message is written, because after it the
+	// count is one either way. An agent conversation starts under the agent's
+	// name rather than the placeholder, so the title cannot answer this.
+	var priorMessages int
+	_ = s.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM messages WHERE conversation_id = $1`, conversationID).Scan(&priorMessages)
+	isFirstTurn := priorMessages == 0
+
 	userMessage := Message{ID: "msg_" + randomID(18), ConversationID: conversationID, Role: "user", Content: input.Content, CreatedAt: time.Now()}
 	_, err := s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, created_at) VALUES($1, $2, $3, $4, $5)`, userMessage.ID, conversationID, userMessage.Role, userMessage.Content, userMessage.CreatedAt)
 	if err != nil {
@@ -823,13 +831,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	// The opening line stands in as the title until the turn is answered and a
 	// better one can be written from what it was actually about.
-	var isFirstTurn bool
-	_ = s.db.QueryRow(r.Context(), `
+	_, _ = s.db.Exec(r.Context(), `
 		UPDATE conversations
 		SET title = CASE WHEN title = 'Cuộc trò chuyện mới' THEN LEFT($2, 100) ELSE title END,
 		    updated_at = NOW()
-		WHERE id = $1
-		RETURNING title = LEFT($2, 100)`, conversationID, input.Content).Scan(&isFirstTurn)
+		WHERE id = $1`, conversationID, input.Content)
 
 	// Chat is the first production path recorded through the common run model.
 	// Only identifiers and execution metadata are stored here; the user's text

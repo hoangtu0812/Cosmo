@@ -112,3 +112,22 @@ var actionResultStatements = []string{
 	`ALTER TABLE tool_actions ADD COLUMN IF NOT EXISTS result_type TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tool_actions ADD COLUMN IF NOT EXISTS result_description TEXT NOT NULL DEFAULT ''`,
 }
+
+// A workflow is an ordered graph of steps, stored whole rather than as rows
+// per node: it is edited as one document, saved as one document, and nothing
+// queries inside it. Splitting it into tables would buy joins nobody makes.
+var workflowStatements = []string{
+	`CREATE TABLE IF NOT EXISTS workflows (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		icon TEXT NOT NULL DEFAULT '',
+		owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+		owner_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'workspace')),
+		graph JSONB NOT NULL DEFAULT '{"nodes":[],"edges":[]}'::jsonb,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS workflows_workspace_idx ON workflows(owner_workspace_id, updated_at DESC)`,
+}

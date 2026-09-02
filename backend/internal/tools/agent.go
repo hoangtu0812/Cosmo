@@ -304,3 +304,25 @@ func (repository *Repository) InvokeNamed(ctx context.Context, agentID, name, ra
 	}
 	return CallResult{}, ErrNotFound
 }
+
+// InvokeAction runs one action by id, for a caller that already knows which
+// action it wants - a workflow node names one when it is wired, rather than
+// choosing at run time the way a model does.
+//
+// Visibility is checked, so a workflow cannot reach a tool its author could
+// not see; the reader who wired it is the reader being checked.
+func (repository *Repository) InvokeAction(ctx context.Context, userID, workspaceID, toolID, actionID string, arguments map[string]any) (string, error) {
+	tool, err := repository.Get(ctx, toolID, userID, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	action, err := repository.Action(ctx, toolID, actionID)
+	if err != nil {
+		return "", err
+	}
+	result, err := repository.Invoke(ctx, tool, action, arguments)
+	if err != nil {
+		return "", err
+	}
+	return result.Body, nil
+}

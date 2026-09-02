@@ -24,6 +24,7 @@ import (
 	"cosmo/backend/internal/runs"
 	"cosmo/backend/internal/secrets"
 	"cosmo/backend/internal/tools"
+	"cosmo/backend/internal/workflows"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
@@ -46,6 +47,7 @@ type Server struct {
 	runs         *runs.Repository
 	agents       *agents.Repository
 	tools        *tools.Repository
+	workflows    *workflows.Repository
 	secrets      *secrets.Box
 	logger       *slog.Logger
 	oauthConfig  *oauth2.Config
@@ -129,6 +131,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		runs:      runs.NewRepository(db),
 		agents:    agents.NewRepository(db, logger),
 		tools:     tools.NewRepository(db, logger, box, tools.EgressPolicy{AllowedHosts: cfg.ToolEgressAllowedHosts}),
+		workflows: workflows.NewRepository(db, logger),
 		secrets:   box,
 		logger:    logger,
 	}
@@ -241,6 +244,14 @@ func (s *Server) Router() http.Handler {
 		protected.Put("/api/tools/{toolID}/actions/{actionID}", s.saveToolAction)
 		protected.Delete("/api/tools/{toolID}/actions/{actionID}", s.deleteToolAction)
 		protected.Post("/api/tools/{toolID}/actions/{actionID}/test", s.testToolAction)
+
+		protected.Get("/api/workflows", s.listWorkflows)
+		protected.Post("/api/workflows", s.createWorkflow)
+		protected.Get("/api/workflows/{workflowID}", s.getWorkflow)
+		protected.Patch("/api/workflows/{workflowID}", s.updateWorkflow)
+		protected.Delete("/api/workflows/{workflowID}", s.deleteWorkflow)
+		protected.Put("/api/workflows/{workflowID}/graph", s.saveWorkflowGraph)
+		protected.Post("/api/workflows/{workflowID}/run", s.runWorkflow)
 		protected.Get("/api/knowledge", s.listKnowledgeBases)
 		protected.Post("/api/knowledge", s.createKnowledgeBase)
 		protected.Patch("/api/knowledge/{kbID}", s.updateKnowledgeBase)

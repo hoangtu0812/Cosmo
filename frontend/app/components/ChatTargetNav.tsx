@@ -32,7 +32,6 @@ export function useChatTargets(workspace: Workspace | null) {
 
   useEffect(() => {
     if (!workspace) return;
-    setIsLoading(true);
     Promise.allSettled([
       api.agents(workspace.id).then((result) => setAgents(result.agents)).catch(() => setAgents([])),
       api.workspaceModels(workspace.id)

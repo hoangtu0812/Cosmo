@@ -43,13 +43,14 @@ export function ToolMarket({isOpen, onOpen, onOpenChange, workspaceID}: {
   const [installed, setInstalled] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   // "Nothing matches that" is an answer about the catalogue. Until it has
-  // been read, the market has no answer to give.
+  // been read, the market has no answer to give. Re-opening refetches without
+  // going back to a skeleton: what is already on screen is better to look at
+  // than nothing.
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
-    setIsLoading(true);
     api.toolCatalog(workspaceID)
       .then((result) => {
         if (cancelled) return;

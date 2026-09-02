@@ -23,6 +23,7 @@ import (
 	"cosmo/backend/internal/modelgateway"
 	"cosmo/backend/internal/runs"
 	"cosmo/backend/internal/secrets"
+	"cosmo/backend/internal/tools"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/go-chi/chi/v5"
@@ -44,6 +45,7 @@ type Server struct {
 	knowledge    *knowledge.Client
 	runs         *runs.Repository
 	agents       *agents.Repository
+	tools        *tools.Repository
 	secrets      *secrets.Box
 	logger       *slog.Logger
 	oauthConfig  *oauth2.Config
@@ -125,6 +127,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		knowledge: knowledge.New(cfg.RAGServiceURL, cfg.RAGTimeout),
 		runs:      runs.NewRepository(db),
 		agents:    agents.NewRepository(db, logger),
+		tools:     tools.NewRepository(db, logger, box),
 		secrets:   box,
 		logger:    logger,
 	}
@@ -221,6 +224,15 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/agents/{agentID}/avatar", s.agentAvatar)
 		protected.Put("/api/agents/{agentID}/avatar", s.uploadAgentAvatar)
 		protected.Delete("/api/agents/{agentID}/avatar", s.deleteAgentAvatar)
+		protected.Get("/api/tools", s.listTools)
+		protected.Post("/api/tools", s.createTool)
+		protected.Get("/api/tools/{toolID}", s.getTool)
+		protected.Patch("/api/tools/{toolID}", s.updateTool)
+		protected.Delete("/api/tools/{toolID}", s.deleteTool)
+		protected.Post("/api/tools/{toolID}/actions", s.saveToolAction)
+		protected.Put("/api/tools/{toolID}/actions/{actionID}", s.saveToolAction)
+		protected.Delete("/api/tools/{toolID}/actions/{actionID}", s.deleteToolAction)
+		protected.Post("/api/tools/{toolID}/actions/{actionID}/test", s.testToolAction)
 		protected.Get("/api/knowledge", s.listKnowledgeBases)
 		protected.Post("/api/knowledge", s.createKnowledgeBase)
 		protected.Patch("/api/knowledge/{kbID}", s.updateKnowledgeBase)

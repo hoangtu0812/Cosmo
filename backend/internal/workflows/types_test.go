@@ -107,13 +107,13 @@ func TestOrderIncludesUnconnectedNodes(t *testing.T) {
 
 // What runs and what is a shell is decided in one place, so the editor and the
 // runner cannot disagree about which is which.
-func TestRunnableCoversTheFourThatRun(t *testing.T) {
-	for _, kind := range []string{KindStart, KindLLM, KindTool, KindEnd} {
+func TestRunnableCoversTheSixThatRun(t *testing.T) {
+	for _, kind := range []string{KindStart, KindLLM, KindTool, KindEnd, KindCondition, KindLoop} {
 		if !Runnable(kind) {
 			t.Errorf("%s should run", kind)
 		}
 	}
-	for _, kind := range []string{KindCondition, KindLoop, KindCode, KindHTTP, KindKnowledge, KindAgent, "invented"} {
+	for _, kind := range []string{KindCode, KindHTTP, KindKnowledge, KindAgent, "invented"} {
 		if Runnable(kind) {
 			t.Errorf("%s claims to run", kind)
 		}

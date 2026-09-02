@@ -225,6 +225,18 @@ export default function ChatPage() {
     }
   }
 
+  // The pair goes together, so the list drops whatever the server says it
+  // removed rather than assuming which two.
+  async function removeTurn(messageID: string) {
+    if (!conversationID) return;
+    try {
+      const {deleted} = await api.deleteMessage(conversationID, messageID);
+      setMessages((current) => current.filter((item) => !deleted.includes(item.id)));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('chat.deleteFailed'));
+    }
+  }
+
   async function submit(content: string) {
     const trimmed = content.trim();
     if (!trimmed || streaming || !workspace) return;
@@ -571,6 +583,15 @@ export default function ChatPage() {
                                       Copying a reply is the thing people do
                                       most with one. */}
                                   {isActiveStream ? null : <CopyButton text={message.content} />}
+                                  {isActiveStream ? null : (
+                                    <IconButton
+                                      icon={<Trash2 size={14} />}
+                                      label={t('chat.deleteTurn')}
+                                      onClick={() => void removeTurn(message.id)}
+                                      size="sm"
+                                      variant="ghost"
+                                    />
+                                  )}
                                 </HStack>
                               }
                               timestamp={<Timestamp format="time" value={message.created_at} />}

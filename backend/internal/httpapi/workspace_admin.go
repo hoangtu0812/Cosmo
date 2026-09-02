@@ -851,6 +851,65 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// deleteMessage removes one turn from a transcript.
+//
+// A pair, not a message: deleting a question and leaving its answer produces a
+// transcript that reads as the assistant volunteering something, and deleting
+// an answer and leaving the question reads as it refusing. So a user message
+// takes the assistant reply that followed it, and an assistant message takes
+// the user message that prompted it.
+//
+// Ownership is checked through the conversation, which is the thing a reader
+// owns; a message id on its own says nothing about who may touch it.
+func (s *Server) deleteMessage(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	conversationID := chi.URLParam(r, "conversationID")
+	messageID := chi.URLParam(r, "messageID")
+	if !s.ownsConversation(r.Context(), user.ID, conversationID) {
+		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
+		return
+	}
+
+	var role string
+	var createdAt time.Time
+	if err := s.db.QueryRow(r.Context(),
+		`SELECT role, created_at FROM messages WHERE id = $1 AND conversation_id = $2`,
+		messageID, conversationID).Scan(&role, &createdAt); err != nil {
+		writeError(w, http.StatusNotFound, "Không tìm thấy tin nhắn.")
+		return
+	}
+
+	// The partner is the nearest message of the other role on the right side
+	// of this one in time: after it for a question, before it for an answer.
+	partner := `
+		SELECT id FROM messages
+		WHERE conversation_id = $1 AND role = 'assistant' AND created_at >= $2 AND id <> $3
+		ORDER BY created_at ASC LIMIT 1`
+	if role == "assistant" {
+		partner = `
+			SELECT id FROM messages
+			WHERE conversation_id = $1 AND role = 'user' AND created_at <= $2 AND id <> $3
+			ORDER BY created_at DESC LIMIT 1`
+	}
+	var partnerID string
+	_ = s.db.QueryRow(r.Context(), partner, conversationID, createdAt, messageID).Scan(&partnerID)
+
+	if _, err := s.db.Exec(r.Context(),
+		`DELETE FROM messages WHERE conversation_id = $1 AND (id = $2 OR ($3 <> '' AND id = $3))`,
+		conversationID, messageID, partnerID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể xoá tin nhắn.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": removedIDs(messageID, partnerID)})
+}
+
+func removedIDs(messageID, partnerID string) []string {
+	if partnerID == "" {
+		return []string{messageID}
+	}
+	return []string{messageID, partnerID}
+}
+
 // ------------------------------------------------------- workspace identity
 
 // updateWorkspace changes the current workspace's display details. Every

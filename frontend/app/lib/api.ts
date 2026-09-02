@@ -384,6 +384,11 @@ export const api = {
   deleteWorkspaceIcon: (workspaceID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'DELETE'}),
   workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
+  // Deletes the turn, not the message: a question without its answer reads as
+  // the assistant volunteering, and an answer without its question as it
+  // refusing. The reply says which ids went.
+  deleteMessage: (conversationID: string, messageID: string) =>
+    request<{deleted: string[]}>(`/api/conversations/${encodeURIComponent(conversationID)}/messages/${encodeURIComponent(messageID)}`, {method: 'DELETE'}),
   workflows: (workspaceID?: string) =>
     request<{workflows: Workflow[]}>(`/api/workflows${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   workflow: (id: string, workspaceID?: string) =>
@@ -612,7 +617,9 @@ export type WorkflowNode = {
   config?: Record<string, unknown>;
 };
 
-export type WorkflowEdge = {id: string; source: string; target: string};
+// `branch` says which way out of a Condition an edge leaves by. Empty for
+// every other kind of node, which has only one way out.
+export type WorkflowEdge = {id: string; source: string; target: string; branch?: 'true' | 'false'};
 export type WorkflowGraph = {nodes: WorkflowNode[]; edges: WorkflowEdge[]};
 
 export type Workflow = {
@@ -636,6 +643,7 @@ export type WorkflowStep = {
   name: string;
   status: 'running' | 'complete' | 'error' | 'skipped';
   output?: string;
+  branch?: string;
   error?: string;
   duration_ms?: number;
 };

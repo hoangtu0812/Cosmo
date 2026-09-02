@@ -680,10 +680,16 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     api.agentConversations(agent.id, workspaceID)
       .then((result) => {
         setConversations(result.conversations);
-        const latest = result.conversations[0];
-        if (!latest) return;
-        setConversationID(latest.id);
-        return api.messages(latest.id).then((loaded) => setMessages(loaded.messages));
+        // Only a conversation that follows the draft belongs here. Picking the
+        // newest of any kind meant the panel could open one pinned to a
+        // published version - so Debug would be running the published agent,
+        // which is the one thing this panel is not for. A pinned conversation
+        // is still reachable from the history menu, where choosing it is the
+        // reader's decision rather than an accident of ordering.
+        const draft = result.conversations.find((item) => !item.agent_version_id);
+        if (!draft) return;
+        setConversationID(draft.id);
+        return api.messages(draft.id).then((loaded) => setMessages(loaded.messages));
       })
       .catch(() => undefined);
   }, [agent.id, workspaceID]);
@@ -815,7 +821,12 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
             hasChevron={false}
             items={conversations.length > 0
               ? conversations.map((item) => ({
-                label: item.title,
+                // A pinned conversation runs the version it was pinned to, so
+                // the menu says which, rather than leaving the reader to
+                // wonder why an answer ignores a change they just made.
+                label: item.agent_version_id
+                  ? `${item.title} · v${item.version_number ?? 0}`
+                  : item.title,
                 onClick: () => void openConversation(item.id),
               }))
               : [{isDisabled: true, label: t('agent.chatNoHistory')}]}

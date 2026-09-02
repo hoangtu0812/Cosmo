@@ -20,13 +20,14 @@ import {HStack, VStack} from '@astryxdesign/core/Layout';
 import {Icon, IconType} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
+import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {StatusLabel} from '../../components/StatusLabel';
 import {CopyButton} from '../../components/CopyButton';
 import {
-  APIError, Workflow, WorkflowGraph, WorkflowNodeKind, WorkflowStep,
+  APIError, Tool, ToolAction, Workflow, WorkflowGraph, WorkflowNodeKind, WorkflowStep,
   api, streamWorkflowRun,
 } from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
@@ -83,6 +84,12 @@ function WorkflowEditor() {
   const [tab, setTab] = useState<'basic' | 'variables'>('basic');
   const [query, setQuery] = useState('');
   const [zoom, setZoom] = useState(1);
+  // The workspace's tools, so a Tool node offers what exists rather than
+  // asking for an id nobody can remember. Actions are fetched per tool when
+  // one is chosen: listing every action of every tool up front is a request
+  // per tool for a list most of which is never opened.
+  const [tools, setTools] = useState<Tool[]>([]);
+  const [actionsByTool, setActionsByTool] = useState<Record<string, ToolAction[]>>({});
   const dropped = useRef(0);
 
   useEffect(() => {
@@ -91,11 +98,20 @@ function WorkflowEditor() {
         setWorkflow(loaded);
         setNodes(loaded.graph.nodes.map(toFlowNode));
         setEdges(loaded.graph.edges.map((edge) => ({
-          id: edge.id, source: edge.source, target: edge.target, animated: false,
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          sourceHandle: edge.branch ?? null,
+          label: edge.branch ? t(edge.branch === 'true' ? 'workflow.branchTrue' : 'workflow.branchFalse') : undefined,
+          animated: false,
         })));
       })
       .catch((caught) => setError(caught instanceof APIError ? caught.message : ''));
-  }, [workflowID, workspaceID, setNodes, setEdges]);
+  }, [workflowID, workspaceID, setNodes, setEdges, t]);
+
+  useEffect(() => {
+    api.tools(workspaceID).then((result) => setTools(result.tools)).catch(() => undefined);
+  }, [workspaceID]);
 
   const graph: WorkflowGraph = useMemo(() => ({
     nodes: nodes.map((node) => {
@@ -109,11 +125,35 @@ function WorkflowEditor() {
         config: data.config ?? {},
       };
     }),
-    edges: edges.map((edge) => ({id: edge.id, source: edge.source, target: edge.target})),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      branch: (edge.sourceHandle === 'true' || edge.sourceHandle === 'false') ? edge.sourceHandle : undefined,
+    })),
   }), [nodes, edges]);
 
   const selected = nodes.find((node) => node.id === selectedID);
   const needle = query.trim().toLowerCase();
+
+  // Which tools have been asked for, kept in a ref rather than in state: it
+  // decides whether to fetch and nothing renders from it, so putting it in
+  // state would only cause a render to decide not to fetch again.
+  const requested = useRef<Set<string>>(new Set());
+  const loadActions = useCallback((toolID: string) => {
+    if (!toolID || requested.current.has(toolID)) return;
+    requested.current.add(toolID);
+    api.tool(toolID, workspaceID)
+      .then((result) => setActionsByTool((current) => ({...current, [toolID]: result.actions})))
+      .catch(() => requested.current.delete(toolID));
+  }, [workspaceID]);
+
+  // A node already wired to a tool needs that tool's actions before its list
+  // can show the chosen one by name rather than as an id.
+  const selectedToolID = (selected?.data as {config?: Record<string, unknown>} | undefined)?.config?.tool_id;
+  useEffect(() => {
+    if (typeof selectedToolID === 'string') loadActions(selectedToolID);
+  }, [selectedToolID, loadActions]);
 
   function addNode(kind: WorkflowNodeKind) {
     const index = dropped.current++;
@@ -297,7 +337,15 @@ function WorkflowEditor() {
           fitView
           nodeTypes={nodeTypes}
           nodes={nodes}
-          onConnect={(connection: Connection) => setEdges((current) => addEdge({...connection, animated: false}, current))}
+          onConnect={(connection: Connection) => setEdges((current) => addEdge({
+            ...connection,
+            animated: false,
+            // A condition's edge carries the label of the way it left by, so
+            // the canvas can be read without opening the node.
+            label: connection.sourceHandle
+              ? t(connection.sourceHandle === 'true' ? 'workflow.branchTrue' : 'workflow.branchFalse')
+              : undefined,
+          }, current))}
           onEdgesChange={onEdgesChange}
           onMove={(_event, viewport) => setZoom(viewport.zoom)}
           onNodeClick={(_event, node) => setSelectedID(node.id)}
@@ -361,14 +409,17 @@ function WorkflowEditor() {
       <VStack className="border-l border-[var(--color-border)]" gap={4} height="100%" isScrollable padding={4} width={320}>
         {selected ? (
           <NodeSettings
+            actions={typeof selectedToolID === 'string' ? actionsByTool[selectedToolID] ?? [] : []}
             node={selected.data as FlowNodeData & {config?: Record<string, unknown>}}
             onChange={updateSelected}
+            onPickTool={loadActions}
+            t={t}
+            tools={tools}
             onRemove={() => {
               setNodes((current) => current.filter((node) => node.id !== selectedID));
               setEdges((current) => current.filter((edge) => edge.source !== selectedID && edge.target !== selectedID));
               setSelectedID('');
             }}
-            t={t}
           />
         ) : (
           <VStack gap={3} width="100%">
@@ -482,12 +533,20 @@ function detailFor(kind: WorkflowNodeKind, config: Record<string, unknown>): str
   if (kind === 'llm') return String(config.prompt ?? '');
   if (kind === 'end') return String(config.template ?? '');
   if (kind === 'tool') return String(config.action_id ?? '');
+  if (kind === 'condition') {
+    const left = String(config.left ?? '');
+    return left ? `${left} ${String(config.operator ?? 'contains')} ${String(config.right ?? '')}`.trim() : '';
+  }
+  if (kind === 'loop') return String(config.prompt ?? '');
   return '';
 }
 
-function NodeSettings({node, onChange, onRemove, t}: {
+function NodeSettings({node, tools, actions, onChange, onPickTool, onRemove, t}: {
   node: FlowNodeData & {config?: Record<string, unknown>};
+  tools: Tool[];
+  actions: ToolAction[];
   onChange: (changes: {name?: string; config?: Record<string, unknown>}) => void;
+  onPickTool: (toolID: string) => void;
   onRemove: () => void;
   t: ReturnType<typeof useTranslation>;
 }) {
@@ -526,20 +585,96 @@ function NodeSettings({node, onChange, onRemove, t}: {
         />
       ) : null}
 
-      {node.kind === 'tool' ? (
+      {node.kind === 'condition' ? (
         <VStack gap={2} width="100%">
           <TextInput
-            label={t('workflow.toolID')}
-            onChange={(value) => onChange({config: {...config, tool_id: value}})}
+            label={t('workflow.left')}
+            onChange={(value) => onChange({config: {...config, left: value}})}
+            placeholder="{{input}}"
+            value={String(config.left ?? '')}
+            width="100%"
+          />
+          <Selector
+            label={t('workflow.operator')}
+            onChange={(value) => onChange({config: {...config, operator: value}})}
+            options={[
+              {value: 'contains', label: t('workflow.opContains')},
+              {value: 'equals', label: t('workflow.opEquals')},
+              {value: 'starts_with', label: t('workflow.opStartsWith')},
+              {value: 'not_empty', label: t('workflow.opNotEmpty')},
+              {value: 'greater', label: t('workflow.opGreater')},
+              {value: 'less', label: t('workflow.opLess')},
+            ]}
+            value={String(config.operator ?? 'contains')}
+            width="100%"
+          />
+          {config.operator === 'not_empty' ? null : (
+            <TextInput
+              label={t('workflow.right')}
+              onChange={(value) => onChange({config: {...config, right: value}})}
+              value={String(config.right ?? '')}
+              width="100%"
+            />
+          )}
+          <Text color="secondary" type="supporting">{t('workflow.conditionHint')}</Text>
+        </VStack>
+      ) : null}
+
+      {node.kind === 'loop' ? (
+        <VStack gap={2} width="100%">
+          <TextInput
+            label={t('workflow.loopSource')}
+            onChange={(value) => onChange({config: {...config, source: value}})}
+            placeholder="{{input}}"
+            value={String(config.source ?? '')}
+            width="100%"
+          />
+          <TextArea
+            label={t('workflow.prompt')}
+            onChange={(value) => onChange({config: {...config, prompt: value}})}
+            placeholder={t('workflow.loopPromptHint')}
+            rows={5}
+            value={String(config.prompt ?? '')}
+            width="100%"
+          />
+          <Text color="secondary" type="supporting">{t('workflow.loopHint')}</Text>
+        </VStack>
+      ) : null}
+
+      {node.kind === 'tool' ? (
+        <VStack gap={2} width="100%">
+          <Selector
+            label={t('workflow.tool')}
+            onChange={(value) => {
+              onPickTool(value);
+              // The old action belonged to the old tool, so it goes with it
+              // rather than being sent to a tool that has never heard of it.
+              onChange({config: {...config, tool_id: value, action_id: ''}});
+            }}
+            options={[
+              {value: '', label: t('workflow.toolUnset')},
+              ...tools.map((item) => ({value: item.id, label: item.name})),
+            ]}
             value={String(config.tool_id ?? '')}
             width="100%"
           />
-          <TextInput
-            label={t('workflow.actionID')}
+          <Selector
+            isDisabled={!config.tool_id}
+            label={t('workflow.action')}
             onChange={(value) => onChange({config: {...config, action_id: value}})}
+            options={[
+              {value: '', label: t('workflow.actionUnset')},
+              ...actions.map((item) => ({value: item.id, label: item.name})),
+            ]}
             value={String(config.action_id ?? '')}
             width="100%"
           />
+          {/* Which action, in words, since the canvas shows only its id. */}
+          {config.action_id ? (
+            <Text color="secondary" type="supporting">
+              {actions.find((item) => item.id === config.action_id)?.description ?? ''}
+            </Text>
+          ) : null}
         </VStack>
       ) : null}
 

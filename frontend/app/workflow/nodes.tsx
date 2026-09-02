@@ -94,7 +94,16 @@ export function FlowNode({data, selected}: NodeProps & {data: FlowNodeData}) {
           ) : null}
         </VStack>
       </Card>
-      {data.kind !== 'end' ? <Handle position={Position.Right} type="source" /> : null}
+      {data.kind === 'condition' ? (
+        <>
+          {/* Two ways out, placed apart and labelled, because an unlabelled
+              pair is a coin toss for whoever draws the next edge. */}
+          <Handle id="true" position={Position.Right} style={{top: '35%'}} type="source" />
+          <Handle id="false" position={Position.Right} style={{top: '70%'}} type="source" />
+        </>
+      ) : data.kind !== 'end' ? (
+        <Handle position={Position.Right} type="source" />
+      ) : null}
     </VStack>
   );
 }

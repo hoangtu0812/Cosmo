@@ -13,7 +13,7 @@ import (
 	"unicode/utf8"
 )
 
-// Node kinds. Only the first four run; the rest exist so the shape of the
+// Node kinds. Six run; the rest exist so the shape of the
 // thing being built is visible in the library rather than sprung on the reader
 // later. What runs and what does not is decided in one place - see Runnable -
 // so the editor and the runner cannot disagree about it.
@@ -35,7 +35,7 @@ const (
 // the rest and the runner refuses them, both from this.
 func Runnable(kind string) bool {
 	switch kind {
-	case KindStart, KindLLM, KindTool, KindEnd:
+	case KindStart, KindLLM, KindTool, KindEnd, KindCondition, KindLoop:
 		return true
 	}
 	return false
@@ -85,6 +85,9 @@ type Edge struct {
 	ID     string `json:"id"`
 	Source string `json:"source"`
 	Target string `json:"target"`
+	// Which way out of a Condition this edge leaves by: "true", "false", or
+	// empty for every other kind of node, which has only one way out.
+	Branch string `json:"branch,omitempty"`
 }
 
 type Graph struct {

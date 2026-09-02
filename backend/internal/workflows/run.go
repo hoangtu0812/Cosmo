@@ -13,11 +13,13 @@ import (
 // lighting up from these, which is why they are streamed rather than returned
 // at the end: a run that takes half a minute should not look like a hang.
 type Step struct {
-	NodeID     string `json:"node_id"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	Output     string `json:"output,omitempty"`
+	NodeID string `json:"node_id"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Output string `json:"output,omitempty"`
+	// Which way a Condition went. Empty for every other kind.
+	Branch     string `json:"branch,omitempty"`
 	Error      string `json:"error,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 }
@@ -58,12 +60,20 @@ func (repository *Repository) Run(
 	ordered := Order(graph)
 	// What each node produced, so a later node can quote it.
 	outputs := map[string]string{}
+	// Edges a condition has closed. Everything a closed edge was the only way
+	// into is skipped rather than run.
+	closed := map[string]bool{}
 
 	for _, node := range ordered {
-		label := node.Name
-		if label == "" {
-			label = node.Kind
+		// Asked fresh each time, because the answer changes as conditions
+		// decide - a node two branches meet at is reachable until both are
+		// closed, and the last condition to run is what settles it.
+		if !ReachableFromStart(graph, closed)[node.ID] {
+			report(Step{NodeID: node.ID, Kind: node.Kind, Name: nameOf(node), Status: StatusSkipped,
+				Error: "Nhánh này không được chọn."})
+			continue
 		}
+		label := nameOf(node)
 		report(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusRunning})
 
 		if !Runnable(node.Kind) {
@@ -76,7 +86,7 @@ func (repository *Repository) Run(
 		}
 
 		startedAt := time.Now()
-		output, err := repository.runNode(ctx, node, input, ordered, outputs, models, options, tools)
+		output, taken, err := repository.runNode(ctx, node, input, ordered, outputs, models, options, tools)
 		elapsed := time.Since(startedAt).Milliseconds()
 		if err != nil {
 			report(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusError,
@@ -84,8 +94,16 @@ func (repository *Repository) Run(
 			return err
 		}
 		outputs[node.ID] = output
+		// A condition closes every way out it did not take.
+		if node.Kind == KindCondition {
+			for _, edge := range graph.Edges {
+				if edge.Source == node.ID && branchOf(edge) != taken {
+					closed[edge.ID] = true
+				}
+			}
+		}
 		report(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusComplete,
-			Output: output, DurationMS: elapsed})
+			Output: output, Branch: taken, DurationMS: elapsed})
 	}
 	return nil
 }
@@ -99,24 +117,24 @@ func (repository *Repository) runNode(
 	models *modelgateway.Client,
 	options modelgateway.Options,
 	tools Invoker,
-) (string, error) {
+) (string, string, error) {
 	switch node.Kind {
 	case KindStart:
-		return input, nil
+		return input, "", nil
 
 	case KindEnd:
 		// The end says what the workflow answered. Given a template it uses
 		// it; given nothing it repeats whatever fed it, which is what a reader
 		// means by "the result" when they have not said otherwise.
 		if template := text(node.Config, "template"); template != "" {
-			return fill(template, input, outputs), nil
+			return fill(template, input, outputs), "", nil
 		}
-		return everythingProduced(ordered, outputs), nil
+		return everythingProduced(ordered, outputs), "", nil
 
 	case KindLLM:
 		prompt := fill(text(node.Config, "prompt"), input, outputs)
 		if strings.TrimSpace(prompt) == "" {
-			return "", fmt.Errorf("node %q has no prompt", node.Name)
+			return "", "", fmt.Errorf("node %q has no prompt", node.Name)
 		}
 		messages := []modelgateway.Message{}
 		if system := text(node.Config, "system"); system != "" {
@@ -130,15 +148,15 @@ func (repository *Repository) runNode(
 		}
 		reply, err := models.Complete(ctx, messages, nodeOptions)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return trim(reply), nil
+		return trim(reply), "", nil
 
 	case KindTool:
 		toolID := text(node.Config, "tool_id")
 		actionID := text(node.Config, "action_id")
 		if toolID == "" || actionID == "" {
-			return "", fmt.Errorf("node %q has no action chosen", node.Name)
+			return "", "", fmt.Errorf("node %q has no action chosen", node.Name)
 		}
 		arguments := map[string]any{}
 		if raw, ok := node.Config["arguments"].(map[string]any); ok {
@@ -153,15 +171,65 @@ func (repository *Repository) runNode(
 			}
 		}
 		if tools == nil {
-			return "", ErrNotRunnable
+			return "", "", ErrNotRunnable
 		}
 		reply, err := tools.InvokeAction(ctx, toolID, actionID, arguments)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return trim(reply), nil
+		return trim(reply), "", nil
+
+	case KindCondition:
+		left := fill(text(node.Config, "left"), input, outputs)
+		right := fill(text(node.Config, "right"), input, outputs)
+		taken := BranchFalse
+		if Judge(left, text(node.Config, "operator"), right) {
+			taken = BranchTrue
+		}
+		// The output is the decision itself, so a later node can quote it and
+		// the reader can see it in the step without opening anything.
+		return taken, taken, nil
+
+	case KindLoop:
+		items := SplitItems(fill(text(node.Config, "source"), input, outputs))
+		prompt := text(node.Config, "prompt")
+		if prompt == "" {
+			return "", "", fmt.Errorf("node %q has no prompt", node.Name)
+		}
+		if len(items) == 0 {
+			return "", "", nil
+		}
+		results := make([]string, 0, len(items))
+		for _, item := range items {
+			// {{item}} is what the loop adds; everything else a prompt can
+			// reference still works, so a loop body can quote earlier nodes.
+			body := strings.ReplaceAll(fill(prompt, input, outputs), "{{item}}", item)
+			reply, err := models.Complete(ctx, []modelgateway.Message{{Role: "user", Content: body}}, options)
+			if err != nil {
+				return "", "", err
+			}
+			results = append(results, strings.TrimSpace(reply))
+		}
+		return trim(strings.Join(results, "\n")), "", nil
 	}
-	return "", ErrNotRunnable
+	return "", "", ErrNotRunnable
+}
+
+func nameOf(node Node) string {
+	if node.Name != "" {
+		return node.Name
+	}
+	return node.Kind
+}
+
+// branchOf reads which way out an edge leaves by. An edge drawn before
+// branches existed carries nothing, and counts as the true side so an older
+// graph keeps working rather than silently closing every way forward.
+func branchOf(edge Edge) string {
+	if edge.Branch == "" {
+		return BranchTrue
+	}
+	return edge.Branch
 }
 
 // fill replaces {{input}} and {{nodeID}} with what they hold. Deliberately not

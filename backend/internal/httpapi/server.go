@@ -193,6 +193,7 @@ func (s *Server) Router() http.Handler {
 		protected.Delete("/api/conversations/{conversationID}", s.deleteConversation)
 		protected.Get("/api/conversations/{conversationID}/messages", s.listMessages)
 		protected.Post("/api/conversations/{conversationID}/messages", s.chat)
+		protected.Delete("/api/conversations/{conversationID}/messages/{messageID}", s.deleteMessage)
 
 		protected.Post("/api/workspaces", s.createWorkspace)
 		protected.Patch("/api/workspaces/{workspaceID}", s.updateWorkspace)

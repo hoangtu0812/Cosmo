@@ -72,9 +72,7 @@ trong thư viện, và lần chạy bỏ qua rồi nói rõ.
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
-| Node Điều kiện, Lặp | Canvas workflow | Rẽ nhánh và lặp; hiện là vỏ, lần chạy bỏ qua | chưa xếp |
-| Node Code, HTTP, Knowledge, Agent | Canvas workflow | Bốn loại node còn lại; hiện là vỏ | chưa xếp |
-| Chọn tool bằng danh sách | Node Tool trên canvas | Hiện phải gõ mã tool và mã action bằng tay | chưa xếp |
+| Node Code, HTTP, Knowledge, Agent | Canvas workflow | Bốn loại node vỏ còn lại | chưa xếp |
 
 ## Tài khoản
 
@@ -107,7 +105,7 @@ trong thư viện, và lần chạy bỏ qua rồi nói rõ.
 | Cải thiện prompt | Editor agent › panel | Model viết lại prompt và so sánh kết quả | chưa xếp |
 | Hạn mức capability | Editor agent › Capabilities | Gom nhóm kèm hạn mức, và nhận cả agent lẫn workflow làm capability | chưa xếp |
 | Thông tin model khi chọn | Chọn model | Context, max output, và model có hỗ trợ vision/tool hay không | chưa xếp |
-| Lưu, chia sẻ, xoá tin nhắn | Chat | Ba thao tác còn lại khi rê chuột lên câu trả lời; copy đã có | chưa xếp |
+| Lưu và chia sẻ tin nhắn | Chat | Lưu vào đâu, chia sẻ với ai — hai câu hỏi sản phẩm chưa có lời đáp; copy và xoá đã có | chưa xếp |
 | Thiết lập chạy thử | Editor agent › panel Debug | Bật/tắt ghi nhớ riêng cho phiên chạy thử, hiện chỉ hiển thị trạng thái | chưa xếp |
 | Tệp đính kèm khi chạy thử | Editor agent › panel Debug | Gửi tệp kèm câu hỏi trong panel Debug | chưa xếp |
 
@@ -130,6 +128,11 @@ Ghi lại để khỏi nhầm là vỏ:
 - Copy câu trả lời, ở cả trang Chat và panel Debug
 - Avatar nhân vật sinh tại chỗ, giấy phép CC0
 - Canvas workflow toàn màn hình, chạy thật, animation theo bước thật
+- Node Điều kiện: rẽ nhánh thật, nhánh không chọn bị bỏ qua, chỗ hai nhánh gặp lại vẫn chạy
+- Node Lặp: chạy một prompt cho từng dòng của danh sách, tối đa 20 dòng
+- Node Tool chọn từ danh sách tool và action của workspace
+- Panel Debug chỉ mở hội thoại theo bản nháp; hội thoại đã ghim ghi rõ phiên bản
+- Xoá một lượt hỏi đáp trong Chat, xoá cả cặp câu hỏi và câu trả lời
 
 ## Nguyên tắc khi thêm vỏ mới
 

@@ -11,6 +11,7 @@ import {Grid} from '@astryxdesign/core/Grid';
 import {Icon} from '@astryxdesign/core/Icon';
 import {HStack, Layout, LayoutContent, VStack} from '@astryxdesign/core/Layout';
 import {SelectableCard} from '@astryxdesign/core/SelectableCard';
+import {Skeleton} from '@astryxdesign/core/Skeleton';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Token} from '@astryxdesign/core/Token';
@@ -41,10 +42,14 @@ export function ToolMarket({isOpen, onOpen, onOpenChange, workspaceID}: {
   // offers the way to it rather than a second copy of it.
   const [installed, setInstalled] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
+  // "Nothing matches that" is an answer about the catalogue. Until it has
+  // been read, the market has no answer to give.
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
+    setIsLoading(true);
     api.toolCatalog(workspaceID)
       .then((result) => {
         if (cancelled) return;
@@ -52,7 +57,8 @@ export function ToolMarket({isOpen, onOpen, onOpenChange, workspaceID}: {
         setCategories(result.categories);
         setInstalled(result.installed ?? {});
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
   }, [isOpen, workspaceID]);
 
@@ -144,7 +150,11 @@ export function ToolMarket({isOpen, onOpen, onOpenChange, workspaceID}: {
 
                 {error ? <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} /> : null}
 
-                {shownCategories.length === 0 ? (
+                {isLoading ? (
+                  <Grid columns={{minWidth: 240, max: 3}} gap={3} width="100%">
+                    {[0, 1, 2, 3, 4, 5].map((index) => <Skeleton height={150} index={index} key={index} width="100%" />)}
+                  </Grid>
+                ) : shownCategories.length === 0 ? (
                   <EmptyState description={t('tool.catalogNoMatch')} isCompact title="—" />
                 ) : shownCategories.map((name) => {
                   const inCategory = matching.filter((entry) => entry.category === name);
@@ -213,7 +223,7 @@ export function ToolMarket({isOpen, onOpen, onOpenChange, workspaceID}: {
         header={
           <DialogHeader
             onOpenChange={onOpenChange}
-            title={`${t('tool.marketplace')} · ${entries.length}`}
+            title={isLoading ? t('tool.marketplace') : `${t('tool.marketplace')} · ${entries.length}`}
           />
         }
       />

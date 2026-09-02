@@ -30,8 +30,15 @@ const FRAMED_ROUTES = ['/chat', '/knowledge', '/agents', '/projects', '/schedule
 // Chat and Knowledge are one workspace application. Keeping the frame above
 // their route content lets navigation replace only that content; the workspace
 // context, conversation list and profile card never turn into a second page.
+// A canvas is the whole job while it is open, so the workflow editor takes the
+// window: the rail and the second column would be a third of the room to draw
+// in, spent on navigation nobody uses mid-edit. Its own header carries the way
+// back out.
+const UNFRAMED_ROUTES = [/^\/workflow\/[^/]+$/];
+
 export function WorkspaceFrame({children}: {children: React.ReactNode}) {
   const pathname = usePathname();
+  if (UNFRAMED_ROUTES.some((route) => route.test(pathname))) return <>{children}</>;
   if (!FRAMED_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))) return <>{children}</>;
   // The shell and every page it frames read the request URL through
   // useSearchParams, which a prerender has no answer for. One boundary here

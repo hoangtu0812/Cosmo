@@ -16,12 +16,19 @@ import (
 // went and how long it took. It is streamed twice - once running, once
 // settled - and the settled set is stored on the message it produced.
 type ToolCall struct {
-	ID         string `json:"id"`
-	Tool       string `json:"tool"`
-	Action     string `json:"action"`
-	Status     string `json:"status"`
+	ID     string `json:"id"`
+	Tool   string `json:"tool"`
+	Action string `json:"action"`
+	Status string `json:"status"`
+	// Arguments as the model wrote them, so the reader can see what was asked
+	// and not only what came back.
+	Arguments  string `json:"arguments,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 	Detail     string `json:"detail,omitempty"`
+	// How many runes of the answer had been written when this call was made.
+	// The transcript splits the text at these points and puts the call back
+	// where it happened, rather than gathering every call above the answer.
+	At int `json:"at"`
 }
 
 // A tool answer can be a whole document. What goes on screen is a glance at it;
@@ -61,10 +68,11 @@ func (s *Server) runToolRounds(
 	options modelgateway.Options,
 	models *modelgateway.Client,
 	runID string,
+	answer *strings.Builder,
 ) ([]modelgateway.Message, []ToolCall) {
 	reported := []ToolCall{}
 	for round := 0; round < maxToolRounds; round++ {
-		_, calls, err := models.Decide(ctx, history, definitions, options)
+		narration, calls, err := models.Decide(ctx, history, definitions, options)
 		if err != nil {
 			// A failed round is not a failed answer: the model can still reply
 			// from what it already has, so this is reported and stepped over.
@@ -75,6 +83,17 @@ func (s *Server) runToolRounds(
 		}
 		if len(calls) == 0 {
 			return history, reported
+		}
+
+		// What the model said on its way to calling is part of the answer, not
+		// scaffolding: "let me look that up" is what makes the pause legible.
+		if trimmed := strings.TrimSpace(narration); trimmed != "" {
+			if answer.Len() > 0 {
+				trimmed = "\n\n" + trimmed
+			}
+			answer.WriteString(trimmed)
+			writeSSE(w, "delta", map[string]string{"content": trimmed})
+			flusher.Flush()
 		}
 
 		// The assistant turn that asked has to be echoed before its results, or
@@ -94,7 +113,14 @@ func (s *Server) runToolRounds(
 
 		for _, call := range calls {
 			toolName, actionName := tools.SplitCallName(call.Name)
-			shown := ToolCall{ID: call.ID, Tool: toolName, Action: actionName, Status: "running"}
+			shown := ToolCall{
+				ID:        call.ID,
+				Tool:      toolName,
+				Action:    actionName,
+				Status:    "running",
+				Arguments: call.Arguments,
+				At:        len([]rune(answer.String())),
+			}
 			writeSSE(w, "tool", shown)
 			// The one-line status stays for readers of the plain stream; the
 			// event above is what the transcript draws from.

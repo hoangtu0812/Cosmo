@@ -31,10 +31,9 @@ import {Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Agent, api, APIError, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
-import {ToolCallTrail} from '../components/ToolCallTrail';
+import {AnswerWithToolCalls} from '../components/AnswerWithToolCalls';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
-import {Markdown} from '@astryxdesign/core/Markdown';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Selector} from '@astryxdesign/core/Selector';
 import {StatusLabel} from '../components/StatusLabel';
@@ -565,14 +564,16 @@ export default function ChatPage() {
                         >
                           {message.content
                             ? <VStack gap={3}>
-                              <ToolCallTrail calls={isActiveStream ? liveToolCalls : message.tool_calls ?? []} />
-                              <Markdown density="compact" isStreaming={isActiveStream} headingLevelStart={3}>
+                              <AnswerWithToolCalls
+                                calls={isActiveStream ? liveToolCalls : message.tool_calls ?? []}
+                                isStreaming={isActiveStream}
+                              >
                                 {answerForDisplay(message.content, message.citations ?? [], isActiveStream)}
-                              </Markdown>
+                              </AnswerWithToolCalls>
                               {isActiveStream ? null : <CitationList citations={message.citations ?? []} showEmpty />}
                             </VStack>
                             : (streaming ? <VStack gap={3}>
-                              <ToolCallTrail calls={liveToolCalls} />
+                              <AnswerWithToolCalls calls={liveToolCalls}>{''}</AnswerWithToolCalls>
                               <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state={orbState} /><Text color="secondary" type="supporting">{status}</Text></HStack>
                               <CitationList citations={message.citations ?? []} />
                             </VStack> : '')}

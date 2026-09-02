@@ -936,6 +936,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	// The answer is accumulated across both phases: a tool round can narrate
+	// before it calls, and that narration is part of the same answer.
+	var assistant strings.Builder
 	// An agent with tools gets to use them before it answers. Nothing happens
 	// here for a plain model chat, which has none attached.
 	if conversationAgentID != "" {
@@ -945,7 +948,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		if definitionErr != nil {
 			s.logger.Error("tool definitions failed", "agent_id", conversationAgentID, "error", definitionErr)
 		} else if len(definitions) > 0 {
-			history, toolCalls = s.runToolRounds(r.Context(), w, flusher, conversationAgentID, history, definitions, agentTools, options, models, chatRun.ID)
+			history, toolCalls = s.runToolRounds(r.Context(), w, flusher, conversationAgentID, history, definitions, agentTools, options, models, chatRun.ID, &assistant)
 		}
 	}
 
@@ -961,7 +964,6 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var assistant strings.Builder
 	err = models.Stream(r.Context(), history, options, func(delta string) error {
 		assistant.WriteString(delta)
 		writeSSE(w, "delta", map[string]string{"content": delta})

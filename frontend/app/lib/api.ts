@@ -252,7 +252,7 @@ export type Citation = {index: number; kb_id: string; document_id: string; title
 // One call a turn made, as the transcript shows it: what was reached, how it
 // went, how long it took.
 export type ToolCallStatus = 'running' | 'complete' | 'error';
-export type MessageToolCall = {id: string; tool: string; action: string; status: ToolCallStatus; duration_ms?: number; detail?: string};
+export type MessageToolCall = {id: string; tool: string; action: string; status: ToolCallStatus; arguments?: string; duration_ms?: number; detail?: string; at: number};
 export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; tool_calls?: MessageToolCall[]; created_at: string};
 export type RunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
 export type Run = {

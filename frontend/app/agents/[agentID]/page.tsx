@@ -30,7 +30,7 @@ import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {StatusLabel} from '../../components/StatusLabel';
-import {ToolCallTrail} from '../../components/ToolCallTrail';
+import {AnswerWithToolCalls} from '../../components/AnswerWithToolCalls';
 import {APIError, Agent, AgentVersion, Conversation, KnowledgeBase, Message, MessageToolCall, RunStep, Tool, api, streamChat} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
@@ -879,11 +879,8 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
               <Card key={message.id} padding={3} width="100%" xstyle={entry}>
                 <VStack gap={1}>
                   <Text color="secondary" type="supporting">{message.role === 'user' ? agent.owner_name || 'You' : agent.name}</Text>
-                  {message.role === 'assistant' && message.tool_calls?.length
-                    ? <ToolCallTrail calls={message.tool_calls} />
-                    : null}
                   {message.role === 'assistant'
-                    ? <Markdown headingLevelStart={3}>{message.content}</Markdown>
+                    ? <AnswerWithToolCalls calls={message.tool_calls ?? []}>{message.content}</AnswerWithToolCalls>
                     : <Text type="body">{message.content}</Text>}
                 </VStack>
               </Card>
@@ -892,8 +889,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
               <Card padding={3} width="100%">
                 <VStack gap={2}>
                   <Text color="secondary" type="supporting">{agent.name}</Text>
-                  {liveToolCalls.length > 0 ? <ToolCallTrail calls={liveToolCalls} /> : null}
-                  {streamed ? <Markdown headingLevelStart={3} isStreaming>{revealed}</Markdown> : null}
+                  <AnswerWithToolCalls calls={liveToolCalls} isStreaming>{revealed}</AnswerWithToolCalls>
                 </VStack>
               </Card>
             ) : null}

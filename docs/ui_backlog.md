@@ -101,6 +101,7 @@ nó trỏ tới.
 | Thao tác trên tin nhắn | Chat | Copy, lưu, chia sẻ, xoá khi rê chuột lên câu trả lời | chưa xếp |
 | Thiết lập chạy thử | Editor agent › panel Debug | Bật/tắt ghi nhớ riêng cho phiên chạy thử, hiện chỉ hiển thị trạng thái | chưa xếp |
 | Tệp đính kèm khi chạy thử | Editor agent › panel Debug | Gửi tệp kèm câu hỏi trong panel Debug | chưa xếp |
+| MCP qua stdio | Thêm MCP | Chỉ hỗ trợ Streamable HTTP; stdio cần chạy tiến trình con | chưa xếp |
 
 ## Đã dựng UI và **có** chức năng thật
 

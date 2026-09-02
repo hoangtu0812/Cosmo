@@ -1,0 +1,24 @@
+# An MCP server to verify the client against, kept out of the main compose file
+# so it never runs in a real deployment.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.mcpdemo.yml up -d
+#
+# The egress guard refuses private addresses on purpose, and a compose network
+# is private, so the demo host has to be named explicitly - the same mechanism
+# an on-premises deployment uses for its own internal APIs. The expression
+# appends to whatever TOOL_EGRESS_ALLOWED_HOSTS already holds rather than
+# replacing it.
+services:
+  mcpdemo:
+    build:
+      context: ./backend
+    entrypoint: ["cosmo-mcpdemo"]
+    environment:
+      MCPDEMO_ADDRESS: ":8090"
+
+  backend:
+    environment:
+      TOOL_EGRESS_ALLOWED_HOSTS: "${TOOL_EGRESS_ALLOWED_HOSTS:-}${TOOL_EGRESS_ALLOWED_HOSTS:+,}mcpdemo"
+    depends_on:
+      mcpdemo:
+        condition: service_started

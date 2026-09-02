@@ -362,3 +362,46 @@ func (s *Server) installCatalogTool(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"tool": installed})
 }
+
+// importOpenAPI reads the API's own description rather than asking a model to
+// remember it. Existing actions are left alone: an import adds what the
+// specification has, and a name already in use is skipped by SaveAction.
+func (s *Server) importOpenAPI(w http.ResponseWriter, r *http.Request) {
+	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	if !ok {
+		return
+	}
+	var input struct {
+		URL  string `json:"url"`
+		Spec string `json:"spec"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+
+	raw := []byte(input.Spec)
+	if strings.TrimSpace(input.Spec) == "" {
+		fetched, err := s.tools.FetchOpenAPI(r.Context(), input.URL)
+		if err != nil {
+			writeToolError(w, err)
+			return
+		}
+		raw = fetched
+	}
+
+	parsed, err := tools.ActionsFromOpenAPI(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Không đọc được tài liệu OpenAPI.")
+		return
+	}
+
+	saved := []tools.Action{}
+	for _, action := range parsed {
+		result, saveErr := s.tools.SaveAction(r.Context(), item.ID, "", action)
+		if saveErr != nil {
+			continue
+		}
+		saved = append(saved, result)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
+}

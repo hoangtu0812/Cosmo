@@ -45,8 +45,15 @@ khi publish, và model tự gọi trong lượt trả lời.
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
-| MCP qua stdio | Thêm tool › MCP | Chạy server như tiến trình con; hiện chỉ hỗ trợ Streamable HTTP | chưa xếp |
-| Nhập từ OpenAPI | Thêm tool | Đọc spec để sinh action thay vì nhờ model đoán | chưa xếp |
+| MCP qua stdio | Thêm tool › MCP | Chạy server như tiến trình con; hiện hỗ trợ Streamable HTTP | chưa xếp |
+
+Cách điền action cho một tool, xếp theo mức đáng tin: hỏi chính MCP server,
+đọc tài liệu OpenAPI của API, hoặc nhờ model soạn. Cả ba đều đã chạy.
+
+Egress mặc định chỉ ra Internet công cộng. Triển khai nội bộ khai báo host qua
+`TOOL_EGRESS_ALLOWED_HOSTS` (phân tách bằng dấu phẩy); host được khai báo sẽ
+phân giải ra IP tại thời điểm gọi, nên một tên trong danh sách chỉ mở đúng máy
+nó trỏ tới.
 
 ## Tài khoản
 

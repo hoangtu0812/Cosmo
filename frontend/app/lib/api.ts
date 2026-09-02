@@ -117,6 +117,8 @@ export type Tool = {
   workspace_id: string;
   visibility: 'private' | 'workspace';
   base_url: string;
+  /** 'http' for an API described by hand, 'mcp' for a server that describes itself. */
+  kind: 'http' | 'mcp';
   auth_type: 'none' | 'bearer' | 'header';
   auth_header_name: string;
   auth_hint: string;
@@ -369,6 +371,8 @@ export const api = {
     request<{tool: Tool}>(`/api/tools/catalog/${encodeURIComponent(entryID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
   draftToolActions: (toolID: string, description: string, workspaceID?: string) =>
     request<{actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}/draft${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({description})}),
+  importOpenAPI: (toolID: string, input: {url?: string; spec?: string}, workspaceID?: string) =>
+    request<{actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}/openapi${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify(input)}),
   discoverMCPTools: (toolID: string, workspaceID?: string) =>
     request<{actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}/discover${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
   tools: (workspaceID?: string) =>

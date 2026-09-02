@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ArrowLeft, Home, Play, Plus, Search, ShieldCheck, Trash2, Zap} from 'lucide-react';
+import {ArrowLeft, Home, Play, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Zap} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -213,7 +213,7 @@ function ToolDetailScreen() {
                     workspaceID={workspaceID}
                   />
                 ) : (
-                  <ToolOverview actionCount={actions.length} onSaved={setTool} t={t} tool={tool} workspaceID={workspaceID} />
+                  <ToolOverview actionCount={actions.length} onReload={load} onSaved={setTool} t={t} tool={tool} workspaceID={workspaceID} />
                 )}
               </VStack>
             </HStack>
@@ -238,13 +238,15 @@ function ToolDetailScreen() {
 // how it authenticates. The credential is write-only by design - the server
 // returns a hint, never the value - so the field is empty on every visit and
 // says what is already stored beside it.
-function ToolOverview({tool, actionCount, workspaceID, onSaved, t}: {
+function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   tool: Tool;
   /* Counted from the list beside it rather than the row loaded with the page,
      so adding an action does not leave the overview claiming zero. */
   actionCount: number;
   workspaceID: string;
   onSaved: (tool: Tool) => void;
+  /** Actions arrive in the column beside this one, so the page reloads both. */
+  onReload: () => void;
   t: ReturnType<typeof useTranslation>;
 }) {
   const [name, setName] = useState(tool.name);
@@ -256,6 +258,29 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, t}: {
   const [visibility, setVisibility] = useState(tool.visibility);
   const [isSaving, setIsSaving] = useState(false);
   const [failure, setFailure] = useState('');
+  const [specURL, setSpecURL] = useState('');
+  const [busy, setBusy] = useState('');
+
+  // All three routes end the same way - actions appear in the column beside
+  // this one - so they share a handler and the caller only says which.
+  async function fill(which: 'draft' | 'openapi' | 'discover') {
+    setBusy(which);
+    setFailure('');
+    try {
+      if (which === 'draft') {
+        await api.draftToolActions(tool.id, description, workspaceID);
+      } else if (which === 'openapi') {
+        await api.importOpenAPI(tool.id, {url: specURL}, workspaceID);
+      } else {
+        await api.discoverMCPTools(tool.id, workspaceID);
+      }
+      onReload();
+    } catch (caught) {
+      setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    } finally {
+      setBusy('');
+    }
+  }
 
   async function save(extra: Record<string, unknown> = {}) {
     setIsSaving(true);
@@ -385,6 +410,58 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, t}: {
           variant="primary"
         />
       </HStack>
+
+      {/* Three ways to fill a tool with actions, in order of how much they can
+          be trusted: the server's own answer, the API's own description, then
+          the model's recollection. */}
+      <VStack gap={3} width="100%">
+        <Text type="label">{t('tool.fillActions')}</Text>
+        {tool.kind === 'mcp' ? (
+          <HStack gap={2} hAlign="start">
+            <Button
+              icon={<RefreshCw size={14} />}
+              isDisabled={!tool.is_editable || busy !== ''}
+              isLoading={busy === 'discover'}
+              label={t('tool.rediscover')}
+              onClick={() => void fill('discover')}
+              size="sm"
+              variant="secondary"
+            />
+          </HStack>
+        ) : (
+          <VStack gap={3} width="100%">
+            <HStack gap={2} vAlign="end" width="100%">
+              <TextInput
+                className="min-w-0"
+                label={t('tool.openapiURL')}
+                onChange={setSpecURL}
+                placeholder="https://api.example.com/openapi.json"
+                value={specURL}
+                width="100%"
+              />
+              <Button
+                isDisabled={!tool.is_editable || !specURL.trim() || busy !== ''}
+                isLoading={busy === 'openapi'}
+                label={t('tool.importOpenAPI')}
+                onClick={() => void fill('openapi')}
+                size="sm"
+                variant="secondary"
+              />
+            </HStack>
+            <HStack gap={2} hAlign="start">
+              <Button
+                icon={<Sparkles size={14} />}
+                isDisabled={!tool.is_editable || busy !== ''}
+                isLoading={busy === 'draft'}
+                label={t('tool.draftActions')}
+                onClick={() => void fill('draft')}
+                size="sm"
+                variant="ghost"
+              />
+            </HStack>
+          </VStack>
+        )}
+      </VStack>
     </VStack>
   );
 }

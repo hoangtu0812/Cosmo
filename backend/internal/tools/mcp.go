@@ -41,7 +41,7 @@ type rpcError struct {
 // guard applies as for a plain HTTP tool: an MCP endpoint is still a URL a
 // user chose.
 func (repository *Repository) callMCP(ctx context.Context, tool Tool, method string, params any, sessionID string) (json.RawMessage, string, error) {
-	if err := CheckEgress(tool.BaseURL); err != nil {
+	if err := repository.egress.CheckEgress(tool.BaseURL); err != nil {
 		return nil, "", err
 	}
 	payload, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: params})
@@ -76,7 +76,7 @@ func (repository *Repository) callMCP(ctx context.Context, tool Tool, method str
 		}
 	}
 
-	response, err := guardedClient().Do(request)
+	response, err := repository.client().Do(request)
 	if err != nil {
 		return nil, "", ErrCallFailed
 	}

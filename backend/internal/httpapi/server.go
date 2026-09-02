@@ -127,7 +127,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		knowledge: knowledge.New(cfg.RAGServiceURL, cfg.RAGTimeout),
 		runs:      runs.NewRepository(db),
 		agents:    agents.NewRepository(db, logger),
-		tools:     tools.NewRepository(db, logger, box),
+		tools:     tools.NewRepository(db, logger, box, tools.EgressPolicy{AllowedHosts: cfg.ToolEgressAllowedHosts}),
 		secrets:   box,
 		logger:    logger,
 	}
@@ -236,6 +236,7 @@ func (s *Server) Router() http.Handler {
 		protected.Post("/api/tools/{toolID}/actions", s.saveToolAction)
 		protected.Post("/api/tools/{toolID}/draft", s.generateToolActions)
 		protected.Post("/api/tools/{toolID}/discover", s.discoverMCPTools)
+		protected.Post("/api/tools/{toolID}/openapi", s.importOpenAPI)
 		protected.Put("/api/tools/{toolID}/actions/{actionID}", s.saveToolAction)
 		protected.Delete("/api/tools/{toolID}/actions/{actionID}", s.deleteToolAction)
 		protected.Post("/api/tools/{toolID}/actions/{actionID}/test", s.testToolAction)

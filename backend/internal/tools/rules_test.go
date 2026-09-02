@@ -19,6 +19,7 @@ func TestValidateBaseURL(t *testing.T) {
 }
 
 func TestCheckEgressRefusesPrivateAddresses(t *testing.T) {
+	policy := EgressPolicy{}
 	// The whole point of the guard: a user-supplied URL must not be able to
 	// reach the machine this server runs on, its network, or cloud metadata.
 	blocked := []string{
@@ -33,11 +34,11 @@ func TestCheckEgressRefusesPrivateAddresses(t *testing.T) {
 		"http://0.0.0.0/",
 	}
 	for _, raw := range blocked {
-		if err := CheckEgress(raw); !errors.Is(err, ErrPrivateAddress) {
+		if err := policy.CheckEgress(raw); !errors.Is(err, ErrPrivateAddress) {
 			t.Fatalf("CheckEgress(%q) should have been refused, got %v", raw, err)
 		}
 	}
-	if err := CheckEgress("https://93.184.216.34/"); err != nil {
+	if err := policy.CheckEgress("https://93.184.216.34/"); err != nil {
 		t.Fatalf("a public address should pass, got %v", err)
 	}
 }
@@ -138,7 +139,7 @@ func TestBuildRequestPlacesArguments(t *testing.T) {
 			{Name: "note", In: "body"},
 		},
 	}
-	target, body, err := buildRequest(tool, action, map[string]any{"id": "42", "locale": "vi", "note": "hello"})
+	target, body, err := buildRequest(EgressPolicy{}, tool, action, map[string]any{"id": "42", "locale": "vi", "note": "hello"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -152,7 +153,7 @@ func TestBuildRequestPlacesArguments(t *testing.T) {
 	// A GET carries no body even if a parameter says otherwise, and a path
 	// value cannot smuggle in extra segments.
 	action.Method = "GET"
-	target, body, err = buildRequest(tool, action, map[string]any{"id": "../admin", "note": "x"})
+	target, body, err = buildRequest(EgressPolicy{}, tool, action, map[string]any{"id": "../admin", "note": "x"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

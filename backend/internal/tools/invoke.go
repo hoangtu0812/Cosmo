@@ -44,9 +44,32 @@ func isBlockedIP(ip net.IP) bool {
 	return false
 }
 
+// EgressPolicy decides where a tool may reach. The zero value denies every
+// private address, which is what a hosted deployment wants.
+//
+// An on-premises deployment is the reason this is not a constant: its APIs are
+// on the internal network by definition, so a blanket refusal would make tools
+// useless there. An operator names the hosts that are allowed; naming none
+// leaves the default in place.
+type EgressPolicy struct {
+	// Hosts that may be reached even though they resolve privately. Matched on
+	// the hostname as written, so "10.0.0.5" and "erp.internal" are both valid
+	// entries and neither opens anything else.
+	AllowedHosts []string
+}
+
+func (policy EgressPolicy) allows(host string) bool {
+	for _, allowed := range policy.AllowedHosts {
+		if strings.EqualFold(strings.TrimSpace(allowed), host) {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckEgress refuses a destination before it is stored, so a mistake is
 // reported while the reader is still looking at the field they typed it into.
-func CheckEgress(rawURL string) error {
+func (policy EgressPolicy) CheckEgress(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return ErrBaseURL
@@ -54,6 +77,9 @@ func CheckEgress(rawURL string) error {
 	host := parsed.Hostname()
 	if host == "" {
 		return ErrBaseURL
+	}
+	if policy.allows(host) {
+		return nil
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if isBlockedIP(ip) {
@@ -76,14 +102,21 @@ func CheckEgress(rawURL string) error {
 }
 
 // guardedClient dials normally but refuses the connection if the address the
-// name resolved to is one a tool must not reach.
-func guardedClient() *http.Client {
+// name resolved to is one this policy does not allow. The check happens here,
+// at the moment the socket opens, because that is the only point a name cannot
+// have changed underneath us since.
+func (policy EgressPolicy) guardedClient(allowedIPs map[string]bool) *http.Client {
 	dialer := &net.Dialer{
 		Timeout: 10 * time.Second,
 		Control: func(network, address string, _ syscall.RawConn) error {
 			host, _, err := net.SplitHostPort(address)
 			if err != nil {
 				return ErrPrivateAddress
+			}
+			// An allowed host is allowed on any port: the operator named a
+			// machine, and its ports are the same machine.
+			if allowedIPs[host] {
+				return nil
 			}
 			if isBlockedIP(net.ParseIP(host)) {
 				return ErrPrivateAddress
@@ -113,7 +146,7 @@ func (repository *Repository) Invoke(ctx context.Context, tool Tool, action Acti
 		return repository.invokeMCP(ctx, tool, action, arguments)
 	}
 
-	target, body, err := buildRequest(tool, action, arguments)
+	target, body, err := buildRequest(repository.egress, tool, action, arguments)
 	if err != nil {
 		return CallResult{}, err
 	}
@@ -143,7 +176,7 @@ func (repository *Repository) Invoke(ctx context.Context, tool Tool, action Acti
 	}
 
 	started := time.Now()
-	response, err := guardedClient().Do(request)
+	response, err := repository.client().Do(request)
 	if err != nil {
 		return CallResult{}, ErrCallFailed
 	}
@@ -175,7 +208,7 @@ type requestBody struct {
 // buildRequest places each argument where its parameter says it goes. Path
 // parameters are substituted into the path, query parameters are encoded, and
 // the rest become a JSON body - but only for verbs that carry one.
-func buildRequest(tool Tool, action Action, arguments map[string]any) (string, requestBody, error) {
+func buildRequest(policy EgressPolicy, tool Tool, action Action, arguments map[string]any) (string, requestBody, error) {
 	path := action.Path
 	query := url.Values{}
 	payload := map[string]any{}
@@ -206,7 +239,7 @@ func buildRequest(tool Tool, action Action, arguments map[string]any) (string, r
 	}
 	// The base URL was checked when it was stored, but the path is joined
 	// here, so the result is checked again before it is dialled.
-	if err := CheckEgress(target); err != nil {
+	if err := policy.CheckEgress(target); err != nil {
 		return "", requestBody{}, err
 	}
 
@@ -218,6 +251,37 @@ func buildRequest(tool Tool, action Action, arguments map[string]any) (string, r
 		return "", requestBody{}, ErrCallFailed
 	}
 	return target, requestBody{reader: bytes.NewReader(encoded), isJSON: true}, nil
+}
+
+// client is the one place a request leaves this process, so the allowlist is
+// resolved here rather than at each call site.
+func (repository *Repository) client() *http.Client {
+	return repository.egress.guardedClient(repository.allowedIPs())
+}
+
+// allowedIPs resolves the named hosts to the addresses the dialler will see.
+// Resolving here rather than trusting the name means an allowed entry opens
+// only the machine it actually points at.
+func (repository *Repository) allowedIPs() map[string]bool {
+	allowed := map[string]bool{}
+	for _, host := range repository.egress.AllowedHosts {
+		host = strings.TrimSpace(host)
+		if host == "" {
+			continue
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			allowed[ip.String()] = true
+			continue
+		}
+		addresses, err := net.LookupIP(host)
+		if err != nil {
+			continue
+		}
+		for _, ip := range addresses {
+			allowed[ip.String()] = true
+		}
+	}
+	return allowed
 }
 
 func asText(value any) string {

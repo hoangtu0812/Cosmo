@@ -18,18 +18,21 @@ type Config struct {
 	AdminEmail          string
 	PlatformAdminEmails map[string]bool
 	AdminPassword       string
-	AdminName           string
-	EntraTenantID       string
-	EntraClientID       string
-	EntraClientSecret   string
-	EntraRedirectURL    string
-	LLMBaseURL          string
-	LLMAPIKey           string
-	LLMModel            string
-	LLMSystemPrompt     string
-	LLMRequestTimeout   time.Duration
-	RAGServiceURL       string
-	RAGTimeout          time.Duration
+	// Hosts a tool may reach even though they resolve privately. Empty keeps
+	// the default of public internet only.
+	ToolEgressAllowedHosts []string
+	AdminName              string
+	EntraTenantID          string
+	EntraClientID          string
+	EntraClientSecret      string
+	EntraRedirectURL       string
+	LLMBaseURL             string
+	LLMAPIKey              string
+	LLMModel               string
+	LLMSystemPrompt        string
+	LLMRequestTimeout      time.Duration
+	RAGServiceURL          string
+	RAGTimeout             time.Duration
 	// ReindexWorkers is how many documents a re-index rebuilds at once. Each
 	// one occupies the knowledge service and the model gateway, so this is the
 	// knob for how much of that capacity a rebuild is allowed to take.
@@ -65,20 +68,24 @@ func Load() (Config, error) {
 		AdminEmail:          strings.ToLower(strings.TrimSpace(os.Getenv("ADMIN_EMAIL"))),
 		PlatformAdminEmails: emailSet(os.Getenv("ADMIN_EMAILS"), os.Getenv("ADMIN_EMAIL")),
 		AdminPassword:       os.Getenv("ADMIN_PASSWORD"),
-		AdminName:           env("ADMIN_NAME", "Cosmo Administrator"),
-		EntraTenantID:       strings.TrimSpace(os.Getenv("AZURE_AD_TENANT_ID")),
-		EntraClientID:       strings.TrimSpace(os.Getenv("AZURE_AD_CLIENT_ID")),
-		EntraClientSecret:   os.Getenv("AZURE_AD_CLIENT_SECRET"),
-		EntraRedirectURL:    env("AZURE_AD_REDIRECT_URL", "http://localhost:8080/api/auth/entra/callback"),
-		LLMBaseURL:          strings.TrimRight(strings.TrimSpace(os.Getenv("LLM_BASE_URL")), "/"),
-		LLMAPIKey:           os.Getenv("LLM_API_KEY"),
-		LLMModel:            env("LLM_MODEL", "company-general"),
-		LLMSystemPrompt:     env("LLM_SYSTEM_PROMPT", "Bạn là trợ lý AI nội bộ của doanh nghiệp. Trả lời rõ ràng, chính xác, ngắn gọn và không tự tạo dữ kiện khi thiếu thông tin."),
-		LLMRequestTimeout:   timeout,
-		RAGServiceURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("RAG_SERVICE_URL")), "/"),
-		RAGTimeout:          ragTimeout,
-		ReindexWorkers:      intEnv("KNOWLEDGE_REINDEX_WORKERS", 4),
-		RetrievalLog:        boolEnv("KNOWLEDGE_RETRIEVAL_LOG", false),
+		// Hosts a tool may reach even though they resolve to a private
+		// address. Empty means the default: the public internet only. An
+		// on-premises deployment names its internal APIs here.
+		ToolEgressAllowedHosts: splitAndTrim(os.Getenv("TOOL_EGRESS_ALLOWED_HOSTS")),
+		AdminName:              env("ADMIN_NAME", "Cosmo Administrator"),
+		EntraTenantID:          strings.TrimSpace(os.Getenv("AZURE_AD_TENANT_ID")),
+		EntraClientID:          strings.TrimSpace(os.Getenv("AZURE_AD_CLIENT_ID")),
+		EntraClientSecret:      os.Getenv("AZURE_AD_CLIENT_SECRET"),
+		EntraRedirectURL:       env("AZURE_AD_REDIRECT_URL", "http://localhost:8080/api/auth/entra/callback"),
+		LLMBaseURL:             strings.TrimRight(strings.TrimSpace(os.Getenv("LLM_BASE_URL")), "/"),
+		LLMAPIKey:              os.Getenv("LLM_API_KEY"),
+		LLMModel:               env("LLM_MODEL", "company-general"),
+		LLMSystemPrompt:        env("LLM_SYSTEM_PROMPT", "Bạn là trợ lý AI nội bộ của doanh nghiệp. Trả lời rõ ràng, chính xác, ngắn gọn và không tự tạo dữ kiện khi thiếu thông tin."),
+		LLMRequestTimeout:      timeout,
+		RAGServiceURL:          strings.TrimRight(strings.TrimSpace(os.Getenv("RAG_SERVICE_URL")), "/"),
+		RAGTimeout:             ragTimeout,
+		ReindexWorkers:         intEnv("KNOWLEDGE_REINDEX_WORKERS", 4),
+		RetrievalLog:           boolEnv("KNOWLEDGE_RETRIEVAL_LOG", false),
 	}
 
 	if len(cfg.SessionSecret) < 32 {
@@ -165,4 +172,17 @@ func durationEnv(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid %s: %w", key, err)
 	}
 	return parsed, nil
+}
+
+// splitAndTrim reads a comma-separated environment value into a list, dropping
+// blanks so a trailing comma is not read as an empty entry.
+func splitAndTrim(raw string) []string {
+	list := []string{}
+	for _, item := range strings.Split(raw, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			list = append(list, item)
+		}
+	}
+	return list
 }

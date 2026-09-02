@@ -18,10 +18,11 @@ type Repository struct {
 	db      *pgxpool.Pool
 	logger  *slog.Logger
 	secrets *secrets.Box
+	egress  EgressPolicy
 }
 
-func NewRepository(db *pgxpool.Pool, logger *slog.Logger, box *secrets.Box) *Repository {
-	return &Repository{db: db, logger: logger, secrets: box}
+func NewRepository(db *pgxpool.Pool, logger *slog.Logger, box *secrets.Box, egress EgressPolicy) *Repository {
+	return &Repository{db: db, logger: logger, secrets: box, egress: egress}
 }
 
 func newID(prefix string) string {
@@ -118,7 +119,7 @@ func (repository *Repository) Create(ctx context.Context, userID, workspaceID, r
 	if err != nil {
 		return Tool{}, err
 	}
-	if err := CheckEgress(baseURL); err != nil {
+	if err := repository.egress.CheckEgress(baseURL); err != nil {
 		return Tool{}, err
 	}
 
@@ -187,7 +188,7 @@ func (repository *Repository) Update(ctx context.Context, id, userID, workspaceI
 		if err != nil {
 			return Tool{}, err
 		}
-		if err := CheckEgress(baseURL); err != nil {
+		if err := repository.egress.CheckEgress(baseURL); err != nil {
 			return Tool{}, err
 		}
 		if _, err := repository.db.Exec(ctx, `UPDATE tools SET base_url = $2, updated_at = NOW() WHERE id = $1`, id, baseURL); err != nil {

@@ -2,29 +2,26 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {Bot, Boxes, Plug, Search, Settings2, ShieldCheck, Sparkles, Store, Trash2, Wrench, Zap} from 'lucide-react';
+import {Bot, Boxes, PackageMinus, Plug, Search, Settings2, Share2, ShieldCheck, Sparkles, Store, Trash2, Wrench, Zap} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
-import {Card} from '@astryxdesign/core/Card';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {Grid} from '@astryxdesign/core/Grid';
 import {Icon} from '@astryxdesign/core/Icon';
 import {HStack, Layout, LayoutContent, LayoutFooter, VStack} from '@astryxdesign/core/Layout';
-import {Section} from '@astryxdesign/core/Section';
 import {Skeleton} from '@astryxdesign/core/Skeleton';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
-import {Token} from '@astryxdesign/core/Token';
 import {PageHeader} from '../components/PageHeader';
-import {StatusLabel} from '../components/StatusLabel';
-import {api, APIError, Tool} from '../lib/api';
+import {api, APIError, Tool, WorkspaceRef} from '../lib/api';
 import {ToolMarket} from './ToolMarket';
+import {ToolCard} from './ToolCard';
+import {ToolShareDialog} from './ToolShareDialog';
 import {CapabilityHero} from '../components/CapabilityHero';
-import {CardContextMenu, CardMenuButton, CardMenuItems} from '../components/CardMenu';
-import {cardHover} from '../components/motion';
+import {CardMenuItems} from '../components/CardMenu';
 import {useTranslation} from '../lib/i18n';
 
 export default function ToolsPage() {
@@ -46,13 +43,27 @@ function ToolsScreen() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [deleting, setDeleting] = useState<Tool | null>(null);
+  const [sharing, setSharing] = useState<Tool | null>(null);
+  const [directory, setDirectory] = useState<WorkspaceRef[]>([]);
+  // The install and the switch are separate acts on the server, so they are
+  // separate here too; `busy` names the tool a request is in flight for, so
+  // one card's spinner does not freeze the rest.
+  const [busy, setBusy] = useState('');
 
   // Named once, then read by both the ⋯ and right-click, so the two cannot
   // come to say different things about the same card.
   const toolActions = (tool: Tool): CardMenuItems => [
-    {icon: <Settings2 size={15} />, label: t('kb.configure'), onClick: () => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)},
-    {type: 'divider' as const},
-    {icon: <Trash2 size={15} />, label: t('kb.delete'), onClick: () => setDeleting(tool), variant: 'destructive' as const},
+    ...(tool.is_editable ? [
+      {icon: <Settings2 size={15} />, label: t('kb.configure'), onClick: () => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)},
+      {icon: <Share2 size={15} />, label: t('tool.share'), onClick: () => setSharing(tool)},
+    ] : []),
+    ...(tool.is_installed ? [
+      {icon: <PackageMinus size={15} />, label: t('tool.uninstall'), onClick: () => void uninstall(tool)},
+    ] : []),
+    ...(tool.is_editable ? [
+      {type: 'divider' as const},
+      {icon: <Trash2 size={15} />, label: t('kb.delete'), onClick: () => setDeleting(tool), variant: 'destructive' as const},
+    ] : []),
   ];
 
   const [isCreating, setIsCreating] = useState(false);
@@ -77,6 +88,14 @@ function ToolsScreen() {
   }, [router, t, workspaceID]);
 
   useEffect(load, [load]);
+
+  // Loaded with the tools rather than when the dialog opens, so the dialog
+  // never appears with an empty list of workspaces to offer to.
+  useEffect(() => {
+    api.workspaceDirectory()
+      .then((result) => setDirectory(result.workspaces))
+      .catch(() => setDirectory([]));
+  }, []);
 
   async function create() {
     setIsSaving(true);
@@ -126,6 +145,54 @@ function ToolsScreen() {
       setError(caught instanceof Error ? caught.message : t('tool.deleteFailed'));
     } finally {
       setDeleting(null);
+    }
+  }
+
+  function patchTool(toolID: string, change: Partial<Tool>) {
+    setTools((current) => current.map((item) => (item.id === toolID ? {...item, ...change} : item)));
+  }
+
+  async function install(tool: Tool) {
+    setBusy(tool.id);
+    setError('');
+    try {
+      await api.installWorkspaceTool(workspaceID, tool.id);
+      // Installed, and deliberately not callable yet: that is a second
+      // decision, taken at the switch beside this button.
+      patchTool(tool.id, {is_installed: true, auto_call: false});
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function uninstall(tool: Tool) {
+    setBusy(tool.id);
+    setError('');
+    try {
+      await api.uninstallWorkspaceTool(workspaceID, tool.id);
+      patchTool(tool.id, {is_installed: false, auto_call: false});
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  // The server refuses this for a tool holding a key, and says why. The message
+  // is shown rather than swallowed: a switch that flicks back without a reason
+  // is the worst of the outcomes available here.
+  async function setAutoCall(tool: Tool, autoCall: boolean) {
+    setBusy(tool.id);
+    setError('');
+    try {
+      await api.setToolAutoCall(workspaceID, tool.id, autoCall);
+      patchTool(tool.id, {auto_call: autoCall});
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    } finally {
+      setBusy('');
     }
   }
 
@@ -197,47 +264,15 @@ function ToolsScreen() {
 
                   <Grid columns={{minWidth: 220, max: 6}} gap={4} width="100%">
                     {visible.map((tool) => (
-                      <CardContextMenu items={tool.is_editable ? toolActions(tool) : []} key={tool.id} label={t('kb.manage')}>
-                      <Card className={cardHover} onClick={() => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)} padding={0} width="100%">
-                        <VStack gap={0} height="100%">
-                          <Section padding={5} variant="muted">
-                            <HStack hAlign="center" width="100%">
-                              <Card padding={3}>
-                                <Text type="display-3">{tool.icon || '🔌'}</Text>
-                              </Card>
-                            </HStack>
-                          </Section>
-                          <Section padding={4}>
-                            <VStack gap={2}>
-                              <HStack gap={2} hAlign="between" vAlign="center" width="100%">
-                                <Text maxLines={1} type="label">{tool.name}</Text>
-                                {tool.is_editable ? (
-                                  <CardMenuButton items={toolActions(tool)} label={t('kb.manage')} />
-                                ) : null}
-                              </HStack>
-                              <Text color="secondary" maxLines={2} type="supporting">
-                                {tool.description || tool.base_url}
-                              </Text>
-                              <HStack gap={2} vAlign="center" wrap="wrap">
-                                <Text color="secondary" type="supporting">
-                                  {tool.action_count === 1 ? t('tool.actionCountOne') : t('tool.actionCount', {count: tool.action_count})}
-                                </Text>
-                                {/* How many agents depend on this, which is
-                                    what a reader wants before changing it. */}
-                                <Text color="secondary" type="supporting">
-                                  {tool.reference_count === 1 ? t('capability.referencesOne') : t('capability.references', {count: tool.reference_count})}
-                                </Text>
-                                {tool.has_secret ? <Token label={t('tool.keySet', {hint: tool.auth_hint})} size="sm" /> : null}
-                                <StatusLabel
-                                  label={tool.visibility === 'workspace' ? t('agent.visibilityWorkspace') : t('agent.visibilityPrivate')}
-                                  variant="neutral"
-                                />
-                              </HStack>
-                            </VStack>
-                          </Section>
-                        </VStack>
-                      </Card>
-                      </CardContextMenu>
+                      <ToolCard
+                        actions={toolActions(tool)}
+                        isBusy={busy === tool.id}
+                        key={tool.id}
+                        onAutoCall={(autoCall) => void setAutoCall(tool, autoCall)}
+                        onInstall={() => void install(tool)}
+                        onOpen={() => router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`)}
+                        tool={tool}
+                      />
                     ))}
                   </Grid>
                 </>
@@ -338,6 +373,17 @@ function ToolsScreen() {
         onOpenChange={(open) => { if (!open) setDeleting(null); }}
         title={t('tool.deleteTitle')}
       />
+
+      {sharing ? (
+        <ToolShareDialog
+          directory={directory}
+          onClose={() => setSharing(null)}
+          onError={setError}
+          onSaved={(visibility) => { patchTool(sharing.id, {visibility}); setSharing(null); }}
+          tool={sharing}
+        />
+      ) : null}
     </>
   );
 }
+

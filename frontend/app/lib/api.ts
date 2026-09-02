@@ -55,6 +55,10 @@ export type KnowledgeBase = {
   shared_count: number;
   // How many agents read this knowledge base.
   reference_count: number;
+  // Whether the workspace framing this read has installed the tool, and
+  // whether it lets a plain chat reach for it. Two states, not one.
+  is_installed: boolean;
+  auto_call: boolean;
 };
 export type KnowledgeDocument = {
   id: string;
@@ -124,7 +128,9 @@ export type Tool = {
   owner_user_id: string;
   owner_name: string;
   workspace_id: string;
-  visibility: 'private' | 'workspace';
+  /** Four rungs: kept to the author, open to the owning workspace, offered to
+      named workspaces, offered to all of them. */
+  visibility: 'private' | 'workspace' | 'selected' | 'everyone';
   base_url: string;
   /** 'http' for an API described by hand, 'mcp' for a server that describes
       itself, 'builtin' for one that reaches nothing at all. */
@@ -136,6 +142,10 @@ export type Tool = {
   action_count: number;
   reference_count: number;
   is_editable: boolean;
+  /** Whether the workspace this was read for has installed the tool, and
+      whether a plain chat there may reach for it. Two states, not one. */
+  is_installed: boolean;
+  auto_call: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -389,6 +399,20 @@ export const api = {
   // refusing. The reply says which ids went.
   deleteMessage: (conversationID: string, messageID: string) =>
     request<{deleted: string[]}>(`/api/conversations/${encodeURIComponent(conversationID)}/messages/${encodeURIComponent(messageID)}`, {method: 'DELETE'}),
+  // Installing makes a tool available here; auto-call is the separate decision
+  // that lets a plain chat reach for it. Both need workspace admin.
+  workspaceTools: (workspaceID: string) =>
+    request<{installs: {tool: Tool; auto_call: boolean; is_blocked_by_key: boolean}[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/tools`),
+  installWorkspaceTool: (workspaceID: string, toolID: string) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/tools/${encodeURIComponent(toolID)}`, {method: 'PUT'}),
+  uninstallWorkspaceTool: (workspaceID: string, toolID: string) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/tools/${encodeURIComponent(toolID)}`, {method: 'DELETE'}),
+  setToolAutoCall: (workspaceID: string, toolID: string, autoCall: boolean) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/tools/${encodeURIComponent(toolID)}/auto-call`, {method: 'PUT', body: JSON.stringify({auto_call: autoCall})}),
+  toolShares: (toolID: string, workspaceID?: string) =>
+    request<{workspaces: string[]}>(`/api/tools/${encodeURIComponent(toolID)}/shares${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  setToolShares: (toolID: string, workspaces: string[], workspaceID?: string) =>
+    request<void>(`/api/tools/${encodeURIComponent(toolID)}/shares${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PUT', body: JSON.stringify({workspaces})}),
   workflows: (workspaceID?: string) =>
     request<{workflows: Workflow[]}>(`/api/workflows${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   workflow: (id: string, workspaceID?: string) =>

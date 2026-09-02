@@ -90,10 +90,15 @@ type Tool struct {
 	ActionCount int    `json:"action_count"`
 	// How many agents have this tool attached. Worth knowing before changing
 	// or deleting it, which is the moment the question gets asked.
-	ReferenceCount int       `json:"reference_count"`
-	IsEditable     bool      `json:"is_editable"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ReferenceCount int `json:"reference_count"`
+	// Whether the workspace framing this read has installed the tool, and
+	// whether it lets a plain chat reach for it. Two states, not one: a tool
+	// can be installed for an agent's use without answering questions itself.
+	IsInstalled bool      `json:"is_installed"`
+	AutoCall    bool      `json:"auto_call"`
+	IsEditable  bool      `json:"is_editable"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Parameter is one input an action takes. It is described rather than typed in

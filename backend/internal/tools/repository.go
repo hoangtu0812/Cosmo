@@ -41,10 +41,29 @@ const columns = `
 	COALESCE((SELECT COUNT(*) FROM agent_tools at WHERE at.tool_id = t.id), 0),
 	t.created_at, t.updated_at`
 
-// visibleSQL is the one place that decides who may see a tool: everyone in the
-// workspace sees the shared ones, and only the author sees their private ones.
-// Every read goes through it so a listing and a fetch cannot disagree.
-const visibleSQL = `t.owner_workspace_id = $2 AND (t.visibility = 'workspace' OR t.owner_user_id = $1)`
+// installColumn carries what one workspace has decided about a tool: NULL for
+// no install row at all, which is a different thing from installed and not
+// allowed to answer on its own. Only for reads that pass a workspace as $2;
+// append it, and scan with scanInstalled.
+const installColumn = `,
+	(SELECT wt.auto_call FROM workspace_tools wt
+	 WHERE wt.tool_id = t.id AND wt.workspace_id = $2)`
+
+// visibleSQL is the one place that decides who may see a tool.
+//
+// Inside the owning workspace: everyone sees the shared ones, only the author
+// sees their private ones. Beyond it: what has been offered, by name or to
+// everyone - an offer nobody can see is an offer nobody can accept, which is
+// what this said before tools could be shared at all.
+//
+// Every read goes through it, so a listing and a fetch cannot disagree.
+const visibleSQL = `(
+	(t.owner_workspace_id = $2 AND (t.visibility = 'workspace' OR t.owner_user_id = $1))
+	OR t.visibility = 'everyone'
+	OR (t.visibility = 'selected' AND EXISTS (
+		SELECT 1 FROM tool_shares sh WHERE sh.tool_id = t.id AND sh.workspace_id = $2
+	))
+)`
 
 func scan(row pgx.Row, userID string) (Tool, error) {
 	var tool Tool
@@ -57,6 +76,26 @@ func scan(row pgx.Row, userID string) (Tool, error) {
 	); err != nil {
 		return Tool{}, err
 	}
+	tool.Tags = decodeStrings(tagsRaw)
+	tool.IsEditable = tool.OwnerUserID == userID
+	return tool, nil
+}
+
+// scanInstalled reads a row selected with columns + installColumn.
+func scanInstalled(row pgx.Row, userID string) (Tool, error) {
+	var tool Tool
+	var tagsRaw []byte
+	var autoCall *bool
+	if err := row.Scan(
+		&tool.ID, &tool.Name, &tool.Description, &tool.Icon, &tagsRaw, &tool.OwnerUserID,
+		&tool.OwnerName, &tool.WorkspaceID, &tool.Visibility, &tool.BaseURL,
+		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
+		&tool.ActionCount, &tool.ReferenceCount, &tool.CreatedAt, &tool.UpdatedAt, &autoCall,
+	); err != nil {
+		return Tool{}, err
+	}
+	tool.IsInstalled = autoCall != nil
+	tool.AutoCall = autoCall != nil && *autoCall
 	tool.Tags = decodeStrings(tagsRaw)
 	tool.IsEditable = tool.OwnerUserID == userID
 	return tool, nil
@@ -75,7 +114,7 @@ func decodeStrings(raw []byte) []string {
 
 func (repository *Repository) List(ctx context.Context, userID, workspaceID string) ([]Tool, error) {
 	rows, err := repository.db.Query(ctx, `
-		SELECT `+columns+`
+		SELECT `+columns+installColumn+`
 		FROM tools t LEFT JOIN users u ON u.id = t.owner_user_id
 		WHERE `+visibleSQL+`
 		ORDER BY t.updated_at DESC`, userID, workspaceID)
@@ -86,7 +125,7 @@ func (repository *Repository) List(ctx context.Context, userID, workspaceID stri
 
 	list := []Tool{}
 	for rows.Next() {
-		tool, err := scan(rows, userID)
+		tool, err := scanInstalled(rows, userID)
 		if err != nil {
 			return nil, err
 		}
@@ -97,10 +136,10 @@ func (repository *Repository) List(ctx context.Context, userID, workspaceID stri
 
 func (repository *Repository) Get(ctx context.Context, id, userID, workspaceID string) (Tool, error) {
 	row := repository.db.QueryRow(ctx, `
-		SELECT `+columns+`
+		SELECT `+columns+installColumn+`
 		FROM tools t LEFT JOIN users u ON u.id = t.owner_user_id
 		WHERE t.id = $3 AND `+visibleSQL, userID, workspaceID, id)
-	tool, err := scan(row, userID)
+	tool, err := scanInstalled(row, userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Tool{}, ErrNotFound
 	}

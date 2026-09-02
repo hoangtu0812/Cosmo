@@ -1,6 +1,6 @@
 'use client';
 
-import {BookOpen, Layers, Repeat, Zap} from 'lucide-react';
+import {BookOpen, Layers, PencilLine, Repeat, Rocket, Zap} from 'lucide-react';
 import {Button} from '@astryxdesign/core/Button';
 import {Layout, LayoutContent} from '@astryxdesign/core/Layout';
 import {CapabilityHero} from '../components/CapabilityHero';
@@ -19,7 +19,11 @@ export default function SkillsPage() {
           <CapabilityHero
             action={<Button isDisabled label={t('skill.add')} size="sm" variant="primary" />}
             description={t('skill.heroBody')}
-            icon={Zap}
+            flow={[
+              {icon: PencilLine, label: t('skill.flowDefine')},
+              {icon: Zap, label: t('nav.skill')},
+              {icon: Rocket, label: t('skill.flowDeploy')},
+            ]}
             points={[
               {icon: BookOpen, title: t('skill.written'), description: t('skill.writtenBody')},
               {icon: Layers, title: t('skill.composed'), description: t('skill.composedBody')},

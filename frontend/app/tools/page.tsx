@@ -9,7 +9,6 @@ import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Grid} from '@astryxdesign/core/Grid';
 import {Icon} from '@astryxdesign/core/Icon';
 import {HStack, Layout, LayoutContent, LayoutFooter, VStack} from '@astryxdesign/core/Layout';
@@ -23,6 +22,7 @@ import {PageHeader} from '../components/PageHeader';
 import {StatusLabel} from '../components/StatusLabel';
 import {api, APIError, Tool} from '../lib/api';
 import {ToolMarket} from './ToolMarket';
+import {CapabilityHero} from '../components/CapabilityHero';
 import {cardHover} from '../components/motion';
 import {useTranslation} from '../lib/i18n';
 
@@ -156,38 +156,21 @@ function ToolsScreen() {
                 // The reference gives this area a proper opening rather than an
                 // empty box, because a workspace with no tools is the normal
                 // starting state, not a failure.
-                <VStack gap={6} hAlign="center" padding={6} width="100%">
-                  {/* Three tiles rather than one icon, because what a tool does
-                      is sit between the agent and the thing it acts on - which
-                      a single wrench does not say. */}
-                  <HStack gap={2} vAlign="center">
-                    <Card padding={4}><Icon icon={Bot} size="md" /></Card>
-                    <Text color="secondary">→</Text>
-                    <Card padding={5}><Icon icon={Wrench} size="lg" /></Card>
-                    <Text color="secondary">→</Text>
-                    <Card padding={4}><Icon icon={Zap} size="md" /></Card>
-                  </HStack>
-                  <EmptyState
-                    actions={<DropdownMenu alignment="center" button={{label: t('tool.add'), variant: 'primary'}} items={addMenu} />}
-                    description={t('tool.emptyBody')}
-                    title={t('tool.empty')}
-                  />
-                  <Grid columns={{minWidth: 200, max: 3}} gap={4} maxWidth={760} width="100%">
-                    {[
-                      {key: 'mcp', icon: Boxes, title: t('tool.wayMCP'), body: t('tool.wayMCPBody')},
-                      {key: 'plugin', icon: Plug, title: t('tool.wayPlugin'), body: t('tool.wayPluginBody')},
-                      {key: 'custom', icon: Settings2, title: t('tool.wayCustom'), body: t('tool.wayCustomBody')},
-                    ].map((way) => (
-                      <Card className={cardHover} key={way.key} padding={4}>
-                        <VStack gap={2}>
-                          <Icon icon={way.icon} size="md" />
-                          <Text type="label">{way.title}</Text>
-                          <Text color="secondary" type="supporting">{way.body}</Text>
-                        </VStack>
-                      </Card>
-                    ))}
-                  </Grid>
-                </VStack>
+                <CapabilityHero
+                  action={<DropdownMenu alignment="center" button={{label: t('tool.add'), variant: 'primary'}} items={addMenu} />}
+                  description={t('tool.emptyBody')}
+                  flow={[
+                    {icon: Bot, label: t('agent.title')},
+                    {icon: Wrench, label: t('nav.tool')},
+                    {icon: Zap, label: t('tool.flowAct')},
+                  ]}
+                  points={[
+                    {icon: Boxes, title: t('tool.wayMCP'), description: t('tool.wayMCPBody')},
+                    {icon: Plug, title: t('tool.wayPlugin'), description: t('tool.wayPluginBody')},
+                    {icon: Settings2, title: t('tool.wayCustom'), description: t('tool.wayCustomBody')},
+                  ]}
+                  title={t('tool.empty')}
+                />
               ) : (
                 <>
                   <HStack gap={3} vAlign="center" wrap="wrap">

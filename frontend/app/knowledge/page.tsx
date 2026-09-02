@@ -2,12 +2,13 @@
 
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {BookOpen, Search, Trash2} from 'lucide-react';
+import {BookOpen, MoreHorizontal, Search, Share2, Trash2} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
+import {DropdownMenu} from '@astryxdesign/core/DropdownMenu';
 import {CheckboxList, CheckboxListItem} from '@astryxdesign/core/CheckboxList';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
@@ -173,16 +174,16 @@ export default function KnowledgePage() {
 
   function managementActions(base: KnowledgeBase) {
     return (
-      <HStack gap={1} vAlign="center">
-        <Button label={t('kb.share')} onClick={() => setSharing(base)} size="sm" variant="secondary" />
-        <IconButton
-          icon={<Trash2 size={14} />}
-          label={t('kb.delete')}
-          onClick={() => setDeleting(base)}
-          size="sm"
-          variant="ghost"
-        />
-      </HStack>
+      <DropdownMenu
+        alignment="end"
+        button={{icon: <MoreHorizontal size={15} />, isIconOnly: true, label: t('kb.manage'), size: 'sm', variant: 'ghost'}}
+        hasChevron={false}
+        items={[
+          {icon: <Share2 size={15} />, label: t('kb.share'), onClick: () => setSharing(base)},
+          {type: 'divider' as const},
+          {icon: <Trash2 size={15} />, label: t('kb.delete'), onClick: () => setDeleting(base), variant: 'destructive' as const},
+        ]}
+      />
     );
   }
 
@@ -332,21 +333,21 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
   return (
     <Card padding={0} width="100%">
       <VStack gap={0} height="100%">
+        <Section padding={5} variant="muted">
+          <HStack hAlign="center" width="100%">
+            <Text type="display-3">{base.icon || '📚'}</Text>
+          </HStack>
+        </Section>
         <Section padding={4}>
 					<VStack gap={3}>
-						<HStack gap={3} vAlign="center">
-							<Text type="large">{base.icon || '📚'}</Text>
-							<VStack gap={1}>
-								<Link href={`/knowledge/${base.id}?workspace=${encodeURIComponent(workspaceID)}`}>
-									<Text type="body" weight="semibold">{base.name}</Text>
-								</Link>
-								{base.processing_count > 0 ? (
-									<HStack gap={1} vAlign="center">
-										<StatusLabel isPulsing label={`${base.processing_count} đang xử lý`} variant="accent" />
-									</HStack>
-								) : null}
-							</VStack>
-						</HStack>
+						<VStack gap={1}>
+							<Link href={`/knowledge/${base.id}?workspace=${encodeURIComponent(workspaceID)}`}>
+								<Text type="body" weight="semibold">{base.name}</Text>
+							</Link>
+							{base.processing_count > 0 ? (
+								<StatusLabel isPulsing label={t('kb.processingCount', {count: base.processing_count})} variant="accent" />
+							) : null}
+						</VStack>
             <Text color="secondary" type="supporting">
               {base.description || t('kb.noDescription')}
             </Text>

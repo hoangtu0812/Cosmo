@@ -2,7 +2,7 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
-import {BarChart3, Bot, Copy, ImageUp, KeyRound, MoreHorizontal, Search, Settings2, ShieldCheck, Trash2, Workflow} from 'lucide-react';
+import {BarChart3, Bot, Copy, ImageUp, KeyRound, MoreHorizontal, Search, Settings2, ShieldCheck, Sparkles, Trash2, Workflow} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Token} from '@astryxdesign/core/Token';
@@ -158,7 +158,19 @@ function AgentsView() {
         height="fill"
         header={
           <PageHeader
-            actions={<Button label={t('agent.new')} onClick={() => setIsCreating(true)} size="sm" variant="primary" />}
+            actions={
+              /* Two routes in the reference. Building one from a description
+                 needs a model pass we have not written - see
+                 docs/ui_backlog.md. */
+              <DropdownMenu
+                alignment="end"
+                button={{label: t('agent.new'), size: 'sm', variant: 'primary'}}
+                items={[
+                  {icon: <Sparkles size={15} />, isDisabled: true, label: t('agent.createWithAI')},
+                  {icon: <Settings2 size={15} />, label: t('agent.createManually'), onClick: () => setIsCreating(true)},
+                ]}
+              />
+            }
             count={agents.length}
             hasIntroduction
             description={t('agent.subtitle')}

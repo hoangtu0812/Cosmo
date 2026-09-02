@@ -85,7 +85,7 @@ nó trỏ tới.
 | API key | Menu ⋯ trên card | Cấp key gọi agent từ ngoài | chưa xếp |
 | Phân quyền | Menu ⋯ trên card | Quyền chi tiết `view/edit/test/publish/share/delete` | 1 (Sprint 4) |
 | Quan sát | Menu ⋯ trên card | Trace theo agent, token/cost | 5 |
-| Flow agent | Dialog tạo agent | Workflow engine | 3 |
+| Flow agent | Dialog tạo agent | Nối agent vào canvas workflow đã có | 3 |
 | Biến trong prompt | Editor agent › Prompt | Thay thế biến khi chạy, khai báo biến theo agent | chưa xếp |
 | Tạo bằng AI | Nút Agent mới | Model sinh prompt và cấu hình từ mô tả | chưa xếp |
 | Cải thiện prompt | Editor agent › panel | Model viết lại prompt và so sánh kết quả | chưa xếp |
@@ -102,6 +102,9 @@ nó trỏ tới.
 | Thiết lập chạy thử | Editor agent › panel Debug | Bật/tắt ghi nhớ riêng cho phiên chạy thử, hiện chỉ hiển thị trạng thái | chưa xếp |
 | Tệp đính kèm khi chạy thử | Editor agent › panel Debug | Gửi tệp kèm câu hỏi trong panel Debug | chưa xếp |
 | MCP qua stdio | Thêm MCP | Chỉ hỗ trợ Streamable HTTP; stdio cần chạy tiến trình con | chưa xếp |
+| Node Điều kiện, Lặp | Canvas workflow | Rẽ nhánh và lặp; hiện là vỏ, lần chạy bỏ qua | chưa xếp |
+| Node Code, HTTP, Knowledge, Agent | Canvas workflow | Bốn loại node còn lại; hiện là vỏ | chưa xếp |
+| Chọn tool bằng danh sách | Node Tool trên canvas | Hiện phải gõ mã tool và mã action bằng tay | chưa xếp |
 
 ## Đã dựng UI và **có** chức năng thật
 

@@ -384,6 +384,16 @@ export const api = {
   deleteWorkspaceIcon: (workspaceID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'DELETE'}),
   workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
+  workflows: (workspaceID?: string) =>
+    request<{workflows: Workflow[]}>(`/api/workflows${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  workflow: (id: string, workspaceID?: string) =>
+    request<{workflow: Workflow}>(`/api/workflows/${encodeURIComponent(id)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  createWorkflow: (input: {name: string; description?: string; icon?: string; visibility?: string}, workspaceID?: string) =>
+    request<{workflow: Workflow}>(`/api/workflows${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify(input)}),
+  saveWorkflowGraph: (id: string, graph: WorkflowGraph, workspaceID?: string) =>
+    request<{workflow: Workflow}>(`/api/workflows/${encodeURIComponent(id)}/graph${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PUT', body: JSON.stringify({graph})}),
+  deleteWorkflow: (id: string, workspaceID?: string) =>
+    request<void>(`/api/workflows/${encodeURIComponent(id)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
   toolCatalog: (workspaceID?: string) =>
     request<{entries: ToolCatalogEntry[]; categories: string[]; installed: Record<string, string>}>(
       `/api/tools/catalog${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
@@ -580,6 +590,101 @@ export async function streamChat(
       if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
       if (event === 'done') handlers.onDone?.(data as {message: Message});
       if (event === 'error') throw new APIError(String(data.message ?? 'Model Gateway không phản hồi.'), 502);
+    }
+  }
+}
+
+// A workflow is a graph of steps run in a fixed order. Only four node kinds
+// run; the rest are shells the editor greys out, and the server refuses them
+// from the same list, so the two cannot disagree.
+export type WorkflowNodeKind =
+  | 'start' | 'llm' | 'tool' | 'end'
+  | 'knowledge' | 'condition' | 'loop' | 'code' | 'http' | 'agent';
+
+export const RUNNABLE_NODE_KINDS: WorkflowNodeKind[] = ['start', 'llm', 'tool', 'end'];
+
+export type WorkflowNode = {
+  id: string;
+  kind: WorkflowNodeKind;
+  name: string;
+  x: number;
+  y: number;
+  config?: Record<string, unknown>;
+};
+
+export type WorkflowEdge = {id: string; source: string; target: string};
+export type WorkflowGraph = {nodes: WorkflowNode[]; edges: WorkflowEdge[]};
+
+export type Workflow = {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  owner_user_id: string;
+  owner_name: string;
+  workspace_id: string;
+  visibility: 'private' | 'workspace';
+  graph: WorkflowGraph;
+  is_editable: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowStep = {
+  node_id: string;
+  kind: string;
+  name: string;
+  status: 'running' | 'complete' | 'error' | 'skipped';
+  output?: string;
+  error?: string;
+  duration_ms?: number;
+};
+
+/**
+ * Runs a workflow and reports each node as it happens.
+ *
+ * Streamed rather than awaited whole because the canvas draws the graph
+ * lighting up from these: a run of several model calls should look like
+ * progress, not a hang.
+ */
+export async function streamWorkflowRun(
+  workflowID: string,
+  input: string,
+  workspaceID: string | undefined,
+  handlers: {onStep: (step: WorkflowStep) => void; onDone?: () => void},
+): Promise<void> {
+  const query = workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : '';
+  const response = await fetch(`${API_BASE}/api/workflows/${encodeURIComponent(workflowID)}/run${query}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {'Content-Type': 'application/json', Accept: 'text/event-stream'},
+    body: JSON.stringify({input}),
+  });
+  if (!response.ok) {
+    let body: APIErrorShape = {};
+    try { body = await response.json() as APIErrorShape; } catch { /* ignore invalid error body */ }
+    throw new APIError(body.error?.message ?? 'Không chạy được workflow.', response.status);
+  }
+  if (!response.body) throw new APIError('Trình duyệt không hỗ trợ nhận dữ liệu streaming.', 500);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+    const frames = buffer.split('\n\n');
+    buffer = frames.pop() ?? '';
+    for (const frame of frames) {
+      const lines = frame.split('\n');
+      const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
+      const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
+      if (!event || !rawData) continue;
+      const data = JSON.parse(rawData) as Record<string, unknown>;
+      if (event === 'step') handlers.onStep(data as unknown as WorkflowStep);
+      if (event === 'done') handlers.onDone?.();
+      if (event === 'error') throw new APIError(String(data.message ?? 'Workflow dừng giữa chừng.'), 502);
     }
   }
 }

@@ -374,6 +374,7 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
                 {base.document_count === 1 ? t('kb.docCountOne') : t('kb.docCount', {count: base.document_count})}
               </Text>
 							<Text color="secondary" type="supporting">{t('kb.sharedCount', {count: base.shared_count})}</Text>
+              <Text color="secondary" type="supporting">{base.reference_count === 1 ? t('capability.referencesOne') : t('capability.references', {count: base.reference_count})}</Text>
               <StatusLabel
                 label={base.version === 0 ? t('kb.draft') : t('kb.version', {version: base.version})}
                 variant={base.version === 0 ? 'warning' : 'neutral'}

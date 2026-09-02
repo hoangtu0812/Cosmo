@@ -38,6 +38,7 @@ const columns = `
 	COALESCE(u.name, ''), t.owner_workspace_id, t.visibility, t.base_url,
 	t.kind, t.auth_type, t.auth_header_name, t.auth_hint, (t.auth_secret IS NOT NULL),
 	COALESCE((SELECT COUNT(*) FROM tool_actions a WHERE a.tool_id = t.id), 0),
+	COALESCE((SELECT COUNT(*) FROM agent_tools at WHERE at.tool_id = t.id), 0),
 	t.created_at, t.updated_at`
 
 // visibleSQL is the one place that decides who may see a tool: everyone in the
@@ -52,7 +53,7 @@ func scan(row pgx.Row, userID string) (Tool, error) {
 		&tool.ID, &tool.Name, &tool.Description, &tool.Icon, &tagsRaw, &tool.OwnerUserID,
 		&tool.OwnerName, &tool.WorkspaceID, &tool.Visibility, &tool.BaseURL,
 		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
-		&tool.ActionCount, &tool.CreatedAt, &tool.UpdatedAt,
+		&tool.ActionCount, &tool.ReferenceCount, &tool.CreatedAt, &tool.UpdatedAt,
 	); err != nil {
 		return Tool{}, err
 	}

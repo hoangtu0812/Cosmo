@@ -119,6 +119,9 @@ type KnowledgeBase struct {
 	ProcessingCount int `json:"processing_count"`
 	FailedCount     int `json:"failed_count"`
 	SharedCount     int `json:"shared_count"`
+	// How many agents read this knowledge base. Worth knowing before changing
+	// or deleting it, which is the moment the question gets asked.
+	ReferenceCount int `json:"reference_count"`
 }
 
 // workspaceVisibleKnowledgeSQL is the single definition of what a workspace
@@ -218,7 +221,8 @@ const knowledgeColumns = `
 	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status = 'ready'),
 	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status IN ('pending', 'processing')),
 	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status = 'failed'),
-	(SELECT COUNT(*) FROM knowledge_shares sh WHERE sh.kb_id = kb.id)`
+	(SELECT COUNT(*) FROM knowledge_shares sh WHERE sh.kb_id = kb.id),
+	(SELECT COUNT(*) FROM agent_knowledge_bases ak WHERE ak.kb_id = kb.id)`
 
 func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 	var item KnowledgeBase
@@ -232,7 +236,8 @@ func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 		&item.ScoreThreshold, &item.RetrievalTopK, &item.ChunkSize, &item.ChunkOverlap,
 		&item.CreatedAt, &item.Version,
 		&item.Access, &item.HasUnpublishedChanges, &installed,
-		&item.DocumentCount, &item.ProcessingCount, &item.FailedCount, &item.SharedCount)
+		&item.DocumentCount, &item.ProcessingCount, &item.FailedCount, &item.SharedCount,
+		&item.ReferenceCount)
 	if err != nil {
 		return item, err
 	}

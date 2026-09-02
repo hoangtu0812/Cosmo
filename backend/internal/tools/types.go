@@ -80,12 +80,15 @@ type Tool struct {
 	AuthHeaderName string `json:"auth_header_name"`
 	// The secret itself never leaves the server. The hint is the last few
 	// characters, which is enough for a reader to tell which key is set.
-	AuthHint    string    `json:"auth_hint"`
-	HasSecret   bool      `json:"has_secret"`
-	ActionCount int       `json:"action_count"`
-	IsEditable  bool      `json:"is_editable"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	AuthHint    string `json:"auth_hint"`
+	HasSecret   bool   `json:"has_secret"`
+	ActionCount int    `json:"action_count"`
+	// How many agents have this tool attached. Worth knowing before changing
+	// or deleting it, which is the moment the question gets asked.
+	ReferenceCount int       `json:"reference_count"`
+	IsEditable     bool      `json:"is_editable"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // Parameter is one input an action takes. It is described rather than typed in

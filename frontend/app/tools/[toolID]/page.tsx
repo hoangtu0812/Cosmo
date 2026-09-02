@@ -318,7 +318,8 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
       </HStack>
 
       <HStack gap={4} vAlign="center" wrap="wrap">
-        <Text color="secondary" type="supporting">{t('tool.actionCount', {count: actionCount})}</Text>
+        <Text color="secondary" type="supporting">{actionCount === 1 ? t('tool.actionCountOne') : t('tool.actionCount', {count: actionCount})}</Text>
+        <Text color="secondary" type="supporting">{tool.reference_count === 1 ? t('capability.referencesOne') : t('capability.references', {count: tool.reference_count})}</Text>
         {tool.has_secret ? <Token label={t('tool.authStored', {hint: tool.auth_hint})} size="sm" /> : null}
       </HStack>
 

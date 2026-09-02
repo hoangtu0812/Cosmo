@@ -236,7 +236,12 @@ function ToolsScreen() {
                               </Text>
                               <HStack gap={2} vAlign="center" wrap="wrap">
                                 <Text color="secondary" type="supporting">
-                                  {t('tool.actionCount', {count: tool.action_count})}
+                                  {tool.action_count === 1 ? t('tool.actionCountOne') : t('tool.actionCount', {count: tool.action_count})}
+                                </Text>
+                                {/* How many agents depend on this, which is
+                                    what a reader wants before changing it. */}
+                                <Text color="secondary" type="supporting">
+                                  {tool.reference_count === 1 ? t('capability.referencesOne') : t('capability.references', {count: tool.reference_count})}
                                 </Text>
                                 {tool.has_secret ? <Token label={t('tool.keySet', {hint: tool.auth_hint})} size="sm" /> : null}
                                 <StatusLabel

@@ -53,6 +53,8 @@ export type KnowledgeBase = {
 	processing_count: number;
 	failed_count: number;
   shared_count: number;
+  // How many agents read this knowledge base.
+  reference_count: number;
 };
 export type KnowledgeDocument = {
   id: string;
@@ -125,6 +127,7 @@ export type Tool = {
   auth_hint: string;
   has_secret: boolean;
   action_count: number;
+  reference_count: number;
   is_editable: boolean;
   created_at: string;
   updated_at: string;

@@ -18,8 +18,41 @@ const nameSeparator = "__"
 // the model choose and starts crowding out the conversation.
 const MaxDefinitions = 40
 
-func callName(tool Tool, action Action) string {
-	return sanitise(tool.Name) + nameSeparator + action.Name
+// Two tools may carry the same name - installing the same toolkit twice used
+// to be the easy way to get there - and then their actions produce the same
+// call name. A model handed the same name twice cannot choose between them,
+// and a resolver would always pick the first, so one of the two tools would be
+// unreachable. Both sides of a collision therefore take a suffix from their
+// id: neither is silently preferred, and the names stay stable for as long as
+// the same tools are attached.
+func callPrefixes(list []Tool) map[string]string {
+	seen := map[string]int{}
+	for _, tool := range list {
+		seen[sanitise(tool.Name)]++
+	}
+	prefixes := make(map[string]string, len(list))
+	for _, tool := range list {
+		prefix := sanitise(tool.Name)
+		if seen[prefix] > 1 {
+			prefix += "_" + shortID(tool.ID)
+		}
+		prefixes[tool.ID] = prefix
+	}
+	return prefixes
+}
+
+// shortID is the tail of a tool id, which is random, so a few characters are
+// enough to tell two apart.
+func shortID(id string) string {
+	trimmed := sanitise(id)
+	if len(trimmed) > 6 {
+		trimmed = trimmed[len(trimmed)-6:]
+	}
+	return strings.Trim(trimmed, "_")
+}
+
+func callName(prefix string, action Action) string {
+	return prefix + nameSeparator + action.Name
 }
 
 // sanitise turns a tool's display name into something a model can call back.
@@ -166,6 +199,7 @@ func (repository *Repository) Definitions(ctx context.Context, agentID string, p
 		return nil, err
 	}
 
+	prefixes := callPrefixes(list)
 	definitions := []modelgateway.ToolDefinition{}
 	for _, tool := range list {
 		for _, action := range actions[tool.ID] {
@@ -190,7 +224,7 @@ func (repository *Repository) Definitions(ctx context.Context, agentID string, p
 				description = strings.TrimSpace(tool.Description + ". " + description)
 			}
 			definitions = append(definitions, modelgateway.ToolDefinition{
-				Name:        callName(tool, action),
+				Name:        callName(prefixes[tool.ID], action),
 				Description: description,
 				Parameters:  schema,
 			})
@@ -220,9 +254,10 @@ func (repository *Repository) InvokeNamed(ctx context.Context, agentID, name, ra
 		}
 	}
 
+	prefixes := callPrefixes(list)
 	for _, tool := range list {
 		for _, action := range actions[tool.ID] {
-			if callName(tool, action) == name {
+			if callName(prefixes[tool.ID], action) == name {
 				return repository.Invoke(ctx, tool, action, arguments)
 			}
 		}

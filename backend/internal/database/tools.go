@@ -85,3 +85,16 @@ var builtinKindStatements = []string{
 	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_kind_check`,
 	`ALTER TABLE tools ADD CONSTRAINT tools_kind_check CHECK (kind IN ('http', 'mcp', 'builtin'))`,
 }
+
+// Remembering which catalogue entry a tool came from is what stops the same
+// one being installed twice. Without it, clicking Install again produced a
+// second identical tool - and an agent attached to both handed the model two
+// tools with the same name, which is worse than either.
+//
+// Unique per workspace rather than globally: two workspaces installing the
+// same entry are two separate tools, each with its own credential.
+var toolCatalogStatements = []string{
+	`ALTER TABLE tools ADD COLUMN IF NOT EXISTS catalog_id TEXT NOT NULL DEFAULT ''`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS tools_catalog_idx
+		ON tools (owner_workspace_id, catalog_id) WHERE catalog_id <> ''`,
+}

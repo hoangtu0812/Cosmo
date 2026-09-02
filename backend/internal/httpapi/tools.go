@@ -329,15 +329,29 @@ func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
 // interface, so a new category cannot appear without someone choosing where it
 // belongs.
 func (s *Server) listToolCatalog(w http.ResponseWriter, r *http.Request) {
+	_, workspaceID, ok := s.agentWorkspace(w, r, r.URL.Query().Get("workspace"))
+	if !ok {
+		return
+	}
+	// Which entries this workspace already has, so the market can say so
+	// instead of offering the same toolkit a second time.
+	installed, err := s.tools.InstalledCatalogIDs(r.Context(), workspaceID)
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"entries":    tools.Catalog(),
 		"categories": tools.CatalogCategories(),
+		"installed":  installed,
 	})
 }
 
 // installCatalogTool creates a tool from a catalogue entry with its actions
 // already described, so the first call works rather than landing the reader in
-// an empty editor.
+// an empty editor. Installing one already installed returns the tool that is
+// there: two copies of the same toolkit are indistinguishable to a reader and
+// ambiguous to a model.
 func (s *Server) installCatalogTool(w http.ResponseWriter, r *http.Request) {
 	user, workspaceID, ok := s.agentWorkspace(w, r, r.URL.Query().Get("workspace"))
 	if !ok {
@@ -349,24 +363,16 @@ func (s *Server) installCatalogTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	item, err := s.tools.Create(r.Context(), user.ID, workspaceID,
-		entry.Name, entry.Description, entry.Icon, nil, entry.BaseURL, entry.Kind)
+	installed, existed, err := s.tools.InstallCatalogEntry(r.Context(), user.ID, workspaceID, entry)
 	if err != nil {
 		writeToolError(w, err)
 		return
 	}
-	for _, action := range entry.Actions {
-		if _, saveErr := s.tools.SaveAction(r.Context(), item.ID, "", action); saveErr != nil {
-			s.logger.Error("install catalog action", "tool_id", item.ID, "action", action.Name, "error", saveErr)
-		}
+	status := http.StatusCreated
+	if existed {
+		status = http.StatusOK
 	}
-
-	installed, err := s.tools.Get(r.Context(), item.ID, user.ID, workspaceID)
-	if err != nil {
-		writeToolError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"tool": installed})
+	writeJSON(w, status, map[string]any{"tool": installed, "already_installed": existed})
 }
 
 // importOpenAPI reads the API's own description rather than asking a model to

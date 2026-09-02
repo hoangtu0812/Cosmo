@@ -1,7 +1,7 @@
 'use client';
 
 import {useEffect, useMemo, useState} from 'react';
-import {Download, Search} from 'lucide-react';
+import {Check, Download, Search} from 'lucide-react';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -14,7 +14,7 @@ import {SelectableCard} from '@astryxdesign/core/SelectableCard';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Token} from '@astryxdesign/core/Token';
-import {api, Tool, ToolCatalogEntry} from '../lib/api';
+import {api, ToolCatalogEntry} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 
 // The market is a place rather than a prompt: the reference gives it the whole
@@ -24,11 +24,11 @@ import {useTranslation} from '../lib/i18n';
 //
 // The one thing not carried over is install counts. The reference can show
 // them because it counts across many deployments; here they would be invented.
-export function ToolMarket({isOpen, onOpenChange, workspaceID, onInstalled}: {
+export function ToolMarket({isOpen, onOpen, onOpenChange, workspaceID}: {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   workspaceID: string;
-  onInstalled: (tool: Tool) => void;
+  onOpen: (toolID: string) => void;
 }) {
   const t = useTranslation();
   const [entries, setEntries] = useState<ToolCatalogEntry[]>([]);
@@ -36,20 +36,24 @@ export function ToolMarket({isOpen, onOpenChange, workspaceID, onInstalled}: {
   const [category, setCategory] = useState('');
   const [query, setQuery] = useState('');
   const [installing, setInstalling] = useState('');
+  // Entry id -> the tool it produced, so an entry already in the workspace
+  // offers the way to it rather than a second copy of it.
+  const [installed, setInstalled] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
-    api.toolCatalog()
+    api.toolCatalog(workspaceID)
       .then((result) => {
         if (cancelled) return;
         setEntries(result.entries);
         setCategories(result.categories);
+        setInstalled(result.installed ?? {});
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [isOpen]);
+  }, [isOpen, workspaceID]);
 
   const needle = query.trim().toLowerCase();
   const matching = useMemo(
@@ -73,7 +77,8 @@ export function ToolMarket({isOpen, onOpenChange, workspaceID, onInstalled}: {
     setError('');
     try {
       const result = await api.installCatalogTool(entry.id, workspaceID);
-      onInstalled(result.tool);
+      setInstalled((current) => ({...current, [entry.id]: result.tool.id}));
+      onOpen(result.tool.id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('tool.createFailed'));
     } finally {
@@ -173,15 +178,25 @@ export function ToolMarket({isOpen, onOpenChange, workspaceID, onInstalled}: {
                                 <Text color="secondary" type="supporting">
                                   {t('tool.actionCount', {count: entry.actions.length})}
                                 </Text>
-                                <Button
-                                  icon={<Download size={14} />}
-                                  isDisabled={installing !== ''}
-                                  isLoading={installing === entry.id}
-                                  label={t('tool.install')}
-                                  onClick={() => void install(entry)}
-                                  size="sm"
-                                  variant="secondary"
-                                />
+                                {installed[entry.id] ? (
+                                  <Button
+                                    icon={<Check size={14} />}
+                                    label={t('tool.installed')}
+                                    onClick={() => onOpen(installed[entry.id])}
+                                    size="sm"
+                                    variant="ghost"
+                                  />
+                                ) : (
+                                  <Button
+                                    icon={<Download size={14} />}
+                                    isDisabled={installing !== ''}
+                                    isLoading={installing === entry.id}
+                                    label={t('tool.install')}
+                                    onClick={() => void install(entry)}
+                                    size="sm"
+                                    variant="secondary"
+                                  />
+                                )}
                               </HStack>
                             </VStack>
                           </Card>

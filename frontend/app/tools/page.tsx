@@ -330,9 +330,9 @@ function ToolsScreen() {
 
       <ToolMarket
         isOpen={isCatalogOpen}
-        onInstalled={(tool) => {
+        onOpen={(toolID) => {
           setIsCatalogOpen(false);
-          router.push(`/tools/${tool.id}?workspace=${encodeURIComponent(workspaceID)}`);
+          router.push(`/tools/${toolID}?workspace=${encodeURIComponent(workspaceID)}`);
         }}
         onOpenChange={setIsCatalogOpen}
         workspaceID={workspaceID}

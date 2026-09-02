@@ -370,9 +370,12 @@ export const api = {
   deleteWorkspaceIcon: (workspaceID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'DELETE'}),
   workspaceIconURL: (workspaceID: string) => `${API_BASE}/api/workspaces/${encodeURIComponent(workspaceID)}/icon`,
-  toolCatalog: () => request<{entries: ToolCatalogEntry[]; categories: string[]}>('/api/tools/catalog'),
+  toolCatalog: (workspaceID?: string) =>
+    request<{entries: ToolCatalogEntry[]; categories: string[]; installed: Record<string, string>}>(
+      `/api/tools/catalog${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
+    ),
   installCatalogTool: (entryID: string, workspaceID?: string) =>
-    request<{tool: Tool}>(`/api/tools/catalog/${encodeURIComponent(entryID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
+    request<{tool: Tool; already_installed: boolean}>(`/api/tools/catalog/${encodeURIComponent(entryID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
   draftToolActions: (toolID: string, description: string, workspaceID?: string) =>
     request<{actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}/draft${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({description})}),
   importOpenAPI: (toolID: string, input: {url?: string; spec?: string}, workspaceID?: string) =>

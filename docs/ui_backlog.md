@@ -19,8 +19,6 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 | Lịch chạy | `/schedule` | Trigger manual/cron/webhook, scheduler lock | 4 |
 | Thư viện | `/library` | Registry, release, install/update | 6 |
 | Thông báo | `/notifications` | Alert, incident, dedupe window | 5 |
-| Workflow | `/workflow` | Graph model, designer, execution engine | 3 |
-| Tool | `/tools` | Credential Vault, HTTP/OpenAPI tool, egress allowlist | 2 |
 | Skill | `/skills` | Skill registry, dependency lên Tool | 2 |
 | Quan sát | `/observability` | Telemetry token/cost/latency, trace, dashboard | 5 |
 | Giới thiệu khu vực | Header các trang | Nội dung hướng dẫn từng khu | chưa xếp |
@@ -46,6 +44,11 @@ khi publish, và model tự gọi trong lượt trả lời.
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
 | MCP qua stdio | Thêm tool › MCP | Chạy server như tiến trình con; hiện hỗ trợ Streamable HTTP | chưa xếp |
+| Phiên bản của tool | Editor tool | Publish New Version kèm semver và changelog, như agent đã có | chưa xếp |
+| Kiểu tham số đầy đủ | Editor action | Integer, Object, và kiểu mảng, ngoài string/number/boolean | chưa xếp |
+| Header và timeout riêng | Editor action | Đặt header và timeout cho từng action | chưa xếp |
+| Tham số dùng chung | Trang tool | Tham số áp cho mọi action của một tool | chưa xếp |
+| Trạng thái tool | Trang tool | Online/Offline và số action đang bật | chưa xếp |
 
 Cách điền action cho một tool, xếp theo mức đáng tin: hỏi chính MCP server,
 đọc tài liệu OpenAPI của API, hoặc nhờ model soạn. Cả ba đều đã chạy.
@@ -59,6 +62,19 @@ Egress mặc định chỉ ra Internet công cộng. Triển khai nội bộ kha
 `TOOL_EGRESS_ALLOWED_HOSTS` (phân tách bằng dấu phẩy); host được khai báo sẽ
 phân giải ra IP tại thời điểm gọi, nên một tên trong danh sách chỉ mở đúng máy
 nó trỏ tới.
+
+## Workflow
+
+Canvas chạy thật: bốn loại node có hiệu lực (Bắt đầu, LLM, Tool, Kết thúc),
+đồ thị lưu nguyên khối, và lần chạy stream từng bước để canvas sáng dần theo
+đúng thứ tự đang diễn ra trên server. Sáu loại node còn lại là vỏ, bị khoá
+trong thư viện, và lần chạy bỏ qua rồi nói rõ.
+
+| Mục | Ở đâu | Cần gì để bật | Giai đoạn |
+|---|---|---|---|
+| Node Điều kiện, Lặp | Canvas workflow | Rẽ nhánh và lặp; hiện là vỏ, lần chạy bỏ qua | chưa xếp |
+| Node Code, HTTP, Knowledge, Agent | Canvas workflow | Bốn loại node còn lại; hiện là vỏ | chưa xếp |
+| Chọn tool bằng danh sách | Node Tool trên canvas | Hiện phải gõ mã tool và mã action bằng tay | chưa xếp |
 
 ## Tài khoản
 
@@ -89,22 +105,11 @@ nó trỏ tới.
 | Biến trong prompt | Editor agent › Prompt | Thay thế biến khi chạy, khai báo biến theo agent | chưa xếp |
 | Tạo bằng AI | Nút Agent mới | Model sinh prompt và cấu hình từ mô tả | chưa xếp |
 | Cải thiện prompt | Editor agent › panel | Model viết lại prompt và so sánh kết quả | chưa xếp |
-| Phiên bản của tool | Editor tool | Publish New Version kèm semver và changelog, như agent đã có | chưa xếp |
-| Nguồn giá trị tham số | Editor action | Chọn tham số do model điền hay là hằng số luôn gửi kèm | chưa xếp |
-| Kiểu tham số đầy đủ | Editor action | Integer, Object, và kiểu mảng, ngoài string/number/boolean | chưa xếp |
-| Mô tả kết quả trả về | Editor action | Kiểu kết quả, mô tả, và JSON schema để model biết đọc gì | chưa xếp |
-| Header và timeout riêng | Editor action | Đặt header và timeout cho từng action | chưa xếp |
-| Tham số dùng chung | Trang tool | Tham số áp cho mọi action của một tool | chưa xếp |
-| Trạng thái tool | Trang tool | Online/Offline và số action đang bật | chưa xếp |
 | Hạn mức capability | Editor agent › Capabilities | Gom nhóm kèm hạn mức, và nhận cả agent lẫn workflow làm capability | chưa xếp |
 | Thông tin model khi chọn | Chọn model | Context, max output, và model có hỗ trợ vision/tool hay không | chưa xếp |
-| Thao tác trên tin nhắn | Chat | Copy, lưu, chia sẻ, xoá khi rê chuột lên câu trả lời | chưa xếp |
+| Lưu, chia sẻ, xoá tin nhắn | Chat | Ba thao tác còn lại khi rê chuột lên câu trả lời; copy đã có | chưa xếp |
 | Thiết lập chạy thử | Editor agent › panel Debug | Bật/tắt ghi nhớ riêng cho phiên chạy thử, hiện chỉ hiển thị trạng thái | chưa xếp |
 | Tệp đính kèm khi chạy thử | Editor agent › panel Debug | Gửi tệp kèm câu hỏi trong panel Debug | chưa xếp |
-| MCP qua stdio | Thêm MCP | Chỉ hỗ trợ Streamable HTTP; stdio cần chạy tiến trình con | chưa xếp |
-| Node Điều kiện, Lặp | Canvas workflow | Rẽ nhánh và lặp; hiện là vỏ, lần chạy bỏ qua | chưa xếp |
-| Node Code, HTTP, Knowledge, Agent | Canvas workflow | Bốn loại node còn lại; hiện là vỏ | chưa xếp |
-| Chọn tool bằng danh sách | Node Tool trên canvas | Hiện phải gõ mã tool và mã action bằng tay | chưa xếp |
 
 ## Đã dựng UI và **có** chức năng thật
 
@@ -117,6 +122,14 @@ Ghi lại để khỏi nhầm là vỏ:
 - Tìm kiếm và lọc trên danh sách agent
 - Chọn avatar bằng emoji hoặc tải ảnh lên
 - Ngăn hội thoại gần đây mở từ header, đổi tên và xoá ngay trong ngăn
+- Đặt tên hội thoại theo nội dung lượt đầu, không phải cắt câu hỏi
+- Tool call hiện ngay trong dòng chảy câu trả lời, mở ra xem tham số và kết quả
+- Tham số cố định: giá trị tool luôn gửi, model không thấy và không đè được
+- Kết quả trả về của action, đọc bởi model trước khi nó quyết định gọi
+- Số agent đang dùng một tool hoặc một knowledge base
+- Copy câu trả lời, ở cả trang Chat và panel Debug
+- Avatar nhân vật sinh tại chỗ, giấy phép CC0
+- Canvas workflow toàn màn hình, chạy thật, animation theo bước thật
 
 ## Nguyên tắc khi thêm vỏ mới
 

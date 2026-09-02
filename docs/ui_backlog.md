@@ -89,6 +89,16 @@ nó trỏ tới.
 | Biến trong prompt | Editor agent › Prompt | Thay thế biến khi chạy, khai báo biến theo agent | chưa xếp |
 | Tạo bằng AI | Nút Agent mới | Model sinh prompt và cấu hình từ mô tả | chưa xếp |
 | Cải thiện prompt | Editor agent › panel | Model viết lại prompt và so sánh kết quả | chưa xếp |
+| Phiên bản của tool | Editor tool | Publish New Version kèm semver và changelog, như agent đã có | chưa xếp |
+| Nguồn giá trị tham số | Editor action | Chọn tham số do model điền hay là hằng số luôn gửi kèm | chưa xếp |
+| Kiểu tham số đầy đủ | Editor action | Integer, Object, và kiểu mảng, ngoài string/number/boolean | chưa xếp |
+| Mô tả kết quả trả về | Editor action | Kiểu kết quả, mô tả, và JSON schema để model biết đọc gì | chưa xếp |
+| Header và timeout riêng | Editor action | Đặt header và timeout cho từng action | chưa xếp |
+| Tham số dùng chung | Trang tool | Tham số áp cho mọi action của một tool | chưa xếp |
+| Trạng thái tool | Trang tool | Online/Offline và số action đang bật | chưa xếp |
+| Hạn mức capability | Editor agent › Capabilities | Gom nhóm kèm hạn mức, và nhận cả agent lẫn workflow làm capability | chưa xếp |
+| Thông tin model khi chọn | Chọn model | Context, max output, và model có hỗ trợ vision/tool hay không | chưa xếp |
+| Thao tác trên tin nhắn | Chat | Copy, lưu, chia sẻ, xoá khi rê chuột lên câu trả lời | chưa xếp |
 | Thiết lập chạy thử | Editor agent › panel Debug | Bật/tắt ghi nhớ riêng cho phiên chạy thử, hiện chỉ hiển thị trạng thái | chưa xếp |
 | Tệp đính kèm khi chạy thử | Editor agent › panel Debug | Gửi tệp kèm câu hỏi trong panel Debug | chưa xếp |
 

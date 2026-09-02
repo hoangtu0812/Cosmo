@@ -24,6 +24,10 @@ export function CapabilityHero({flow, title, description, action, points}: {
   action: ReactNode;
   points: {icon: IconType; title: string; description: string}[];
 }) {
+  // Each card takes its own hue, as the reference does, so three cards in a
+  // row read as three things rather than one repeated. The pairs come from the
+  // theme: every tinted background has an icon colour built to sit on it.
+  const hues = ['blue', 'purple', 'orange'];
   return (
     <VStack gap={8} hAlign="center" padding={8} width="100%">
       <VStack gap={5} hAlign="center">
@@ -32,7 +36,7 @@ export function CapabilityHero({flow, title, description, action, points}: {
             const isSubject = index === Math.floor(flow.length / 2);
             return (
               <HStack gap={2} key={step.label} vAlign="center">
-                {index > 0 ? <Text color="secondary" type="supporting">→</Text> : null}
+                {index > 0 ? <Text color="disabled" type="supporting">·</Text> : null}
                 <VStack gap={1} hAlign="center">
                   {/* The subject sits on a raised card between two flat ones,
                       so the eye lands on it first. */}
@@ -54,19 +58,31 @@ export function CapabilityHero({flow, title, description, action, points}: {
         {action}
       </VStack>
       <Grid columns={3} gap={4} maxWidth={760} width="100%">
-        {points.map((point) => (
-          <Card className={cardHover} key={point.title} padding={4}>
-            <VStack gap={2}>
-              {/* The tile is a badge, not a banner: left-aligned so it does
-                  not stretch to the card's width. */}
-              <HStack hAlign="start">
-                <Section padding={2} variant="muted"><Icon icon={point.icon} size="md" /></Section>
-              </HStack>
-              <Text type="label">{point.title}</Text>
-              <Text color="secondary" type="supporting">{point.description}</Text>
-            </VStack>
-          </Card>
-        ))}
+        {points.map((point, index) => {
+          const hue = hues[index % hues.length];
+          return (
+            <Card className={cardHover} key={point.title} padding={5}>
+              <VStack gap={3}>
+                {/* A round tinted badge, not a banner: fixed size and
+                    left-aligned so it does not stretch to the card's width.
+                    It grows a little under the card's hover, which is the
+                    reference's one flourish here. */}
+                <HStack hAlign="start">
+                  <VStack
+                    className="size-10 rounded-full transition-transform duration-200 group-hover:scale-110"
+                    hAlign="center"
+                    style={{backgroundColor: `var(--color-background-${hue})`}}
+                    vAlign="center"
+                  >
+                    <Icon icon={point.icon} size="md" style={{color: `var(--color-icon-${hue})`}} />
+                  </VStack>
+                </HStack>
+                <Text type="label">{point.title}</Text>
+                <Text color="secondary" type="supporting">{point.description}</Text>
+              </VStack>
+            </Card>
+          );
+        })}
       </Grid>
     </VStack>
   );

@@ -129,9 +129,14 @@ type Action struct {
 	Method      string      `json:"method"`
 	Path        string      `json:"path"`
 	Parameters  []Parameter `json:"parameters"`
-	Position    int         `json:"position"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	// What comes back. The type is a hint, not a promise the tool can keep -
+	// an API may answer with anything - so nothing is validated against it;
+	// both exist to be read by the model before it decides to call.
+	ResultType        string    `json:"result_type,omitempty"`
+	ResultDescription string    `json:"result_description,omitempty"`
+	Position          int       `json:"position"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // Changes carries an edit. A nil field means "leave this alone", which lets
@@ -274,6 +279,17 @@ func ValidateActionName(raw string) (string, error) {
 // CleanParameters drops blanks, bounds the list, and settles the two fields
 // that decide where a value ends up. The result is never nil, so it encodes as
 // [] rather than null.
+// ValidateResultType keeps the hint to shapes JSON actually has. An empty
+// string means the author has not said, which is allowed: an action that
+// predates this, or one whose answer resists description.
+func ValidateResultType(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "string", "number", "boolean", "object", "array":
+		return strings.TrimSpace(raw)
+	}
+	return ""
+}
+
 func CleanParameters(raw []Parameter) ([]Parameter, error) {
 	cleaned := make([]Parameter, 0, len(raw))
 	seen := map[string]bool{}

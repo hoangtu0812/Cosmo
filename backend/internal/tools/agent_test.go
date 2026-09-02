@@ -1,6 +1,9 @@
 package tools
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Two tools with the same name is the case that produced the bug: the
 // marketplace let the same toolkit be installed twice, and both copies then
@@ -29,5 +32,23 @@ func TestCallPrefixesAreStable(t *testing.T) {
 		if second[id] != prefix {
 			t.Fatalf("prefix for %s moved between calls: %q then %q", id, prefix, second[id])
 		}
+	}
+}
+
+// The catalogue's Weather entry, end to end through the sentence a model
+// actually reads: the description has to name the field the answer is in, or
+// the model is back to reading past generationtime_ms to find a temperature.
+func TestDefinitionDescriptionCarriesTheResult(t *testing.T) {
+	entry, found := CatalogEntryByID("weather")
+	if !found {
+		t.Fatal("weather entry missing")
+	}
+	action := entry.Actions[0]
+	description := entry.Description + ". " + action.Description
+	if returns := describeResult(action); returns != "" {
+		description += " " + returns
+	}
+	if !strings.Contains(description, "current.temperature_2m") {
+		t.Fatalf("the model is not told where the temperature is: %q", description)
 	}
 }

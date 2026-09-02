@@ -490,6 +490,8 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
   const [method, setMethod] = useState<ToolAction['method']>(action.method);
   const [path, setPath] = useState(action.path);
   const [parameters, setParameters] = useState<ToolParameter[]>(action.parameters);
+  const [resultType, setResultType] = useState<NonNullable<ToolAction['result_type']>>(action.result_type ?? '');
+  const [resultDescription, setResultDescription] = useState(action.result_description ?? '');
   const [isSaving, setIsSaving] = useState(false);
   const [failure, setFailure] = useState('');
 
@@ -501,7 +503,10 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
     setIsSaving(true);
     setFailure('');
     try {
-      const saved = await api.saveToolAction(toolID, action.id, {name, description, method, path, parameters}, workspaceID);
+      const saved = await api.saveToolAction(toolID, action.id, {
+        name, description, method, path, parameters,
+        result_type: resultType, result_description: resultDescription,
+      }, workspaceID);
       onSaved(saved.action);
     } catch (caught) {
       setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
@@ -665,6 +670,38 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
             </VStack>
           </Card>
         ))}
+      </VStack>
+
+      <VStack gap={2} width="100%">
+        <Text type="label">{t('tool.result')}</Text>
+        {/* An action says what it takes; without this it says nothing about
+            what comes back, and the model reads a wall of JSON and guesses. */}
+        <Text color="secondary" type="supporting">{t('tool.resultHint')}</Text>
+        <HStack gap={3} vAlign="end" width="100%">
+          <Selector
+            isDisabled={!isEditable}
+            label={t('tool.resultType')}
+            onChange={(value) => setResultType(value as NonNullable<ToolAction['result_type']>)}
+            options={[
+              {value: '', label: t('tool.resultUnsaid')},
+              {value: 'object', label: 'object'},
+              {value: 'array', label: 'array'},
+              {value: 'string', label: 'string'},
+              {value: 'number', label: 'number'},
+              {value: 'boolean', label: 'boolean'},
+            ]}
+            value={resultType}
+            width={170}
+          />
+          <TextInput
+            isDisabled={!isEditable}
+            label={t('tool.resultDescription')}
+            onChange={setResultDescription}
+            placeholder={t('tool.resultPlaceholder')}
+            value={resultDescription}
+            width="100%"
+          />
+        </HStack>
       </VStack>
 
       <HStack gap={2} hAlign="start">

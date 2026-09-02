@@ -265,7 +265,8 @@ func (repository *Repository) Delete(ctx context.Context, id, userID, workspaceI
 
 func (repository *Repository) Actions(ctx context.Context, toolID string) ([]Action, error) {
 	rows, err := repository.db.Query(ctx, `
-		SELECT id, tool_id, name, description, method, path, parameters, position, created_at, updated_at
+		SELECT id, tool_id, name, description, method, path, parameters,
+		       result_type, result_description, position, created_at, updated_at
 		FROM tool_actions WHERE tool_id = $1 ORDER BY position, created_at`, toolID)
 	if err != nil {
 		return nil, err
@@ -277,7 +278,8 @@ func (repository *Repository) Actions(ctx context.Context, toolID string) ([]Act
 		var action Action
 		var parameterRaw []byte
 		if err := rows.Scan(&action.ID, &action.ToolID, &action.Name, &action.Description,
-			&action.Method, &action.Path, &parameterRaw, &action.Position,
+			&action.Method, &action.Path, &parameterRaw,
+			&action.ResultType, &action.ResultDescription, &action.Position,
 			&action.CreatedAt, &action.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -330,6 +332,11 @@ func (repository *Repository) SaveAction(ctx context.Context, toolID, actionID s
 		return Action{}, err
 	}
 	parameterJSON, _ := json.Marshal(parameters)
+	resultType := ValidateResultType(input.ResultType)
+	resultDescription, err := ValidateDescription(input.ResultDescription)
+	if err != nil {
+		return Action{}, err
+	}
 
 	if actionID == "" {
 		var count int
@@ -341,16 +348,17 @@ func (repository *Repository) SaveAction(ctx context.Context, toolID, actionID s
 		}
 		actionID = newID("act_")
 		if _, err := repository.db.Exec(ctx, `
-			INSERT INTO tool_actions (id, tool_id, name, description, method, path, parameters, position)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			actionID, toolID, name, description, method, path, parameterJSON, count); err != nil {
+			INSERT INTO tool_actions (id, tool_id, name, description, method, path, parameters, result_type, result_description, position)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			actionID, toolID, name, description, method, path, parameterJSON, resultType, resultDescription, count); err != nil {
 			return Action{}, duplicateOr(err)
 		}
 	} else if _, err := repository.db.Exec(ctx, `
 		UPDATE tool_actions
-		SET name = $3, description = $4, method = $5, path = $6, parameters = $7, updated_at = NOW()
+		SET name = $3, description = $4, method = $5, path = $6, parameters = $7,
+		    result_type = $8, result_description = $9, updated_at = NOW()
 		WHERE id = $1 AND tool_id = $2`,
-		actionID, toolID, name, description, method, path, parameterJSON); err != nil {
+		actionID, toolID, name, description, method, path, parameterJSON, resultType, resultDescription); err != nil {
 		return Action{}, duplicateOr(err)
 	}
 	return repository.Action(ctx, toolID, actionID)

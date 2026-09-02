@@ -107,6 +107,9 @@ export type ToolAction = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   parameters: ToolParameter[];
+  // What the action gives back, read by the model before it decides to call.
+  result_type?: '' | 'string' | 'number' | 'boolean' | 'object' | 'array';
+  result_description?: string;
   position: number;
   created_at: string;
   updated_at: string;

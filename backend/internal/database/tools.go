@@ -104,3 +104,11 @@ var toolCatalogStatements = []string{
 var messageToolCallStatements = []string{
 	`ALTER TABLE messages ADD COLUMN IF NOT EXISTS tool_calls JSONB NOT NULL DEFAULT '[]'::jsonb`,
 }
+
+// An action says what it takes but not what it gives back, so a model calls,
+// receives a wall of JSON and guesses. These two carry the answer into the
+// description it reads before deciding.
+var actionResultStatements = []string{
+	`ALTER TABLE tool_actions ADD COLUMN IF NOT EXISTS result_type TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tool_actions ADD COLUMN IF NOT EXISTS result_description TEXT NOT NULL DEFAULT ''`,
+}

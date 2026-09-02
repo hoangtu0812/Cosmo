@@ -223,3 +223,50 @@ func TestBuildRequestSendsFixedValuesAndIgnoresOverrides(t *testing.T) {
 		t.Errorf("model value missing from %q", target)
 	}
 }
+
+// The description the model reads is the only place the result shape can
+// change a decision, so it has to reach it - and say nothing when the author
+// has said nothing, because "Returns: " with nothing after it is worse.
+func TestDescribeResult(t *testing.T) {
+	cases := []struct {
+		action Action
+		want   string
+	}{
+		{Action{ResultType: "object", ResultDescription: "current.temperature_2m in Celsius."},
+			"Returns object: current.temperature_2m in Celsius."},
+		{Action{ResultDescription: "The value of the expression."},
+			"Returns: The value of the expression."},
+		{Action{ResultType: "array"}, "Returns array."},
+		{Action{}, ""},
+	}
+	for _, item := range cases {
+		if got := describeResult(item.action); got != item.want {
+			t.Errorf("describeResult(%+v) = %q, want %q", item.action, got, item.want)
+		}
+	}
+}
+
+// A type outside the shapes JSON has is dropped rather than passed through to
+// the model as a fact about the answer.
+func TestValidateResultType(t *testing.T) {
+	for raw, want := range map[string]string{
+		"object": "object", " array ": "array", "number": "number",
+		"": "", "int64": "", "Object": "",
+	} {
+		if got := ValidateResultType(raw); got != want {
+			t.Errorf("ValidateResultType(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+// Every catalogue action ships describing its answer: an entry installed to
+// work on the first call should not leave the model guessing on the second.
+func TestCatalogActionsDescribeTheirResult(t *testing.T) {
+	for _, entry := range Catalog() {
+		for _, action := range entry.Actions {
+			if describeResult(action) == "" {
+				t.Errorf("%s/%s says nothing about what it returns", entry.ID, action.Name)
+			}
+		}
+	}
+}

@@ -90,9 +90,10 @@ func (repository *Repository) InstallCatalogEntry(ctx context.Context, userID, w
 		}
 		parameterJSON, _ := json.Marshal(parameters)
 		if _, err := transaction.Exec(ctx, `
-			INSERT INTO tool_actions (id, tool_id, name, description, method, path, parameters, position)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			newID("act_"), id, actionName, action.Description, method, path, parameterJSON, position); err != nil {
+			INSERT INTO tool_actions (id, tool_id, name, description, method, path, parameters, result_type, result_description, position)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			newID("act_"), id, actionName, action.Description, method, path, parameterJSON,
+			ValidateResultType(action.ResultType), action.ResultDescription, position); err != nil {
 			return Tool{}, false, err
 		}
 	}

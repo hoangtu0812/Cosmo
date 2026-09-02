@@ -240,6 +240,12 @@ func (repository *Repository) Definitions(ctx context.Context, agentID string, p
 			if tool.Description != "" {
 				description = strings.TrimSpace(tool.Description + ". " + description)
 			}
+			// What comes back, so the model knows before it calls whether this
+			// is the action it wanted - and afterwards, which part of the
+			// answer it was looking for.
+			if returns := describeResult(action); returns != "" {
+				description = strings.TrimSpace(description) + " " + returns
+			}
 			definitions = append(definitions, modelgateway.ToolDefinition{
 				Name:        callName(prefixes[tool.ID], action),
 				Description: description,
@@ -251,6 +257,23 @@ func (repository *Repository) Definitions(ctx context.Context, agentID string, p
 		}
 	}
 	return definitions, nil
+}
+
+// describeResult states what an action gives back, in the sentence the model
+// reads with everything else. Empty when the author has said nothing, because
+// "Returns: " with nothing after it is worse than silence.
+func describeResult(action Action) string {
+	described := strings.TrimSpace(action.ResultDescription)
+	kind := strings.TrimSpace(action.ResultType)
+	switch {
+	case described != "" && kind != "":
+		return "Returns " + kind + ": " + described
+	case described != "":
+		return "Returns: " + described
+	case kind != "":
+		return "Returns " + kind + "."
+	}
+	return ""
 }
 
 // InvokeNamed runs the call a model asked for. The name is resolved against

@@ -31,6 +31,7 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {StatusLabel} from '../../components/StatusLabel';
 import {AnswerWithToolCalls} from '../../components/AnswerWithToolCalls';
+import {CopyButton} from '../../components/CopyButton';
 import {APIError, Agent, AgentVersion, Conversation, KnowledgeBase, Message, MessageToolCall, RunStep, Tool, api, streamChat} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
@@ -882,6 +883,11 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
                   {message.role === 'assistant'
                     ? <AnswerWithToolCalls calls={message.tool_calls ?? []}>{message.content}</AnswerWithToolCalls>
                     : <Text type="body">{message.content}</Text>}
+                  {message.role === 'assistant' ? (
+                    <HStack gap={2} hAlign="end" width="100%">
+                      <CopyButton text={message.content} />
+                    </HStack>
+                  ) : null}
                 </VStack>
               </Card>
             ))}

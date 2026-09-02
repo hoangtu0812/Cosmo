@@ -32,6 +32,7 @@ import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Agent, api, APIError, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
 import {AnswerWithToolCalls} from '../components/AnswerWithToolCalls';
+import {CopyButton} from '../components/CopyButton';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {TextInput} from '@astryxdesign/core/TextInput';
@@ -561,7 +562,20 @@ export default function ChatPage() {
                         sender="assistant"
                       >
                         <ChatMessageBubble
-                          metadata={message.content ? <ChatMessageMetadata footer={message.model || workspace?.model_alias} timestamp={<Timestamp format="time" value={message.created_at} />} /> : undefined}
+                          metadata={message.content ? (
+                            <ChatMessageMetadata
+                              footer={
+                                <HStack gap={2} vAlign="center">
+                                  <Text color="secondary" type="supporting">{message.model || workspace?.model_alias}</Text>
+                                  {/* The reference puts this on every answer.
+                                      Copying a reply is the thing people do
+                                      most with one. */}
+                                  {isActiveStream ? null : <CopyButton text={message.content} />}
+                                </HStack>
+                              }
+                              timestamp={<Timestamp format="time" value={message.created_at} />}
+                            />
+                          ) : undefined}
                           name={selectedAgent?.name || 'Cosmo'}
                           variant="ghost"
                         >

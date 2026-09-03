@@ -657,7 +657,7 @@ export default function ChatPage() {
       <Layout
         end={preview ? (
           <>
-            <ResizeHandle hasDivider label={t('doc.resize')} resizable={documentPanel.props} />
+            <ResizeHandle hasDivider isReversed label={t('doc.resize')} resizable={documentPanel.props} />
             <LayoutPanel label={preview.title} padding={0} resizable={documentPanel.props} role="complementary">
               {preview.kind === 'chart' ? (
                 <ChartPanel chart={preview.chart} onClose={() => setPreview(null)} t={t} title={preview.title} />

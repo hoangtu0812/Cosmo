@@ -139,7 +139,12 @@ export default function ChatPage() {
       const selectedConversation = conversationResult.conversations.find((item) => item.id === requestedConversationID) ?? conversationResult.conversations[0];
       if (selectedConversation) {
         setConversationID(selectedConversation.id);
-        setChatTarget(selectedConversation.agent_id ? `agent:${selectedConversation.agent_id}` : 'model:');
+        // An agent owns its conversation, so it wins. Otherwise the model in
+        // the URL is a choice this reader made, and outranks the workspace
+        // default; with neither, the transcript is asked below.
+        setChatTarget(selectedConversation.agent_id
+          ? `agent:${selectedConversation.agent_id}`
+          : requestedTarget.startsWith('model:') ? requestedTarget : 'model:');
       }
     }).catch((caught) => {
       if (caught instanceof APIError && caught.status === 401) router.replace('/');
@@ -165,7 +170,17 @@ export default function ChatPage() {
     if (!conversationID) return;
     if (hydratedRef.current === conversationID) return;
     hydratedRef.current = conversationID;
-    api.messages(conversationID).then((result) => setMessages(result.messages)).catch((caught) => setError(caught instanceof Error ? caught.message : t('chat.historyFailed')));
+    api.messages(conversationID).then((result) => {
+      setMessages(result.messages);
+      // Every answer records the model that produced it, which makes the
+      // transcript the honest answer to "what is this conversation on" when
+      // nothing else said. Only fills a target nobody has chosen yet.
+      setChatTarget((current) => {
+        if (current !== 'model:') return current;
+        const answered = [...result.messages].reverse().find((item) => item.role === 'assistant' && item.model);
+        return answered?.model ? `model:${answered.model}` : current;
+      });
+    }).catch((caught) => setError(caught instanceof Error ? caught.message : t('chat.historyFailed')));
   }, [conversationID, t]);
 
   function openConversation(conversation: Conversation) {
@@ -188,11 +203,26 @@ export default function ChatPage() {
     if (value === chatTarget) return;
     setChatTarget(value);
     setReasoningEffort('');
+    const workspaceQuery = workspace ? `/chat?workspace=${encodeURIComponent(workspace.id)}` : '';
+
+    // Swapping one model for another asks the next answer to come from
+    // somewhere else; the conversation so far is still the conversation. An
+    // agent is the other thing - it owns the conversation it started, and
+    // moving to or from one has to begin a new one.
+    const staysInPlace = conversationID !== ''
+      && value.startsWith('model:')
+      && chatTarget.startsWith('model:')
+      && !activeConversation?.agent_id;
+    if (staysInPlace) {
+      if (workspaceQuery) router.replace(`${workspaceQuery}&conversation=${encodeURIComponent(conversationID)}&target=${encodeURIComponent(value)}`);
+      return;
+    }
+
     setConversationID('');
     setMessages([]);
     setError('');
     hydratedRef.current = '';
-    if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new&target=${encodeURIComponent(value)}`);
+    if (workspaceQuery) router.replace(`${workspaceQuery}&conversation=new&target=${encodeURIComponent(value)}`);
   }
 
   async function renameConversation() {
@@ -254,7 +284,9 @@ export default function ChatPage() {
       hydratedRef.current = targetID;
       setConversationID(targetID);
       setConversations((current) => [result.conversation, ...current.filter((item) => item.id !== result.conversation.id)]);
-      router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=${encodeURIComponent(targetID)}`);
+      // Carrying the target across: dropping it here was enough to reset the
+      // model to the workspace default the moment the first answer arrived.
+      router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=${encodeURIComponent(targetID)}&target=${encodeURIComponent(chatTarget)}`);
     }
     const optimisticUser: Message = {id: `local-${crypto.randomUUID()}`, conversation_id: targetID, role: 'user', content: trimmed, created_at: new Date().toISOString()};
     const optimisticAssistant: Message = {id: `stream-${crypto.randomUUID()}`, conversation_id: targetID, role: 'assistant', content: '', created_at: new Date().toISOString()};

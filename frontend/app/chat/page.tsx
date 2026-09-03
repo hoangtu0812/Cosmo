@@ -22,6 +22,7 @@ import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
+import {ResizeHandle, useResizable} from '@astryxdesign/core/Resizable';
 import {Section} from '@astryxdesign/core/Section';
 import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
@@ -97,6 +98,15 @@ export default function ChatPage() {
   // on the right, so opening a document puts the conversation list away rather
   // than fighting it for the same edge.
   const [preview, setPreview] = useState<{kbID: string; documentID: string; title: string} | null>(null);
+  // Wide enough to read an A4 page at a glance, and draggable from there:
+  // how much of the screen a document deserves depends on the document. The
+  // width is remembered, so it is a decision made once.
+  const documentPanel = useResizable({
+    autoSaveId: 'cosmo-document-panel',
+    defaultSize: 820,
+    minSizePx: 420,
+    maxSizePx: 1400,
+  });
   const [renameTitle, setRenameTitle] = useState('');
   const [deleting, setDeleting] = useState<Conversation | null>(null);
   const [busy, setBusy] = useState(false);
@@ -569,9 +579,12 @@ export default function ChatPage() {
     <>
       <Layout
         end={preview ? (
-          <LayoutPanel hasDivider label={preview.title} padding={0} role="complementary" width={560}>
-            <DocumentPreview document={preview} onClose={() => setPreview(null)} t={t} />
-          </LayoutPanel>
+          <>
+            <ResizeHandle hasDivider label={t('doc.resize')} resizable={documentPanel.props} />
+            <LayoutPanel label={preview.title} padding={0} resizable={documentPanel.props} role="complementary">
+              <DocumentPreview document={preview} onClose={() => setPreview(null)} t={t} />
+            </LayoutPanel>
+          </>
         ) : isRecentOpen ? (
           <LayoutPanel hasDivider label={t('chat.recentChats')} padding={4} role="complementary" width={340}>
             <VStack gap={3} width="100%">

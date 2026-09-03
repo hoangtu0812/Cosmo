@@ -289,6 +289,10 @@ export type Conversation = {
   id: string;
   workspace_id: string;
   agent_id?: string;
+  /** Who answers here: the agent by name, or the model that wrote the last
+      answer. Both absent until something has answered. */
+  agent_name?: string;
+  model?: string;
   title: string;
   // Empty when the conversation follows the draft rather than a frozen
   // version, and version_number is then 0.

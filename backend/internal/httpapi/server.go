@@ -85,12 +85,17 @@ type Workspace struct {
 }
 
 type Conversation struct {
-	ID          string    `json:"id"`
-	WorkspaceID string    `json:"workspace_id"`
-	AgentID     string    `json:"agent_id,omitempty"`
-	Title       string    `json:"title"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspace_id"`
+	AgentID     string `json:"agent_id,omitempty"`
+	// Who answers here, for a list that has to tell two identically titled
+	// conversations apart: the agent's name, or the model that wrote the last
+	// answer. Both empty on a conversation nobody has answered yet.
+	AgentName string    `json:"agent_name,omitempty"`
+	Model     string    `json:"model,omitempty"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Message struct {
@@ -688,7 +693,22 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	// The shared chat surface can target either a workspace model or an Agent.
 	// agent_id lets the composer restore the correct target after reload while
 	// the message endpoint continues enforcing the Agent's own configuration.
-	rows, err := s.db.Query(r.Context(), `SELECT id, workspace_id, COALESCE(agent_id, ''), title, created_at, updated_at FROM conversations WHERE user_id = $1 AND workspace_id = $2 ORDER BY updated_at DESC LIMIT 100`, user.ID, workspaceID)
+	//
+	// Who answered comes along with it: the agent by name, or - for a plain
+	// chat, which records no model of its own - the model that wrote the last
+	// answer, which is the same fact the composer restores its picker from.
+	rows, err := s.db.Query(r.Context(), `
+		SELECT c.id, c.workspace_id, COALESCE(c.agent_id, ''), COALESCE(a.name, ''),
+		       COALESCE((
+		           SELECT m.model FROM messages m
+		           WHERE m.conversation_id = c.id AND m.role = 'assistant' AND COALESCE(m.model, '') <> ''
+		           ORDER BY m.created_at DESC LIMIT 1
+		       ), ''),
+		       c.title, c.created_at, c.updated_at
+		FROM conversations c
+		LEFT JOIN agents a ON a.id = c.agent_id
+		WHERE c.user_id = $1 AND c.workspace_id = $2
+		ORDER BY c.updated_at DESC LIMIT 100`, user.ID, workspaceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải hội thoại.")
 		return
@@ -697,7 +717,8 @@ func (s *Server) listConversations(w http.ResponseWriter, r *http.Request) {
 	items := []Conversation{}
 	for rows.Next() {
 		var item Conversation
-		if rows.Scan(&item.ID, &item.WorkspaceID, &item.AgentID, &item.Title, &item.CreatedAt, &item.UpdatedAt) == nil {
+		if rows.Scan(&item.ID, &item.WorkspaceID, &item.AgentID, &item.AgentName, &item.Model,
+			&item.Title, &item.CreatedAt, &item.UpdatedAt) == nil {
 			items = append(items, item)
 		}
 	}

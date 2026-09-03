@@ -496,11 +496,22 @@ export default function ChatPage() {
                         padding={3}
                         width="100%"
                       >
-                        <VStack gap={0}>
+                        <VStack gap={1}>
                           <Text maxLines={1} type="label">{item.title}</Text>
-                          <Text color="secondary" type="supporting">
-                            <Timestamp format="relative" value={item.created_at} />
-                          </Text>
+                          <HStack gap={2} vAlign="center" wrap="wrap">
+                            {/* Two rows can carry the same title and be a
+                                different thing entirely - an agent and a plain
+                                model - so each says which it was. An agent is
+                                a who and reads as one; a model is a what. */}
+                            {item.agent_name ? (
+                              <StatusLabel label={item.agent_name} variant="accent" />
+                            ) : item.model ? (
+                              <Token label={item.model} size="sm" />
+                            ) : null}
+                            <Text color="secondary" type="supporting">
+                              <Timestamp format="relative" value={item.created_at} />
+                            </Text>
+                          </HStack>
                         </VStack>
                       </ClickableCard>
                       <DropdownMenu

@@ -2,10 +2,9 @@
 
 import {Suspense, useEffect, useRef, useState} from 'react';
 import {usePathname, useRouter, useSearchParams} from 'next/navigation';
-import {Archive, BarChart3, Bell, Bookmark, Bot, Box, Building2, Check, Clock, FolderKanban, Library, MessageSquare, Plus, Search, Settings, SquarePen, UserRound, Workflow, Wrench, Zap} from 'lucide-react';
+import {Archive, BarChart3, Bell, Bookmark, Bot, Box, Clock, FolderKanban, Library, MessageSquare, Search, Settings, SquarePen, Workflow, Wrench, Zap} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {Avatar} from '@astryxdesign/core/Avatar';
-import {DropdownMenuDivider, DropdownMenuItem} from '@astryxdesign/core/DropdownMenu';
 import {Button} from '@astryxdesign/core/Button';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Icon} from '@astryxdesign/core/Icon';
@@ -108,9 +107,6 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
     router.push(`${target}?workspace=${encodeURIComponent(next.id)}`);
   }
 
-  // The reference's switcher says what it is for, marks where you are, and
-  // then offers the two ways to end up somewhere else. Settings and invites
-  // live at the foot of the rail, so they are not repeated here.
   function closeCreateWorkspace(force = false) {
     if (isCreatingWorkspace && !force) return;
     setIsCreateWorkspaceOpen(false);
@@ -140,28 +136,6 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
       setIsCreatingWorkspace(false);
     }
   }
-
-  const workspaceMenu = (
-    <>
-      <HStack paddingBlock={1} paddingInline={2}>
-        <Text color="secondary" type="supporting">{t('menu.switchWorkspace')}</Text>
-      </HStack>
-      {workspaces.map((item) => (
-        <DropdownMenuItem
-          endContent={item.id === workspace?.id ? <Check size={14} /> : undefined}
-          icon={item.type === 'personal' ? <UserRound size={15} /> : <Building2 size={15} />}
-          key={item.id}
-          label={item.name}
-          onClick={() => void switchWorkspace(item)}
-        />
-      ))}
-      <DropdownMenuDivider />
-      <DropdownMenuItem icon={<Plus size={15} />} label={t('menu.createWorkspace')} onClick={() => setIsCreateWorkspaceOpen(true)} />
-      {/* Joining someone else's workspace needs an invite flow we have not
-          built - see docs/ui_backlog.md. */}
-      <DropdownMenuItem icon={<Box size={15} />} isDisabled label={t('menu.joinWorkspace')} />
-    </>
-  );
 
   // The agent editor is a focused surface, so it runs without the rail while
   // keeping everything else the frame does - resolving the workspace above all.
@@ -200,7 +174,15 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
                     size="md"
                   />
                 </SideNavSection>
-                {user ? <UserProfileCard user={user} /> : null}
+                {user ? (
+                  <UserProfileCard
+                    onCreateWorkspace={() => setIsCreateWorkspaceOpen(true)}
+                    onSwitchWorkspace={(next) => void switchWorkspace(next)}
+                    user={user}
+                    workspace={workspace}
+                    workspaces={workspaces}
+                  />
+                ) : null}
               </>
             }
             header={<SideNavHeading heading="Cosmo" icon={<Icon icon={Bot} size="sm" />} />}
@@ -227,7 +209,7 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             )}
             header={isLibraryRoute
               ? <SideNavHeading heading={t('nav.library')} />
-              : <SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} />}
+              : <SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} />}
           >
           {isLibraryRoute ? null : (
             <SideNavSection isHeaderHidden title={t('chat.actions')}>

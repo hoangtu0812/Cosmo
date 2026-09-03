@@ -656,7 +656,7 @@ export async function streamChat(
   options: ChatOptions,
   handlers: {
     onMeta?: (data: {assistant_message_id: string; model: string; run_id?: string}) => void;
-    onStatus?: (data: {stage: string; message: string}) => void;
+    onStatus?: (data: {stage: string; message: string; detail?: string}) => void;
     // Sent twice per call - once running, once settled - keyed by id so the
     // second replaces the first rather than adding a row.
     onToolCall?: (call: MessageToolCall) => void;
@@ -698,7 +698,7 @@ export async function streamChat(
       if (!event || !rawData) continue;
       const data = JSON.parse(rawData) as Record<string, unknown>;
       if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; run_id?: string});
-      if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string});
+      if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string; detail?: string});
       if (event === 'tool') handlers.onToolCall?.(data as unknown as MessageToolCall);
       if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
       if (event === 'usage') handlers.onUsage?.(data as ChatUsage);

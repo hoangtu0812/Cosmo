@@ -1032,6 +1032,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	plan := s.planTurn(planCtx, models, options, input.Content,
 		s.knowledgeTopicsFor(planCtx, conversationWorkspaceID, agentKnowledge), attachedNames)
 	cancelPlan()
+	writeSSE(w, "status", map[string]string{
+		"stage":   "planned",
+		"message": "Đã đọc câu hỏi",
+		"detail":  plan.Reason,
+	})
+	flusher.Flush()
 	if runErr == nil {
 		var planStep runs.Step
 		planStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "plan", Type: "plan", Name: "Turn plan", TimeoutMS: 15000})
@@ -1075,6 +1081,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		if retrievalErr != nil {
 			s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
 			writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
+			flusher.Flush()
+		}
+		if retrievalErr == nil {
+			writeSSE(w, "status", map[string]string{
+				"stage":   "retrieved",
+				"message": "Đã tra Knowledge Base",
+				"detail":  describePassages(passages),
+			})
 			flusher.Flush()
 		}
 		if runErr == nil {
@@ -1131,6 +1145,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if setErr != nil {
 		s.logger.Error("tool set failed", "conversation_id", conversationID, "error", setErr)
 	} else if !set.isEmpty() {
+		writeSSE(w, "status", map[string]string{
+			"stage":   "tools_ready",
+			"message": "Có tool dùng được",
+			"detail":  describeToolSet(set),
+		})
+		flusher.Flush()
 		if described, marshalErr := json.Marshal(set.definitions); marshalErr == nil {
 			contextParts["tools"] = len([]rune(string(described)))
 		}

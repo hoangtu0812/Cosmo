@@ -98,3 +98,51 @@ func (s *Server) contextWindowFor(ctx context.Context, workspaceID, model string
 	// simply leaves the reader with a count and no bar.
 	return fetchGatewayModelMetadata(ctx, baseURL, apiKey)[model].ContextWindow
 }
+
+// describePassages says what a retrieval actually brought back: how many
+// passages, and which documents they came from. "Đã tra Knowledge Base" on its
+// own tells a reader nothing they could check.
+func describePassages(passages []knowledgePassage) string {
+	if len(passages) == 0 {
+		return "không có đoạn nào khớp"
+	}
+	titles := []string{}
+	seen := map[string]bool{}
+	for _, passage := range passages {
+		name := strings.TrimSpace(passage.Title)
+		if name == "" {
+			name = strings.TrimSpace(passage.Source)
+		}
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		// Three names is a sentence; ten is a list nobody reads in a status
+		// line, and the citations below carry the rest anyway.
+		if len(titles) == 3 {
+			titles = append(titles, "…")
+			break
+		}
+		titles = append(titles, name)
+	}
+	return fmt.Sprintf("%d đoạn · %s", len(passages), strings.Join(titles, ", "))
+}
+
+// describeToolSet names what this turn is allowed to reach for, and where that
+// permission came from - an agent's own attachments, or what the workspace
+// installed and switched on.
+func describeToolSet(set toolSet) string {
+	names := make([]string, 0, len(set.tools))
+	for _, tool := range set.tools {
+		names = append(names, tool.Name)
+		if len(names) == 6 {
+			names = append(names, "…")
+			break
+		}
+	}
+	origin := "workspace"
+	if set.source == "agent" {
+		origin = "agent"
+	}
+	return fmt.Sprintf("%s: %s", origin, strings.Join(names, ", "))
+}

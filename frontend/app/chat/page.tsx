@@ -99,6 +99,9 @@ export default function ChatPage() {
   // What the last turn cost. Kept per conversation, because it describes this
   // exchange rather than the app.
   const [usage, setUsage] = useState<ChatUsage | null>(null);
+  // Every stage this turn went through, kept rather than replaced. The status
+  // line shows the last one; the chevron shows the rest.
+  const [trace, setTrace] = useState<{stage: string; message: string; detail?: string}[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   // Named the moment they are chosen, before the server has read a byte: a
   // scanned PDF goes through layout analysis and the wait is long enough to
@@ -436,6 +439,7 @@ export default function ChatPage() {
     setMessages((current) => [...current, optimisticUser, optimisticAssistant]);
     setStreaming(true);
     setLiveToolCalls([]);
+    setTrace([]);
     setStatus(t('chat.thinking'));
     setOrbState('working');
     try {
@@ -466,8 +470,11 @@ export default function ChatPage() {
         )),
         onSuggestions: ({questions}) => setFollowUps(questions),
         onUsage: setUsage,
-        onStatus: ({stage, message}) => {
+        onStatus: ({stage, message, detail}) => {
           setStatus(message);
+          // A stage carrying detail is a decision worth keeping; the headline
+          // moves on either way.
+          if (detail) setTrace((current) => [...current, {stage, message, detail}]);
           setOrbState(activityOrb(stage));
           if (stage === 'retrieval_failed') setError(message);
         },
@@ -915,7 +922,7 @@ export default function ChatPage() {
                                 calls={liveToolCalls}
                                 onOpenChart={(drawn) => setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')})}
                               >{''}</AnswerWithToolCalls>
-                              <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state={orbState} /><Text color="secondary" type="supporting">{status}</Text></HStack>
+                              <TurnActivity orbState={orbState} status={status} t={t} trace={trace} />
                               <CitationList citations={message.citations ?? []} onOpen={setPreview} />
                             </VStack> : '')}
                         </ChatMessageBubble>
@@ -1454,4 +1461,47 @@ function compactTokens(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
   if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
   return String(tokens);
+}
+
+/**
+ * What the turn is doing, and - behind the chevron - what it has decided.
+ *
+ * The status line is one sentence that keeps being replaced, so by the time an
+ * answer arrives the reasoning behind it is gone: whether it searched, what
+ * came back, what it was allowed to call. Those are the questions a reader
+ * asks of an answer they are unsure about, and they were only ever answerable
+ * from a run record nobody opens mid-answer.
+ *
+ * Closed by default. The answer is the thing being waited for; this is the
+ * thing you open when it surprises you.
+ */
+function TurnActivity({status, trace, orbState, t}: {
+  status: string;
+  trace: {stage: string; message: string; detail?: string}[];
+  orbState: OrbState;
+  t: ReturnType<typeof useTranslation>;
+}) {
+  const line = (
+    <HStack gap={2} vAlign="center">
+      <ThinkingOrb size={20} state={orbState} />
+      <Text color="secondary" type="supporting">{status}</Text>
+    </HStack>
+  );
+  if (trace.length === 0) return line;
+
+  return (
+    <Collapsible defaultIsOpen={false} trigger={line}>
+      <VStack gap={2} paddingBlock={2} paddingInline={6} width="100%">
+        {trace.map((step, index) => (
+          <VStack gap={0} key={`${step.stage}-${index}`} width="100%">
+            <Text type="supporting">{step.message}</Text>
+            {step.detail ? (
+              <Text color="secondary" type="supporting">{step.detail}</Text>
+            ) : null}
+          </VStack>
+        ))}
+        <Text color="secondary" type="supporting">{t('trace.hint')}</Text>
+      </VStack>
+    </Collapsible>
+  );
 }

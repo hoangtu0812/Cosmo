@@ -28,6 +28,7 @@ func writeToolError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadGateway, err.Error())
 	case errors.Is(err, tools.ErrNameLength), errors.Is(err, tools.ErrDescription),
 		errors.Is(err, tools.ErrBaseURL), errors.Is(err, tools.ErrPrivateAddress),
+		errors.Is(err, tools.ErrBuiltinHasNoBaseURL),
 		errors.Is(err, tools.ErrAuthType), errors.Is(err, tools.ErrAuthHeaderName),
 		errors.Is(err, tools.ErrActionName), errors.Is(err, tools.ErrActionMethod),
 		errors.Is(err, tools.ErrActionPath), errors.Is(err, tools.ErrTooManyActions),

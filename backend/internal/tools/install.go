@@ -42,16 +42,14 @@ func (repository *Repository) InstallCatalogEntry(ctx context.Context, userID, w
 	if kind != KindMCP && kind != KindBuiltin {
 		kind = KindHTTP
 	}
-	baseURL := ""
-	if kind != KindBuiltin {
-		validated, err := ValidateBaseURL(entry.BaseURL)
-		if err != nil {
+	baseURL, err := BaseURLForKind(kind, entry.BaseURL)
+	if err != nil {
+		return Tool{}, false, err
+	}
+	if baseURL != "" {
+		if err := repository.egress.CheckEgress(baseURL); err != nil {
 			return Tool{}, false, err
 		}
-		if err := repository.egress.CheckEgress(validated); err != nil {
-			return Tool{}, false, err
-		}
-		baseURL = validated
 	}
 
 	transaction, err := repository.db.Begin(ctx)

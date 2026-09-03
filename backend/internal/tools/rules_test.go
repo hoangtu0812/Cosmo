@@ -275,3 +275,43 @@ func TestCatalogActionsDescribeTheirResult(t *testing.T) {
 		}
 	}
 }
+
+// A built-in runs in this process, so its only valid destination is none.
+//
+// The rule was written into Create and Install but not Update, which is a
+// difference no reader could see and a built-in could feel: it installed, then
+// refused to be renamed because the editor sent the empty address field every
+// tool editor sends.
+func TestBaseURLForKindLetsABuiltinHaveNoAddress(t *testing.T) {
+	for _, raw := range []string{"", "   "} {
+		got, err := BaseURLForKind(KindBuiltin, raw)
+		if err != nil {
+			t.Fatalf("a built-in was refused for having no address: %v", err)
+		}
+		if got != "" {
+			t.Fatalf("a built-in was given the address %q", got)
+		}
+	}
+}
+
+// Refused rather than quietly dropped: an address arriving for a built-in is
+// not a typo, it is a misunderstanding of what the tool is, and silently
+// ignoring it would leave the sender believing it had been saved.
+func TestBaseURLForKindRefusesAnAddressForABuiltin(t *testing.T) {
+	if _, err := BaseURLForKind(KindBuiltin, "https://api.example.com"); !errors.Is(err, ErrBuiltinHasNoBaseURL) {
+		t.Fatalf("a built-in accepted an endpoint: %v", err)
+	}
+}
+
+// Everything else still has to have one, and still has to be reachable.
+func TestBaseURLForKindStillDemandsOneOfEverythingElse(t *testing.T) {
+	for _, kind := range []string{KindHTTP, KindMCP} {
+		if _, err := BaseURLForKind(kind, ""); !errors.Is(err, ErrBaseURL) {
+			t.Fatalf("%s was allowed to have no endpoint: %v", kind, err)
+		}
+		got, err := BaseURLForKind(kind, "https://api.example.com/")
+		if err != nil || got != "https://api.example.com" {
+			t.Fatalf("%s lost its endpoint: %q %v", kind, got, err)
+		}
+	}
+}

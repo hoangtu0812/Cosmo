@@ -187,18 +187,14 @@ func (repository *Repository) Create(ctx context.Context, userID, workspaceID, r
 		kind = KindHTTP
 	}
 
-	// A built-in reaches nothing, so demanding a destination for it would be
-	// asking for a URL that could never be called.
-	baseURL := ""
-	if kind != KindBuiltin {
-		validated, err := ValidateBaseURL(rawBaseURL)
-		if err != nil {
+	baseURL, err := BaseURLForKind(kind, rawBaseURL)
+	if err != nil {
+		return Tool{}, err
+	}
+	if baseURL != "" {
+		if err := repository.egress.CheckEgress(baseURL); err != nil {
 			return Tool{}, err
 		}
-		if err := repository.egress.CheckEgress(validated); err != nil {
-			return Tool{}, err
-		}
-		baseURL = validated
 	}
 	id := newID("tol_")
 	tagJSON, _ := json.Marshal(CleanStringList(tags, 10, 40))
@@ -258,15 +254,21 @@ func (repository *Repository) Update(ctx context.Context, id, userID, workspaceI
 		}
 	}
 	if changes.BaseURL != nil {
-		baseURL, err := ValidateBaseURL(*changes.BaseURL)
+		baseURL, err := BaseURLForKind(existing.Kind, *changes.BaseURL)
 		if err != nil {
 			return Tool{}, err
 		}
-		if err := repository.egress.CheckEgress(baseURL); err != nil {
-			return Tool{}, err
-		}
-		if _, err := repository.db.Exec(ctx, `UPDATE tools SET base_url = $2, updated_at = NOW() WHERE id = $1`, id, baseURL); err != nil {
-			return Tool{}, err
+		// A built-in yields an empty destination, so there is nothing to guard
+		// and nothing to write. Create and Install already knew that; this is
+		// where the rule had been missing, and a built-in could not be renamed
+		// for the want of a URL it can never have.
+		if baseURL != "" {
+			if err := repository.egress.CheckEgress(baseURL); err != nil {
+				return Tool{}, err
+			}
+			if _, err := repository.db.Exec(ctx, `UPDATE tools SET base_url = $2, updated_at = NOW() WHERE id = $1`, id, baseURL); err != nil {
+				return Tool{}, err
+			}
 		}
 	}
 	if changes.AuthType != nil || changes.AuthHeaderName != nil {

@@ -48,22 +48,25 @@ const (
 // The errors carry the message the reader sees, so the transport layer maps
 // them to a status without restating them and the wording stays in one place.
 var (
-	ErrNotFound        = errors.New("Không tìm thấy tool.")
-	ErrNameLength      = errors.New("Tên tool phải từ 1 đến 120 ký tự.")
-	ErrDescription     = errors.New("Mô tả tối đa 512 ký tự.")
-	ErrBaseURL         = errors.New("API base URL phải là http hoặc https.")
-	ErrPrivateAddress  = errors.New("Tool chỉ được gọi ra Internet, không gọi vào địa chỉ nội bộ.")
-	ErrAuthType        = errors.New("Kiểu xác thực không hợp lệ.")
-	ErrAuthHeaderName  = errors.New("Cần tên header khi xác thực bằng header.")
-	ErrActionName      = errors.New("Tên action phải từ 1 đến 120 ký tự và chỉ gồm chữ, số, gạch dưới.")
-	ErrActionMethod    = errors.New("Phương thức HTTP không hợp lệ.")
-	ErrActionPath      = errors.New("Đường dẫn action phải bắt đầu bằng /.")
-	ErrTooManyActions  = errors.New("Mỗi tool tối đa 30 action.")
-	ErrTooManyParams   = errors.New("Mỗi action tối đa 20 tham số.")
-	ErrFixedNeedsValue = errors.New("Tham số cố định phải có giá trị.")
-	ErrDuplicateAction = errors.New("Đã có action trùng tên trong tool này.")
-	ErrSecretsOff      = errors.New("Chưa cấu hình khoá mã hoá nên không lưu được thông tin xác thực.")
-	ErrCallFailed      = errors.New("Không gọi được endpoint của tool.")
+	ErrNotFound       = errors.New("Không tìm thấy tool.")
+	ErrNameLength     = errors.New("Tên tool phải từ 1 đến 120 ký tự.")
+	ErrDescription    = errors.New("Mô tả tối đa 512 ký tự.")
+	ErrBaseURL        = errors.New("API base URL phải là http hoặc https.")
+	ErrPrivateAddress = errors.New("Tool chỉ được gọi ra Internet, không gọi vào địa chỉ nội bộ.")
+	// Setting one is not a typo to correct but a misunderstanding of what the
+	// tool is, so it says which of the two it is rather than what to type.
+	ErrBuiltinHasNoBaseURL = errors.New("Tool tích hợp sẵn chạy ngay trong hệ thống nên không có API base URL.")
+	ErrAuthType            = errors.New("Kiểu xác thực không hợp lệ.")
+	ErrAuthHeaderName      = errors.New("Cần tên header khi xác thực bằng header.")
+	ErrActionName          = errors.New("Tên action phải từ 1 đến 120 ký tự và chỉ gồm chữ, số, gạch dưới.")
+	ErrActionMethod        = errors.New("Phương thức HTTP không hợp lệ.")
+	ErrActionPath          = errors.New("Đường dẫn action phải bắt đầu bằng /.")
+	ErrTooManyActions      = errors.New("Mỗi tool tối đa 30 action.")
+	ErrTooManyParams       = errors.New("Mỗi action tối đa 20 tham số.")
+	ErrFixedNeedsValue     = errors.New("Tham số cố định phải có giá trị.")
+	ErrDuplicateAction     = errors.New("Đã có action trùng tên trong tool này.")
+	ErrSecretsOff          = errors.New("Chưa cấu hình khoá mã hoá nên không lưu được thông tin xác thực.")
+	ErrCallFailed          = errors.New("Không gọi được endpoint của tool.")
 )
 
 // Tool is one HTTP integration the workspace can call.
@@ -215,6 +218,26 @@ func ValidateBaseURL(raw string) (string, error) {
 		return "", ErrBaseURL
 	}
 	return strings.TrimRight(text, "/"), nil
+}
+
+// BaseURLForKind decides what a tool of this kind may have as a destination.
+//
+// It exists because the answer differs by kind and was being re-derived at
+// every call site: Create and Install skipped the check for a built-in, Update
+// did not, and so a built-in could be installed but never renamed. One rule,
+// three callers.
+//
+// A built-in runs in this process, so its only valid destination is none. An
+// address arriving for one is not a typo to correct but a misunderstanding of
+// what the tool is, and it is refused rather than quietly dropped.
+func BaseURLForKind(kind, raw string) (string, error) {
+	if kind == KindBuiltin {
+		if strings.TrimSpace(raw) != "" {
+			return "", ErrBuiltinHasNoBaseURL
+		}
+		return "", nil
+	}
+	return ValidateBaseURL(raw)
 }
 
 // NormalizeVisibility narrows anything unrecognised to private. Widening on a

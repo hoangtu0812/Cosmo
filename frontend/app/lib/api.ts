@@ -306,7 +306,10 @@ export type Citation = {index: number; kb_id: string; document_id: string; title
 // went, how long it took.
 export type ToolCallStatus = 'running' | 'complete' | 'error';
 export type MessageToolCall = {id: string; tool: string; action: string; status: ToolCallStatus; arguments?: string; duration_ms?: number; detail?: string; at: number};
-export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; tool_calls?: MessageToolCall[]; created_at: string};
+/** A file handed over with a question: read once, answered about, kept with
+    the message. Names and sizes only - the text went to the model. */
+export type Attachment = {id: string; name: string; mime: string; byte_size: number; chars: number; is_truncated: boolean};
+export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; tool_calls?: MessageToolCall[]; attachments?: Attachment[]; created_at: string};
 export type RunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
 export type Run = {
   id: string;
@@ -430,6 +433,10 @@ export const api = {
   // Deletes the turn, not the message: a question without its answer reads as
   // the assistant volunteering, and an answer without its question as it
   // refusing. The reply says which ids went.
+  attachFile: (conversationID: string, name: string, mime: string, data: string) =>
+    request<{attachment: Attachment}>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments`, {method: 'POST', body: JSON.stringify({name, mime, data})}),
+  removeAttachment: (conversationID: string, attachmentID: string) =>
+    request<void>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(attachmentID)}`, {method: 'DELETE'}),
   deleteMessage: (conversationID: string, messageID: string) =>
     request<{deleted: string[]}>(`/api/conversations/${encodeURIComponent(conversationID)}/messages/${encodeURIComponent(messageID)}`, {method: 'DELETE'}),
   // Installing makes a tool available here; auto-call is the separate decision

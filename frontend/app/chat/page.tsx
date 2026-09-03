@@ -30,7 +30,7 @@ import {Token} from '@astryxdesign/core/Token';
 import {Text} from '@astryxdesign/core/Text';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {Agent, api, APIError, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
+import {Agent, api, APIError, Attachment, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
 import {AnswerWithToolCalls} from '../components/AnswerWithToolCalls';
 import {CopyButton} from '../components/CopyButton';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
@@ -85,6 +85,12 @@ export default function ChatPage() {
   // streaming placeholder so deltas land on an id that no longer exists.
   const hydratedRef = useRef('');
   const [renaming, setRenaming] = useState<Conversation | null>(null);
+  // Files attached to the question being written. They are read on the server
+  // as they are attached, so an unreadable file is refused while somebody is
+  // still looking at the composer rather than after they have asked.
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isAttaching, setIsAttaching] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [isRecentOpen, setIsRecentOpen] = useState(false);
   const [renameTitle, setRenameTitle] = useState('');
   const [deleting, setDeleting] = useState<Conversation | null>(null);
@@ -197,6 +203,7 @@ export default function ChatPage() {
     setConversationID('');
     setMessages([]);
     setError('');
+    setAttachments([]);
     setChatTarget('model:');
     setReasoningEffort('');
     if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new`);
@@ -270,12 +277,64 @@ export default function ChatPage() {
     }
   }
 
+  // Attaching needs a conversation to attach to, and a new chat has none until
+  // it is sent. Starting it here is the same conversation sending would have
+  // made a moment later.
+  async function conversationForAttachment(): Promise<string> {
+    if (conversationID) return conversationID;
+    if (!workspace) return '';
+    const result = selectedAgentID
+      ? await api.startAgentConversation(selectedAgentID, 'published', workspace.id)
+      : await api.createConversation(workspace.id, t('chat.newChat'));
+    const created = result.conversation;
+    hydratedRef.current = created.id;
+    setConversationID(created.id);
+    setConversations((current) => [created, ...current]);
+    router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=${encodeURIComponent(created.id)}&target=${encodeURIComponent(chatTarget)}`);
+    return created.id;
+  }
+
+  async function attachFiles(files: File[]) {
+    if (files.length === 0) return;
+    setIsAttaching(true);
+    setError('');
+    try {
+      const target = await conversationForAttachment();
+      if (!target) return;
+      for (const file of files) {
+        // Read as base64 rather than multipart: the same shape the workspace
+        // icon and knowledge uploads already use.
+        const data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+          reader.onerror = () => reject(new Error(t('attach.readFailed', {name: file.name})));
+          reader.readAsDataURL(file);
+        });
+        const result = await api.attachFile(target, file.name, file.type, data);
+        setAttachments((current) => [...current, result.attachment]);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('attach.failed'));
+    } finally {
+      setIsAttaching(false);
+    }
+  }
+
+  async function removeAttachment(item: Attachment) {
+    if (!conversationID) return;
+    setAttachments((current) => current.filter((file) => file.id !== item.id));
+    await api.removeAttachment(conversationID, item.id).catch(() => undefined);
+  }
+
   async function submit(content: string) {
     const trimmed = content.trim();
     if (!trimmed || streaming || !workspace) return;
     const supportedReasoningEffort = reasoningEfforts.includes(reasoningEffort) ? reasoningEffort : '';
     setDraft('');
     setError('');
+    // The files were claimed by this question on the server; the composer lets
+    // go of them here so the next one starts empty.
+    setAttachments([]);
     let targetID = conversationID;
     if (!targetID) {
       const result = selectedAgentID
@@ -426,8 +485,41 @@ export default function ChatPage() {
     <VStack gap={2}>
       {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
       <ChatComposer
+        headerContext={attachments.length > 0 ? (
+          <HStack gap={2} vAlign="center" wrap="wrap">
+            {attachments.map((file) => (
+              <Token
+                key={file.id}
+                label={file.is_truncated ? t('attach.truncated', {name: file.name}) : file.name}
+                onRemove={() => void removeAttachment(file)}
+                size="sm"
+              />
+            ))}
+          </HStack>
+        ) : undefined}
         footerActions={
           <HStack gap={2} vAlign="center">
+            {/* Reading a file is something the model does with the question,
+                so the way in sits with the question rather than in a menu. */}
+            <input
+              hidden
+              multiple
+              onChange={(event) => {
+                const chosen = Array.from(event.target.files ?? []);
+                event.target.value = '';
+                void attachFiles(chosen);
+              }}
+              ref={fileRef}
+              type="file"
+            />
+            <IconButton
+              icon={<Plus size={16} />}
+              isDisabled={isAttaching || streaming || !workspace}
+              label={t('attach.add')}
+              onClick={() => fileRef.current?.click()}
+              size="sm"
+              variant="ghost"
+            />
             <StatusLabel label={workspace?.model_configured ? t('chat.modelReady') : t('chat.modelMissing')} variant={workspace?.model_configured ? 'success' : 'warning'} />
             {chatTargetOptions.length > 0 ? (
               <Selector
@@ -604,6 +696,15 @@ export default function ChatPage() {
                         <ChatMessageBubble metadata={<ChatMessageMetadata timestamp={<Timestamp format="time" value={message.created_at} />} />}>
                           {message.content}
                         </ChatMessageBubble>
+                        {/* What the question arrived with, so reopening the
+                            conversation still shows what was being discussed. */}
+                        {message.attachments?.length ? (
+                          <HStack gap={2} hAlign="end" vAlign="center" wrap="wrap" width="100%">
+                            {message.attachments.map((file) => (
+                              <Token key={file.id} label={file.name} size="sm" />
+                            ))}
+                          </HStack>
+                        ) : null}
                       </ChatMessage>
                     ) : (() => {
                       const isActiveStream = streaming && message.id.startsWith('stream-');

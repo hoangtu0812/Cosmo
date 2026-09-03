@@ -345,3 +345,35 @@ func (c *Client) call(ctx context.Context, method, path string, body any, out an
 	}
 	return json.NewDecoder(response.Body).Decode(out)
 }
+
+// ExtractedFile is one file read for its text, with nothing indexed.
+type ExtractedFile struct {
+	Text        string `json:"text"`
+	Chars       int    `json:"chars"`
+	IsTruncated bool   `json:"is_truncated"`
+}
+
+// ExtractText reads a file attached to a message.
+//
+// Deliberately not Ingest: an attachment is read once and answered about, so
+// it never joins a collection and needs no embedding model, no kb and no
+// storage. What it does share is the reading - the same readers, and the same
+// layout analysis for a scan - so a document attached to a question reads the
+// way the same document would as knowledge.
+func (c *Client) ExtractText(ctx context.Context, filename, contentType string, content []byte) (ExtractedFile, error) {
+	if c == nil {
+		// New returns nil when the knowledge plane is switched off, and every
+		// caller reads that as "not available" rather than as a fault.
+		return ExtractedFile{}, errors.New("Knowledge service chưa được cấu hình.")
+	}
+	body := map[string]any{
+		"filename":       filename,
+		"content_type":   contentType,
+		"content_base64": base64.StdEncoding.EncodeToString(content),
+	}
+	var result ExtractedFile
+	if err := c.call(ctx, http.MethodPost, "/extract", body, &result, nil); err != nil {
+		return ExtractedFile{}, err
+	}
+	return result, nil
+}

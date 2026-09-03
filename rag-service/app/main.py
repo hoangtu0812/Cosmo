@@ -47,6 +47,26 @@ class IngestRequest(BaseModel):
     chunk_overlap: int | None = Field(default=None, ge=0, le=2048)
 
 
+class ExtractRequest(BaseModel):
+    """One file, read for its text and nothing else.
+
+    No kb_id, no document id, no embedding model: a file attached to a message
+    is read once and answered about. Chunking, embedding and storing it would
+    be building a collection nobody asked for.
+    """
+
+    filename: str
+    content_type: str = "application/octet-stream"
+    content_base64: str
+    layout_mode: str | None = None
+
+
+class ExtractResponse(BaseModel):
+    text: str
+    chars: int
+    is_truncated: bool
+
+
 class SearchRequest(BaseModel):
     query: str
     kb_ids: list[str] = Field(default_factory=list)
@@ -152,6 +172,34 @@ def search(
         rerank_enabled=request.rerank_enabled,
         score_threshold=request.score_threshold,
     ))
+
+
+@app.post("/extract", response_model=ExtractResponse)
+def extract(request: ExtractRequest = Body(...)) -> ExtractResponse:
+    """Read one file into text, for a message that attached it.
+
+    Not a small /ingest: nothing is stored, chunked or embedded. The reading is
+    the same though - the same readers, the same layout analysis for a scan -
+    so a document attached to a question reads the way it would as knowledge.
+    """
+    try:
+        content = base64.b64decode(request.content_base64)
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="content_base64 is not valid base64") from error
+    if not content:
+        raise HTTPException(status_code=400, detail="document is empty")
+
+    try:
+        text = ingest.read_text(content=content, filename=request.filename, layout_mode=request.layout_mode)
+    except RuntimeError as error:
+        # A format with no reader: the caller can say so rather than attaching
+        # mojibake to the conversation.
+        raise HTTPException(status_code=415, detail=str(error)) from error
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="no readable text found in the document")
+
+    limit = 200_000
+    return ExtractResponse(text=text[:limit], chars=len(text), is_truncated=len(text) > limit)
 
 
 @app.post("/collections/reset")

@@ -32,7 +32,8 @@ const planInstruction = `Bạn quyết định một việc duy nhất: câu h�
 
 Cần tra cứu khi câu hỏi hỏi về quy trình, quy định, tài liệu, hệ thống hoặc dữ liệu của tổ chức.
 Không cần khi câu hỏi nói về chính người dùng hoặc phiên làm việc (tôi là ai, tôi ở workspace nào),
-là lời chào, là yêu cầu tính toán hay dịch thuật, hoặc là kiến thức phổ thông.
+là lời chào, là yêu cầu tính toán hay dịch thuật, là kiến thức phổ thông,
+hoặc là hỏi về tệp người dùng vừa đính kèm - tệp đó đã có sẵn, không cần tra cứu thêm.
 
 Chỉ trả lời đúng một từ: CO hoặc KHONG.`
 
@@ -41,7 +42,7 @@ Chỉ trả lời đúng một từ: CO hoặc KHONG.`
 // It is deliberately a single word in and out. Anything richer invites the
 // model to answer the question here instead of planning it, and this call is
 // paid for on every turn.
-func (s *Server) planTurn(ctx context.Context, models *modelgateway.Client, options modelgateway.Options, question string, topics []string) turnPlan {
+func (s *Server) planTurn(ctx context.Context, models *modelgateway.Client, options modelgateway.Options, question string, topics []string, attached []string) turnPlan {
 	// Nothing mounted, nothing to decide.
 	if len(topics) == 0 {
 		return turnPlan{NeedsKnowledge: false, Reason: "workspace không có knowledge base nào"}

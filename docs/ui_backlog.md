@@ -27,7 +27,6 @@ mục, gỡ `isDisabled` và xoá dòng tương ứng ở đây.
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
-| Tệp | Header hội thoại | Đính kèm tệp theo hội thoại, lưu trữ và trích dẫn | chưa xếp |
 
 ## Knowledge base
 

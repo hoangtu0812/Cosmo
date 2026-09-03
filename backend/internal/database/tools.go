@@ -217,3 +217,28 @@ var toolVersionStatements = []string{
 var workspaceContextStatements = []string{
 	`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS context TEXT NOT NULL DEFAULT ''`,
 }
+
+// Migration 15: files attached to a question.
+//
+// The text is stored rather than the file: it is what the model reads and what
+// a reader wants to see again. The original is not kept, because keeping it
+// would make this a document store, and Cosmo already has one - a file worth
+// keeping belongs in a knowledge base.
+var conversationAttachmentStatements = []string{
+	`CREATE TABLE IF NOT EXISTS conversation_attachments (
+		id TEXT PRIMARY KEY,
+		conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+		message_id TEXT,
+		user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+		name TEXT NOT NULL,
+		mime TEXT NOT NULL DEFAULT '',
+		byte_size BIGINT NOT NULL DEFAULT 0,
+		text TEXT NOT NULL DEFAULT '',
+		is_truncated BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_conversation_attachments_conversation
+		ON conversation_attachments(conversation_id, created_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_conversation_attachments_message
+		ON conversation_attachments(message_id)`,
+}

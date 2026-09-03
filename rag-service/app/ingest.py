@@ -254,3 +254,28 @@ def _section_of(node) -> str:
 
 def storage_key(kb_id: str, document_id: str, filename: str) -> str:
     return f"{kb_id}/{document_id}{os.path.splitext(filename)[1]}"
+
+
+def read_text(*, content: bytes, filename: str, layout_mode: str | None = None) -> str:
+    """Read one file into plain text, with no chunking, embedding or storing.
+
+    A file attached to a chat message is read once, answered about, and then it
+    is over: it never joins a collection, so it needs the reading half of the
+    pipeline and none of the rest. Sharing that half is the point - a PDF
+    attached in a conversation is read exactly the way the same PDF is read
+    into a knowledge base, layout analysis of scans included.
+    """
+    suffix = Path(filename).suffix or ".txt"
+    with tempfile.TemporaryDirectory() as workdir:
+        path = Path(workdir) / f"document{suffix}"
+        path.write_bytes(content)
+        # _parse is a generator that announces slow routes before taking them.
+        # Nobody is watching here, so the stages are drained and discarded.
+        reader = _parse(path, content, filename, _layout_mode(layout_mode))
+        documents = None
+        try:
+            while True:
+                next(reader)
+        except StopIteration as stop:
+            documents = stop.value[0] if stop.value else []
+    return "\n\n".join(document.text.strip() for document in (documents or []) if document.text.strip())

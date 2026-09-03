@@ -106,7 +106,11 @@ type Message struct {
 	Model          string     `json:"model,omitempty"`
 	Citations      []Citation `json:"citations,omitempty"`
 	ToolCalls      []ToolCall `json:"tool_calls,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
+	// The files this question arrived with. Names and sizes only - the text
+	// went to the model, and repeating it in the transcript would send the
+	// whole document to the browser on every reload.
+	Attachments []Attachment `json:"attachments,omitempty"`
+	CreatedAt   time.Time    `json:"created_at"`
 }
 
 // Citation points to a source the answer actually retrieved. The frontend
@@ -203,6 +207,8 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/conversations/{conversationID}/messages", s.listMessages)
 		protected.Post("/api/conversations/{conversationID}/messages", s.chat)
 		protected.Delete("/api/conversations/{conversationID}/messages/{messageID}", s.deleteMessage)
+		protected.Post("/api/conversations/{conversationID}/attachments", s.uploadAttachment)
+		protected.Delete("/api/conversations/{conversationID}/attachments/{attachmentID}", s.deleteAttachment)
 
 		protected.Post("/api/workspaces", s.createWorkspace)
 		protected.Patch("/api/workspaces/{workspaceID}", s.updateWorkspace)
@@ -761,7 +767,16 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id, conversation_id, role, content, COALESCE(model, ''), citations, tool_calls, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`, conversationID)
+	rows, err := s.db.Query(r.Context(), `
+		SELECT m.id, m.conversation_id, m.role, m.content, COALESCE(m.model, ''), m.citations, m.tool_calls, m.created_at,
+		       COALESCE((
+		           SELECT jsonb_agg(jsonb_build_object(
+		               'id', a.id, 'name', a.name, 'mime', a.mime,
+		               'byte_size', a.byte_size, 'chars', LENGTH(a.text), 'is_truncated', a.is_truncated
+		           ) ORDER BY a.created_at)
+		           FROM conversation_attachments a WHERE a.message_id = m.id
+		       ), '[]'::jsonb)
+		FROM messages m WHERE m.conversation_id = $1 ORDER BY m.created_at ASC`, conversationID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải nội dung hội thoại.")
 		return
@@ -772,9 +787,12 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		var item Message
 		var citationsJSON []byte
 		var toolCallsJSON []byte
-		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model, &citationsJSON, &toolCallsJSON, &item.CreatedAt) == nil {
+		var attachmentsJSON []byte
+		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model,
+			&citationsJSON, &toolCallsJSON, &item.CreatedAt, &attachmentsJSON) == nil {
 			_ = json.Unmarshal(citationsJSON, &item.Citations)
 			_ = json.Unmarshal(toolCallsJSON, &item.ToolCalls)
+			_ = json.Unmarshal(attachmentsJSON, &item.Attachments)
 			items = append(items, item)
 		}
 	}
@@ -878,6 +896,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM messages WHERE conversation_id = $1`, conversationID).Scan(&priorMessages)
 	isFirstTurn := priorMessages == 0
 
+	// Anything attached to this question, read when it was attached rather than
+	// now: a file that cannot be read is worth saying so at the moment somebody
+	// attaches it, not after they have asked about it.
+	attached, attachErr := s.pendingAttachments(r.Context(), conversationID)
+	if attachErr != nil {
+		s.logger.Error("read attachments", "conversation_id", conversationID, "error", attachErr)
+	}
+
 	userMessage := Message{ID: "msg_" + randomID(18), ConversationID: conversationID, Role: "user", Content: input.Content, CreatedAt: time.Now()}
 	_, err := s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, created_at) VALUES($1, $2, $3, $4, $5)`, userMessage.ID, conversationID, userMessage.Role, userMessage.Content, userMessage.CreatedAt)
 	if err != nil {
@@ -901,6 +927,20 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// kept in the input, so a run traces both ways. ResourceVersion stays empty
 	// until agents carry versions, and is the field that will hold it.
 	runResourceType, runResourceID := "conversation", conversationID
+	if len(attached) > 0 {
+		ids := make([]string, 0, len(attached))
+		for _, file := range attached {
+			ids = append(ids, file.ID)
+		}
+		// Claimed by the question that asked about them: the next turn must not
+		// carry the same files again, and the transcript has to be able to show
+		// which message they arrived with.
+		if _, err := s.db.Exec(r.Context(),
+			`UPDATE conversation_attachments SET message_id = $2 WHERE id = ANY($1)`, ids, userMessage.ID); err != nil {
+			s.logger.Error("claim attachments", "conversation_id", conversationID, "error", err)
+		}
+	}
+
 	runInput := map[string]any{"message_id": userMessage.ID, "model": models.ResolveModel(options), "conversation_id": conversationID}
 	if conversationAgentID != "" {
 		runResourceType, runResourceID = "agent", conversationAgentID
@@ -963,8 +1003,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	writeSSE(w, "status", map[string]string{"stage": "planning", "message": "Đang đọc câu hỏi…"})
 	flusher.Flush()
 	planCtx, cancelPlan := context.WithTimeout(r.Context(), 15*time.Second)
+	attachedNames := make([]string, 0, len(attached))
+	for _, file := range attached {
+		attachedNames = append(attachedNames, file.Name)
+	}
 	plan := s.planTurn(planCtx, models, options, input.Content,
-		s.knowledgeTopicsFor(planCtx, conversationWorkspaceID, agentKnowledge))
+		s.knowledgeTopicsFor(planCtx, conversationWorkspaceID, agentKnowledge), attachedNames)
 	cancelPlan()
 	if runErr == nil {
 		var planStep runs.Step
@@ -1031,6 +1075,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	// The attached files go in front of the exchange like grounding does, and
+	// are labelled as the reader's own so an answer does not present them as
+	// indexed workspace knowledge.
+	if block := attachmentPrompt(attached); block != "" {
+		history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
+	}
+
 	// Who is asking and where. The prompt gets it as a block below; the tools
 	// get it on the context, where the Profile built-in reads it - a model
 	// that could name whose profile it wanted would be reading other people's.

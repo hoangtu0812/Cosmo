@@ -208,6 +208,7 @@ export default function ChatPage() {
   }, [conversationID, t]);
 
   function openConversation(conversation: Conversation) {
+    setPreview(null);
     setConversationID(conversation.id);
     setChatTarget(conversation.agent_id ? `agent:${conversation.agent_id}` : 'model:');
     setReasoningEffort('');
@@ -219,6 +220,8 @@ export default function ChatPage() {
     setMessages([]);
     setError('');
     setAttachments([]);
+    // The document was opened from an answer in the conversation being left.
+    setPreview(null);
     setChatTarget('model:');
     setReasoningEffort('');
     if (workspace) router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=new`);
@@ -246,6 +249,7 @@ export default function ChatPage() {
     setConversationID('');
     setMessages([]);
     setError('');
+    setPreview(null);
     hydratedRef.current = '';
     if (workspaceQuery) router.replace(`${workspaceQuery}&conversation=new&target=${encodeURIComponent(value)}`);
   }

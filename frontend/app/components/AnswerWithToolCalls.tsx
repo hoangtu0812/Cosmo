@@ -16,6 +16,7 @@ import {Spinner} from '@astryxdesign/core/Spinner';
 import {Text} from '@astryxdesign/core/Text';
 import {StatusLabel} from './StatusLabel';
 import {MessageToolCall} from '../lib/api';
+import {ChartView, chartFromResult} from './ChartView';
 import {useTranslation} from '../lib/i18n';
 
 /**
@@ -69,8 +70,14 @@ export function AnswerWithToolCalls({calls, children, isStreaming}: {
 function ToolCallPill({call}: {call: MessageToolCall}) {
   const t = useTranslation();
   const isRunning = call.status === 'running';
+  // A chart call is the one whose result is the point rather than the receipt,
+  // so it is drawn above the pill instead of hidden inside it. The JSON stays
+  // where every other result is, for anyone checking the numbers.
+  const chart = call.status === 'complete' ? chartFromResult(call.detail) : null;
 
   return (
+    <VStack gap={2} width="100%">
+    {chart ? <ChartView chart={chart} /> : null}
     <Collapsible
       defaultIsOpen={false}
       trigger={
@@ -100,6 +107,7 @@ function ToolCallPill({call}: {call: MessageToolCall}) {
         ) : null}
       </VStack>
     </Collapsible>
+    </VStack>
   );
 }
 

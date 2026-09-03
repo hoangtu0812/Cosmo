@@ -39,6 +39,8 @@ var builtins = map[string]builtinFunc{
 		}
 		return strconv.FormatFloat(value, 'f', -1, 64), nil
 	},
+	"describe_numbers": describeNumbers,
+	"draw_chart":       drawChart,
 	"current_time": func(arguments map[string]any) (string, error) {
 		name, _ := arguments["timezone"].(string)
 		if strings.TrimSpace(name) == "" {

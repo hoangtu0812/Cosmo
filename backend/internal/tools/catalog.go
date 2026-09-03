@@ -116,6 +116,53 @@ func Catalog() []CatalogEntry {
 			}},
 		},
 		{
+			ID:          "data",
+			Name:        "Data",
+			Description: "Exact arithmetic over a column of numbers: total, mean, median, spread",
+			Icon:        "📊",
+			Category:    CategoryBuiltin,
+			Kind:        KindBuiltin,
+			Actions: []Action{{
+				Name:              "describe_numbers",
+				Description:       "Summarise a list of numbers: count, sum, mean, median, min, max, range, standard deviation, and which label holds the highest and lowest value",
+				ResultType:        "object",
+				ResultDescription: "Returns object: count, sum, mean, median, min, max, range, stddev, and highest_label/lowest_label when labels were given.",
+				Method:            "POST",
+				Path:              "/",
+				Parameters: []Parameter{
+					text("values", "The numbers, as a JSON array or separated by commas", "body", true),
+					text("labels", "What each number is, in the same order - optional, and only used to name the highest and lowest", "body", false),
+				},
+			}},
+		},
+		{
+			ID:          "chart",
+			Name:        "Chart",
+			Description: "Draw the numbers: bar, line, area, pie and their variants",
+			Icon:        "📈",
+			Category:    CategoryBuiltin,
+			Kind:        KindBuiltin,
+			Actions: []Action{{
+				Name: "draw_chart",
+				Description: "Draw a chart from labels and values. Use it when a comparison, a trend or a share is easier seen than read. " +
+					"Types: bar, hbar (horizontal, for long labels), line, area, pie, donut. " +
+					"One series goes in values; several go in series as [{\"name\":\"…\",\"values\":[…]}].",
+				ResultType:        "object",
+				ResultDescription: "Returns object: the chart specification that was drawn - type, title, labels, series, is_stacked.",
+				Method:            "POST",
+				Path:              "/",
+				Parameters: []Parameter{
+					text("type", "bar, hbar, line, area, pie or donut - bar if omitted", "body", false),
+					text("labels", "The axis: what each value is, as a JSON array or separated by commas", "body", true),
+					text("values", "One series of numbers. Use series instead to draw several", "body", false),
+					text("series", "Several series, as JSON: [{\"name\":\"2025\",\"values\":[1,2,3]}]", "body", false),
+					text("series_name", "What the single series is called, shown in the legend", "body", false),
+					text("title", "A short title above the chart", "body", false),
+					text("stacked", "true to pile several series rather than set them side by side - bar, hbar and area only", "body", false),
+				},
+			}},
+		},
+		{
 			ID:          "profile",
 			Name:        "Profile",
 			Description: "Who is asking: their name, address and role, and the workspace they are in",

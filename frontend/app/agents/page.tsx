@@ -61,6 +61,15 @@ function AgentsView() {
   const [newAvatar, setNewAvatar] = useState(DEFAULT_AGENT_AVATAR);
   const [newVisibility, setNewVisibility] = useState<'private' | 'workspace'>('private');
   const [newTags, setNewTags] = useState('');
+  // What a card shows, edited where the card is. Seeded from the agent when
+  // the dialog opens, so cancelling leaves the agent untouched.
+  const [editing, setEditing] = useState<Agent | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editIntroduction, setEditIntroduction] = useState('');
+  const [editTags, setEditTags] = useState('');
+  const [editAvatar, setEditAvatar] = useState('');
+  const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null);
+  const [isSavingDetails, setIsSavingDetails] = useState(false);
   // Held until the agent exists: the upload endpoint needs an id to attach to.
   const [newAvatarFile, setNewAvatarFile] = useState<File | null>(null);
   const [query, setQuery] = useState('');
@@ -93,6 +102,48 @@ function AgentsView() {
   function openAgent(agent: Agent) {
     const query = workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : '';
     router.push(`/agents/${encodeURIComponent(agent.id)}${query}`);
+  }
+
+  function openDetails(agent: Agent) {
+    setEditName(agent.name);
+    setEditIntroduction(agent.introduction);
+    setEditTags(agent.tags.join(', '));
+    setEditAvatar(agent.avatar);
+    setEditAvatarFile(null);
+    setEditing(agent);
+  }
+
+  async function saveDetails() {
+    if (!editing) return;
+    setIsSavingDetails(true);
+    setError('');
+    try {
+      const result = await api.updateAgent(editing.id, {
+        name: editName.trim(),
+        introduction: editIntroduction.trim(),
+        tags: editTags.split(',').map((tag) => tag.trim()).filter(Boolean),
+        // A chosen picture replaces the emoji; the emoji stays what it was
+        // until one is chosen, so a face already uploaded is not cleared by a
+        // rename.
+        avatar: editAvatar,
+      }, workspaceID);
+      let saved = result.agent;
+      if (editAvatarFile) {
+        try {
+          await api.uploadAgentAvatar(saved.id, editAvatarFile.type, await toBase64(editAvatarFile), workspaceID);
+          saved = {...saved, has_avatar_image: true};
+        } catch {
+          // The name and the rest are saved; the picture can be tried again.
+          setError(t('agent.avatarFailed'));
+        }
+      }
+      setAgents((current) => current.map((item) => item.id === saved.id ? saved : item));
+      setEditing(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('agent.saveFailed'));
+    } finally {
+      setIsSavingDetails(false);
+    }
   }
 
   async function create() {
@@ -230,7 +281,9 @@ function AgentsView() {
                     // pretends to work.
                     const actions: CardMenuItems = [
                       {icon: <Settings2 size={15} />, label: t('agent.configure'), onClick: () => openAgent(agent)},
-                      {icon: <Pencil size={15} />, isDisabled: true, label: t('agent.edit')},
+                      ...(agent.is_editable
+                        ? [{icon: <Pencil size={15} />, label: t('agent.edit'), onClick: () => openDetails(agent)}]
+                        : [{icon: <Pencil size={15} />, isDisabled: true, label: t('agent.edit')}]),
                       {icon: <Copy size={15} />, isDisabled: true, label: t('agent.copy')},
                       {icon: <ExternalLink size={15} />, isDisabled: true, label: t('agent.access')},
                       {icon: <KeyRound size={15} />, isDisabled: true, label: t('agent.apiKeys')},
@@ -295,6 +348,62 @@ function AgentsView() {
           </LayoutContent>
         }
       />
+
+      {/* The four things the card shows, edited where the card is. Everything
+          else about an agent lives behind Configure - renaming one should not
+          be a trip into its prompt. */}
+      <Dialog isOpen={editing !== null} onOpenChange={(open) => { if (!open && !isSavingDetails) setEditing(null); }} purpose="form">
+        <Layout
+          content={
+            <LayoutContent>
+              <VStack gap={4}>
+                <HStack gap={3} vAlign="end" width="100%">
+                  <AgentAvatarPicker
+                    file={editAvatarFile}
+                    imageURL={editing?.has_avatar_image && workspaceID ? api.agentAvatarURL(editing.id, workspaceID) : undefined}
+                    onChangeEmoji={(emoji) => { setEditAvatar(emoji); setEditAvatarFile(null); }}
+                    onChangeFile={(file) => setEditAvatarFile(file)}
+                    t={t}
+                    value={editAvatar}
+                  />
+                  <TextInput label={t('agent.name')} onChange={setEditName} value={editName} width="100%" />
+                </HStack>
+                <TextArea
+                  label={t('agent.introduction')}
+                  maxLength={512}
+                  onChange={setEditIntroduction}
+                  placeholder={t('agent.introductionPlaceholder')}
+                  rows={3}
+                  value={editIntroduction}
+                  width="100%"
+                />
+                <TextInput
+                  label={t('agent.tags')}
+                  onChange={setEditTags}
+                  placeholder={t('agent.tagsPlaceholder')}
+                  value={editTags}
+                  width="100%"
+                />
+              </VStack>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button isDisabled={isSavingDetails} label={t('common.cancel')} onClick={() => setEditing(null)} variant="secondary" />
+                <Button
+                  isDisabled={!editName.trim()}
+                  isLoading={isSavingDetails}
+                  label={t('agent.saveDetails')}
+                  onClick={() => void saveDetails()}
+                  variant="primary"
+                />
+              </HStack>
+            </LayoutFooter>
+          }
+          header={<DialogHeader onOpenChange={() => setEditing(null)} title={t('agent.editDetails')} />}
+        />
+      </Dialog>
 
       <Dialog isOpen={isCreating} onOpenChange={(open) => { if (!open) closeCreate(); }} purpose="form">
         <Layout

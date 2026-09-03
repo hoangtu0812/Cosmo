@@ -10,6 +10,10 @@ docx2txt==0.8
 # .pptx is an accepted upload format; without this the reader raises and the
 # archive would be read as text.
 python-pptx==1.0.2
+# .xlsx likewise: the reader for spreadsheets is pandas-backed and needs this
+# to open the workbook. Without it a spreadsheet attached to a question was
+# refused as unreadable, which is the one format people most want to analyse.
+openpyxl==3.1.5
 
 # Retrieval backend and object storage.
 qdrant-client==1.12.2

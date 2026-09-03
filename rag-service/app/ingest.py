@@ -18,6 +18,7 @@ from typing import Iterator
 from llama_index.core import SimpleDirectoryReader
 from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
 from llama_index.core.schema import Document
+from llama_index.readers.file import PandasExcelReader
 
 from . import layout
 from .config import settings
@@ -62,9 +63,17 @@ def _layout_mode(requested: str | None) -> str:
     return "auto"
 
 
+# A spreadsheet is read with its first row kept as data. The pandas-backed
+# reader treats row one as a header and drops it by default, which throws away
+# the column names - and a column of numbers whose name is gone is a column
+# nobody can analyse. Every sheet is read, not just the first.
+_EXCEL_READER = PandasExcelReader(pandas_config={"header": None}, sheet_name=None)
+_FILE_EXTRACTORS = {".xlsx": _EXCEL_READER, ".xlsm": _EXCEL_READER}
+
+
 def _read(path: Path) -> list[Document]:
     try:
-        return SimpleDirectoryReader(input_files=[str(path)]).load_data()
+        return SimpleDirectoryReader(input_files=[str(path)], file_extractor=_FILE_EXTRACTORS).load_data()
     except Exception as error:  # noqa: BLE001 - the format decides what happens next
         suffix = path.suffix.lower()
         if suffix not in TEXT_FALLBACK:

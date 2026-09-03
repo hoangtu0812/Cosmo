@@ -24,6 +24,11 @@ export type CharacterGroup = {
 // Fixed seeds, so the grid is the same set every time rather than a lottery.
 // Names are arbitrary - they are hashed - but keeping them readable makes a
 // missing or duplicated one obvious in review.
+//
+// The list is long because a seed costs nothing: each one is a different
+// drawing from a generator that already ships, so a bigger set of faces adds
+// no assets and no requests. Twenty-one was few enough that two agents made in
+// the same month ended up wearing the same face.
 export const CHARACTER_GROUPS: CharacterGroup[] = [
   {
     id: 'people',
@@ -31,11 +36,24 @@ export const CHARACTER_GROUPS: CharacterGroup[] = [
       'Aneka', 'Bao', 'Chi', 'Dung', 'Emery', 'Felix', 'Giang',
       'Hoa', 'Ivy', 'Jules', 'Khanh', 'Linh', 'Mai', 'Nam',
       'Oanh', 'Phuc', 'Quyen', 'Robin', 'Son', 'Trang', 'Uyen',
+      'Vinh', 'Xuan', 'Yen', 'An', 'Binh', 'Cuong', 'Duy',
+      'Ha', 'Hanh', 'Hieu', 'Hung', 'Huong', 'Kim', 'Lam',
+      'Lien', 'Loc', 'Long', 'Ly', 'Minh', 'My', 'Nga',
+      'Ngan', 'Nghia', 'Ngoc', 'Nhung', 'Phong', 'Phuong', 'Quan',
+      'Quang', 'Tam', 'Tan', 'Thao', 'Thu', 'Thuy', 'Tien',
+      'Toan', 'Trinh', 'Tuan', 'Tu', 'Vy', 'Alma', 'Bruno',
+      'Clara', 'Dario', 'Elif', 'Farid', 'Greta', 'Hugo', 'Ines',
+      'Ivan', 'Kenji', 'Leah', 'Mateo', 'Nadia', 'Omar', 'Pia',
+      'Rafa', 'Sana', 'Theo', 'Wren', 'Zoya',
     ],
   },
   {
     id: 'robots',
-    seeds: ['Atlas', 'Bolt', 'Circuit', 'Dynamo', 'Ember', 'Flux', 'Gizmo'],
+    seeds: [
+      'Atlas', 'Bolt', 'Circuit', 'Dynamo', 'Ember', 'Flux', 'Gizmo',
+      'Helix', 'Ion', 'Jolt', 'Krypton', 'Lumen', 'Magnet', 'Nova',
+      'Orbit', 'Pixel', 'Quartz', 'Relay', 'Servo', 'Turbine',
+    ],
   },
 ];
 

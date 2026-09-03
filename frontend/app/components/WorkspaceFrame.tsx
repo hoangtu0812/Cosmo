@@ -73,7 +73,13 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
     Promise.all([api.me(), api.workspaces()]).then(async ([me, result]) => {
       if (cancelled) return;
       const workspaceID = requestedWorkspaceID || me.user.last_workspace_id || result.workspaces[0]?.id || '';
-      const selected = result.workspaces.find((item) => item.id === workspaceID) ?? null;
+      // A URL can name a workspace this account has lost access to, or one
+      // that no longer exists. Falling back leaves somewhere to stand instead
+      // of an empty frame.
+      const selected = result.workspaces.find((item) => item.id === workspaceID)
+        ?? result.workspaces.find((item) => item.id === me.user.last_workspace_id)
+        ?? result.workspaces[0]
+        ?? null;
       setUser(me.user);
       setWorkspaces(result.workspaces);
       setWorkspace(selected);
@@ -87,12 +93,20 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
   // no such parameter and the frame is what resolves it. Writing it back means
   // a page that loaded without one refetches against the right workspace
   // instead of sitting on an empty list it never retries.
+  //
+  // Only then, though. The URL is the request, and a URL that already names a
+  // workspace has to be answered rather than overwritten: switching writes the
+  // new id there, and this effect - still holding the one being left - used to
+  // put it straight back, so the switch bounced.
   useEffect(() => {
-    if (!workspace || search.get('workspace') === workspace.id) return;
+    if (!workspace) return;
+    const named = search.get('workspace') ?? '';
+    const isKnown = named !== '' && workspaces.some((item) => item.id === named);
+    if (isKnown) return;
     const params = new URLSearchParams(search.toString());
     params.set('workspace', workspace.id);
     router.replace(`${pathname}?${params.toString()}`);
-  }, [workspace, search, pathname, router]);
+  }, [workspace, workspaces, search, pathname, router]);
 
   function goTo(path: string) {
     const workspaceQuery = workspace ? `?workspace=${encodeURIComponent(workspace.id)}` : '';

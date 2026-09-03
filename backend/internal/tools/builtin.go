@@ -7,6 +7,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	// The clock reads IANA names like Asia/Ho_Chi_Minh, and the runtime image
+	// is Alpine with no zoneinfo in it, so every name but UTC was an "unknown
+	// timezone". Embedding the database puts the answer in the binary, where
+	// it cannot be taken away by a change to the base image.
+	_ "time/tzdata"
 	"unicode"
 )
 

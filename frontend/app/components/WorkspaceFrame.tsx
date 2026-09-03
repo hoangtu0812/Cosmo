@@ -16,7 +16,6 @@ import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesig
 import {api, User, Workspace} from '../lib/api';
 import {resizeToSquare} from '../lib/image';
 import {useTranslation} from '../lib/i18n';
-import {ChatTargetFilters, ChatTargetList, useChatTargets} from './ChatTargetNav';
 import {Token} from '@astryxdesign/core/Token';
 import {UserProfileCard} from './UserProfileCard';
 
@@ -166,10 +165,11 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
 
   // The agent editor is a focused surface, so it runs without the rail while
   // keeping everything else the frame does - resolving the workspace above all.
-  const isChatRoute = pathname === '/chat';
   const isLibraryRoute = pathname === '/library';
-  const hasSecondColumn = !['/projects', '/schedule', '/notifications'].includes(pathname);
-  const chatTargets = useChatTargets(workspace);
+  // Chat joins the routes that run on the outer rail alone: who to talk to is
+  // chosen in the composer, where your hand already is, so a column repeating
+  // that choice only narrowed the conversation.
+  const hasSecondColumn = !['/chat', '/projects', '/schedule', '/notifications'].includes(pathname);
   const isFocusedRoute = /^\/agents\/[^/]+$/.test(pathname);
 
   return (
@@ -187,10 +187,10 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
             footer={
               <>
                 {/* The workspace's own areas live in the second column, which
-                    chat replaces with its list of things to talk to. Without a
-                    way back in, agents and knowledge became unreachable from
-                    chat - the reference keeps this entry at the foot of the
-                    rail for exactly that reason. */}
+                    chat does without entirely. Without a way back in, agents
+                    and knowledge would be unreachable from chat - the
+                    reference keeps this entry at the foot of the rail for
+                    exactly that reason. */}
                 <SideNavSection isHeaderHidden title={t('nav.workspaceArea')}>
                   <SideNavItem
                     icon={<Icon icon={Box} size="sm" />}
@@ -218,26 +218,22 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
           <SideNav
             /* The column is wider where it lists things to choose between and
                narrower where it is only a menu, as the reference has it. */
-            className={isChatRoute || isLibraryRoute ? 'w-76' : 'w-50'}
-            footer={isChatRoute || isLibraryRoute ? undefined : (
+            className={isLibraryRoute ? 'w-76' : 'w-50'}
+            footer={isLibraryRoute ? undefined : (
               <SideNavSection isHeaderHidden title={t('nav.operate')}>
                 <SideNavItem icon={<Icon icon={BarChart3} size="sm" />} isSelected={pathname === '/observability'} label={t('nav.observability')} onClick={() => goTo('/observability')} />
                 <SideNavItem icon={<Icon icon={Settings} size="sm" />} isSelected={pathname === '/settings'} label={t('nav.manageWorkspace')} onClick={() => goTo('/settings')} />
               </SideNavSection>
             )}
-            topContent={isChatRoute ? <ChatTargetFilters t={t} targets={chatTargets} /> : undefined}
-            header={isChatRoute || isLibraryRoute
-              ? <SideNavHeading heading={isLibraryRoute ? t('nav.library') : t('nav.chat')} />
+            header={isLibraryRoute
+              ? <SideNavHeading heading={t('nav.library')} />
               : <SideNavHeading heading={workspace?.name ?? t('chat.loading')} icon={<Avatar name={workspace?.icon || workspace?.name || 'Cosmo'} size="sm" src={workspace?.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined} />} menu={workspaceMenu} />}
           >
-          {isChatRoute || isLibraryRoute ? null : (
+          {isLibraryRoute ? null : (
             <SideNavSection isHeaderHidden title={t('chat.actions')}>
               <SideNavItem icon={<Icon icon={SquarePen} size="sm" />} isSelected={pathname === '/chat' && search.get('conversation') === 'new'} label={t('chat.newChat')} onClick={() => goTo('/chat')} />
             </SideNavSection>
           )}
-          {/* Chat asks a different question of this column: not where to go,
-              but who to ask. The workspace sections step aside for the list of
-              agents and models, which is how the reference arranges it. */}
           {isLibraryRoute ? (
             /* The library's own sections. Shells for now - see
                docs/ui_backlog.md. */
@@ -246,14 +242,6 @@ function WorkspaceShell({children}: {children: React.ReactNode}) {
               <SideNavItem endContent={<Token label={t('library.internal')} size="sm" />} icon={<Icon icon={Archive} size="sm" />} isDisabled label={t('library.shared')} size="lg" />
               <SideNavItem icon={<Icon icon={Bookmark} size="sm" />} isDisabled label={t('library.collection')} size="lg" />
             </SideNavSection>
-          ) : isChatRoute ? (
-            <ChatTargetList
-              activeTarget={search.get('target') ?? ''}
-              onPick={(target) => router.push(`/chat?workspace=${encodeURIComponent(workspace?.id ?? '')}&conversation=new&target=${encodeURIComponent(target)}`)}
-              t={t}
-              targets={chatTargets}
-              workspace={workspace}
-            />
           ) : (<>
           {/* The sections mirror the reference's information architecture, so
               the shape of the product is visible before every part of it

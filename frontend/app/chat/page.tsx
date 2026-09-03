@@ -24,6 +24,7 @@ import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {ResizeHandle, useResizable} from '@astryxdesign/core/Resizable';
 import {Section} from '@astryxdesign/core/Section';
+import {Spinner} from '@astryxdesign/core/Spinner';
 import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
 import {Link} from '@astryxdesign/core/Link';
@@ -91,6 +92,10 @@ export default function ChatPage() {
   // as they are attached, so an unreadable file is refused while somebody is
   // still looking at the composer rather than after they have asked.
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // Named the moment they are chosen, before the server has read a byte: a
+  // scanned PDF goes through layout analysis and the wait is long enough to
+  // look like nothing happened.
+  const [uploading, setUploading] = useState<string[]>([]);
   const [isAttaching, setIsAttaching] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [isRecentOpen, setIsRecentOpen] = useState(false);
@@ -220,6 +225,7 @@ export default function ChatPage() {
     setMessages([]);
     setError('');
     setAttachments([]);
+    setUploading([]);
     // The document was opened from an answer in the conversation being left.
     setPreview(null);
     setChatTarget('model:');
@@ -317,15 +323,32 @@ export default function ChatPage() {
     if (files.length === 0) return;
     setIsAttaching(true);
     setError('');
+    // Every chosen file is shown at once, and each drops off its own line as
+    // it lands - so two files do not look like one stuck file.
+    setUploading((current) => [...current, ...files.map((file) => file.name)]);
+    const done = (name: string) => setUploading((current) => {
+      const index = current.indexOf(name);
+      return index === -1 ? current : [...current.slice(0, index), ...current.slice(index + 1)];
+    });
     try {
       const target = await conversationForAttachment();
-      if (!target) return;
+      if (!target) {
+        setUploading((current) => current.filter((name) => !files.some((file) => file.name === name)));
+        return;
+      }
       for (const file of files) {
-        const result = await api.attachFile(target, file);
-        setAttachments((current) => [...current, result.attachment]);
+        try {
+          const result = await api.attachFile(target, file);
+          setAttachments((current) => [...current, result.attachment]);
+        } catch (caught) {
+          setError(caught instanceof Error ? caught.message : t('attach.failed'));
+        } finally {
+          done(file.name);
+        }
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('attach.failed'));
+      setUploading((current) => current.filter((name) => !files.some((file) => file.name === name)));
     } finally {
       setIsAttaching(false);
     }
@@ -501,13 +524,24 @@ export default function ChatPage() {
     <VStack gap={2}>
       {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
       <ChatComposer
-        headerContext={attachments.length > 0 ? (
+        headerContext={attachments.length > 0 || uploading.length > 0 ? (
           <HStack gap={2} vAlign="center" wrap="wrap">
             {attachments.map((file) => (
               <Token
                 key={file.id}
                 label={file.is_truncated ? t('attach.truncated', {name: file.name}) : file.name}
                 onRemove={() => void removeAttachment(file)}
+                size="sm"
+              />
+            ))}
+            {/* Still being read. No remove button: there is nothing on the
+                server to remove yet, and a control that cannot act is worse
+                than no control. */}
+            {uploading.map((name) => (
+              <Token
+                icon={<Spinner size="sm" />}
+                key={`uploading:${name}`}
+                label={t('attach.uploading', {name})}
                 size="sm"
               />
             ))}

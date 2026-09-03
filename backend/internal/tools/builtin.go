@@ -111,6 +111,23 @@ func (repository *Repository) invokeBuiltin(ctx context.Context, action Action, 
 			Body:       body,
 		}, nil
 	}
+	// One built-in leaves the machine. It is dispatched from its own registry
+	// so the ones that reach nothing keep saying so.
+	if search, found := networkBuiltins[action.Name]; found {
+		body, err := search(ctx, repository.search, arguments)
+		if err != nil {
+			return CallResult{
+				Status:     502,
+				DurationMS: time.Since(started).Milliseconds(),
+				Body:       err.Error(),
+			}, nil
+		}
+		return CallResult{
+			Status:     200,
+			DurationMS: time.Since(started).Milliseconds(),
+			Body:       body,
+		}, nil
+	}
 	run, found := builtins[action.Name]
 	if !found {
 		return CallResult{}, ErrNotFound

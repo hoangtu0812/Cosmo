@@ -51,7 +51,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	toolRepository := tools.NewRepository(pool, logger, box, tools.EgressPolicy{})
+	toolRepository := tools.NewRepository(pool, logger, box, tools.EgressPolicy{}, tools.SearchBackend{})
 
 	userID, err := resolveUser(ctx, pool, *ownerEmail)
 	if err != nil {

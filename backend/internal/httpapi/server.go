@@ -146,7 +146,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		knowledge: knowledge.New(cfg.RAGServiceURL, cfg.RAGTimeout),
 		runs:      runs.NewRepository(db),
 		agents:    agents.NewRepository(db, logger),
-		tools:     tools.NewRepository(db, logger, box, tools.EgressPolicy{AllowedHosts: cfg.ToolEgressAllowedHosts}),
+		tools:     tools.NewRepository(db, logger, box, tools.EgressPolicy{AllowedHosts: cfg.ToolEgressAllowedHosts}, tools.SearchBackend{BaseURL: cfg.SearchURL}),
 		workflows: workflows.NewRepository(db, logger),
 		secrets:   box,
 		logger:    logger,

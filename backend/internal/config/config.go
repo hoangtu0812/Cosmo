@@ -21,18 +21,22 @@ type Config struct {
 	// Hosts a tool may reach even though they resolve privately. Empty keeps
 	// the default of public internet only.
 	ToolEgressAllowedHosts []string
-	AdminName              string
-	EntraTenantID          string
-	EntraClientID          string
-	EntraClientSecret      string
-	EntraRedirectURL       string
-	LLMBaseURL             string
-	LLMAPIKey              string
-	LLMModel               string
-	LLMSystemPrompt        string
-	LLMRequestTimeout      time.Duration
-	RAGServiceURL          string
-	RAGTimeout             time.Duration
+	// Where web_search sends its queries. A self-hosted SearXNG by default:
+	// keyless, so it may be called automatically, and free, so a chat that
+	// searches costs nothing per question.
+	SearchURL         string
+	AdminName         string
+	EntraTenantID     string
+	EntraClientID     string
+	EntraClientSecret string
+	EntraRedirectURL  string
+	LLMBaseURL        string
+	LLMAPIKey         string
+	LLMModel          string
+	LLMSystemPrompt   string
+	LLMRequestTimeout time.Duration
+	RAGServiceURL     string
+	RAGTimeout        time.Duration
 	// ReindexWorkers is how many documents a re-index rebuilds at once. Each
 	// one occupies the knowledge service and the model gateway, so this is the
 	// knob for how much of that capacity a rebuild is allowed to take.
@@ -72,6 +76,7 @@ func Load() (Config, error) {
 		// address. Empty means the default: the public internet only. An
 		// on-premises deployment names its internal APIs here.
 		ToolEgressAllowedHosts: splitAndTrim(os.Getenv("TOOL_EGRESS_ALLOWED_HOSTS")),
+		SearchURL:              strings.TrimSpace(os.Getenv("SEARCH_URL")),
 		AdminName:              env("ADMIN_NAME", "Cosmo Administrator"),
 		EntraTenantID:          strings.TrimSpace(os.Getenv("AZURE_AD_TENANT_ID")),
 		EntraClientID:          strings.TrimSpace(os.Getenv("AZURE_AD_CLIENT_ID")),

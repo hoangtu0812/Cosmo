@@ -19,10 +19,11 @@ type Repository struct {
 	logger  *slog.Logger
 	secrets *secrets.Box
 	egress  EgressPolicy
+	search  SearchBackend
 }
 
-func NewRepository(db *pgxpool.Pool, logger *slog.Logger, box *secrets.Box, egress EgressPolicy) *Repository {
-	return &Repository{db: db, logger: logger, secrets: box, egress: egress}
+func NewRepository(db *pgxpool.Pool, logger *slog.Logger, box *secrets.Box, egress EgressPolicy, search SearchBackend) *Repository {
+	return &Repository{db: db, logger: logger, secrets: box, egress: egress, search: search}
 }
 
 func newID(prefix string) string {

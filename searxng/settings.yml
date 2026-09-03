@@ -1,0 +1,30 @@
+# SearXNG for the web_search tool.
+#
+# It is a metasearch front end: it holds no API key of its own, it asks the
+# public engines on our behalf and returns their results. That is the reason it
+# is here rather than a search API - a keyed service could not be called
+# automatically under the rule that only keyless tools may be, and it would
+# bill per question.
+use_default_settings: true
+
+server:
+  # Replaced at container start from SEARXNG_SECRET; the image's entrypoint
+  # substitutes this exact placeholder.
+  secret_key: "ultrasecretkey"
+  # The limiter exists to fend off bots hitting a public instance. This one is
+  # not public - it listens only on the compose network - and the limiter would
+  # be refusing our own backend.
+  limiter: false
+  image_proxy: false
+
+search:
+  # The tool reads JSON. The default build serves HTML only, and asking for
+  # format=json against it returns a 403 that reads like a network fault.
+  formats:
+    - html
+    - json
+  safe_search: 1
+  autocomplete: ""
+
+ui:
+  static_use_hash: true

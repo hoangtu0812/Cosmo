@@ -69,6 +69,26 @@ services:
     ports:
       - "8001:8000"
 
+  # A metasearch front end for the web_search tool. It keeps no key and no
+  # account: it asks the public engines per query and returns what they said,
+  # which is what makes searching free and callable without a credential.
+  searxng:
+    image: searxng/searxng:2026.9.2-05cd77f71
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    # No published port: the only thing that should be asking it is the
+    # backend, on the compose network.
+    expose:
+      - "8080"
+
   backend:
     build:
       context: ./backend
@@ -78,6 +98,8 @@ services:
       db:
         condition: service_healthy
       rag:
+        condition: service_started
+      searxng:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]

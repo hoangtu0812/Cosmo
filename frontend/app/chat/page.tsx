@@ -664,7 +664,13 @@ export default function ChatPage() {
         }
         content={
           <Layout
-            contentWidth={1120}
+            /* contentWidth centres the column and puts its scrollbar at the
+               column's own edge, not the window's. With nothing beside it that
+               reads as a comfortable measure; with a document open it left the
+               scrollbar stranded in the middle, a hand's width from the panel
+               it was next to. So the column fills the space it has whenever
+               something shares the screen with it. */
+            contentWidth={preview || isRecentOpen ? '100%' : 1120}
             height="fill"
             content={
               <LayoutContent padding={0}>

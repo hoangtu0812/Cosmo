@@ -5,6 +5,13 @@ import {Collapsible} from '@astryxdesign/core/Collapsible';
 import {HStack, VStack} from '@astryxdesign/core/Layout';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Markdown} from '@astryxdesign/core/Markdown';
+
+// Astryx's scale shrinks below body text after h4: h5 is 12px and h6 is 10px,
+// against a 14px body. Starting at 3 pushed an answer's own section headings
+// (##) to h4 and its sub-headings (###) to h5, so the headings came out
+// *smaller* than the paragraphs under them. Starting at 2 puts sections at h3
+// (17px) and sub-headings at h4 (14px, semibold) - a hierarchy that descends
+// rather than inverts.
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {Text} from '@astryxdesign/core/Text';
 import {StatusLabel} from './StatusLabel';
@@ -26,7 +33,7 @@ export function AnswerWithToolCalls({calls, children, isStreaming}: {
   isStreaming?: boolean;
 }) {
   if (calls.length === 0) {
-    return <Markdown headingLevelStart={3} isStreaming={isStreaming}>{children}</Markdown>;
+    return <Markdown headingLevelStart={2} isStreaming={isStreaming}>{children}</Markdown>;
   }
 
   // Runes, because `at` counts runes: splitting a UTF-16 string by code unit
@@ -40,7 +47,7 @@ export function AnswerWithToolCalls({calls, children, isStreaming}: {
     const at = Math.min(Math.max(call.at, cursor), runes.length);
     const text = runes.slice(cursor, at).join('');
     if (text.trim()) {
-      parts.push(<Markdown headingLevelStart={3} key={`text-${index}`}>{text}</Markdown>);
+      parts.push(<Markdown headingLevelStart={2} key={`text-${index}`}>{text}</Markdown>);
     }
     parts.push(<ToolCallPill call={call} key={call.id} />);
     cursor = at;
@@ -48,7 +55,7 @@ export function AnswerWithToolCalls({calls, children, isStreaming}: {
 
   const tail = runes.slice(cursor).join('');
   if (tail.trim()) {
-    parts.push(<Markdown headingLevelStart={3} isStreaming={isStreaming} key="tail">{tail}</Markdown>);
+    parts.push(<Markdown headingLevelStart={2} isStreaming={isStreaming} key="tail">{tail}</Markdown>);
   }
 
   return <VStack gap={2} width="100%">{parts}</VStack>;

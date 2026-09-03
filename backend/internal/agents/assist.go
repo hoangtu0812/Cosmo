@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -73,16 +74,27 @@ func (repository *Repository) SuggestFollowUps(ctx context.Context, question, an
 
 // ParseSuggestions is separate so it can be tested without a model: the model
 // is asked for bare questions one per line but is not trusted to comply.
+// listMarker is the bullet or number a model adds despite being asked not to.
+//
+// A pattern rather than a set of characters to trim: trimming every leading
+// digit turned "2+2 bằng mấy?" into "+2 bằng mấy?" and did the same to "3+2",
+// so two different questions arrived as one broken one, twice. A marker is a
+// bullet, or one or two digits followed by a dot or a bracket, and then a
+// space - a question that simply opens with a number is not a marker at all.
+var listMarker = regexp.MustCompile(`^(?:[-*\x{2022}]|\d{1,2}[.)])\s+`)
+
 func ParseSuggestions(reply string) []string {
 	suggestions := []string{}
+	seen := map[string]bool{}
 	for _, line := range strings.Split(reply, "\n") {
 		line = strings.TrimSpace(line)
-		// Strip the bullet or number a model adds despite being asked not to.
-		line = strings.TrimLeft(line, "-*• 0123456789.)")
-		line = strings.TrimSpace(line)
-		if line == "" || len([]rune(line)) > 200 {
+		line = strings.TrimSpace(listMarker.ReplaceAllString(line, ""))
+		// Duplicates are dropped: three chips, two of them the same question,
+		// is two chips and a mistake.
+		if line == "" || len([]rune(line)) > 200 || seen[line] {
 			continue
 		}
+		seen[line] = true
 		suggestions = append(suggestions, line)
 		if len(suggestions) == MaxSuggestions {
 			break

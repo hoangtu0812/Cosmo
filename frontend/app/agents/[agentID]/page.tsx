@@ -728,8 +728,10 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     }
   }
 
-  async function send() {
-    const content = draft.trim();
+  // Takes the question rather than reading the box, so a suggestion can be
+  // sent without being typed into it first.
+  async function send(question?: string) {
+    const content = (question ?? draft).trim();
     if (!content || isSending) return;
     setChatError('');
     setIsSending(true);
@@ -919,11 +921,15 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
               </Card>
             ) : null}
             {suggestions.length > 0 && !isSending ? (
-              <VStack gap={2} width="100%">
+              /* Taking one sends it. Filling the box instead made a suggestion
+                 a draft to edit, which is a step nobody wanted - and the chips
+                 hug their text, so three of them read as three choices rather
+                 than a stack of buttons. */
+              <HStack gap={2} vAlign="center" wrap="wrap">
                 {suggestions.map((question) => (
-                  <Button key={question} label={question} onClick={() => setDraft(question)} size="sm" variant="secondary" width="100%" />
+                  <Button key={question} label={question} onClick={() => void send(question)} size="sm" variant="secondary" />
                 ))}
-              </VStack>
+              </HStack>
             ) : null}
           </VStack>
           <VStack gap={2} padding={3} width="100%">

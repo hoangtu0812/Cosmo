@@ -91,6 +91,9 @@ export default function ChatPage() {
   // Files attached to the question being written. They are read on the server
   // as they are attached, so an unreadable file is refused while somebody is
   // still looking at the composer rather than after they have asked.
+  // What the turn suggested asking next. Cleared when the next question is
+  // asked, so they never outlive the answer they belong to.
+  const [followUps, setFollowUps] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   // Named the moment they are chosen, before the server has read a byte: a
   // scanned PDF goes through layout analysis and the wait is long enough to
@@ -214,6 +217,7 @@ export default function ChatPage() {
 
   function openConversation(conversation: Conversation) {
     setPreview(null);
+    setFollowUps([]);
     setConversationID(conversation.id);
     setChatTarget(conversation.agent_id ? `agent:${conversation.agent_id}` : 'model:');
     setReasoningEffort('');
@@ -226,6 +230,7 @@ export default function ChatPage() {
     setError('');
     setAttachments([]);
     setUploading([]);
+    setFollowUps([]);
     // The document was opened from an answer in the conversation being left.
     setPreview(null);
     setChatTarget('model:');
@@ -367,8 +372,11 @@ export default function ChatPage() {
     setDraft('');
     setError('');
     // The files were claimed by this question on the server; the composer lets
-    // go of them here so the next one starts empty.
+    // go of them here so the next one starts empty - and the question below
+    // keeps a copy, because it is what they arrived with.
+    const sent = attachments;
     setAttachments([]);
+    setFollowUps([]);
     let targetID = conversationID;
     if (!targetID) {
       const result = selectedAgentID
@@ -384,7 +392,17 @@ export default function ChatPage() {
       // model to the workspace default the moment the first answer arrived.
       router.replace(`/chat?workspace=${encodeURIComponent(workspace.id)}&conversation=${encodeURIComponent(targetID)}&target=${encodeURIComponent(chatTarget)}`);
     }
-    const optimisticUser: Message = {id: `local-${crypto.randomUUID()}`, conversation_id: targetID, role: 'user', content: trimmed, created_at: new Date().toISOString()};
+    const optimisticUser: Message = {
+      id: `local-${crypto.randomUUID()}`,
+      conversation_id: targetID,
+      role: 'user',
+      content: trimmed,
+      // The files go on the question as it is sent. The server records the
+      // same thing, but only a reload would have shown it - so a question
+      // asked about a file appeared to have arrived with none.
+      attachments: sent.length > 0 ? sent : undefined,
+      created_at: new Date().toISOString(),
+    };
     const optimisticAssistant: Message = {id: `stream-${crypto.randomUUID()}`, conversation_id: targetID, role: 'assistant', content: '', created_at: new Date().toISOString()};
     setMessages((current) => [...current, optimisticUser, optimisticAssistant]);
     setStreaming(true);
@@ -409,6 +427,7 @@ export default function ChatPage() {
         onTitle: ({title}) => setConversations((current) => current.map(
           (item) => item.id === targetID ? {...item, title} : item,
         )),
+        onSuggestions: ({questions}) => setFollowUps(questions),
         onStatus: ({stage, message}) => {
           setStatus(message);
           setOrbState(activityOrb(stage));
@@ -838,6 +857,22 @@ export default function ChatPage() {
                       </ChatMessage>
                       );
                     })())}
+                    {/* What to ask next, where the answer ended. Taking one
+                        sends it: a suggestion you have to edit before it works
+                        is a draft, not a suggestion. */}
+                    {followUps.length > 0 && !streaming ? (
+                      <HStack gap={2} vAlign="center" wrap="wrap">
+                        {followUps.map((question) => (
+                          <Button
+                            key={question}
+                            label={question}
+                            onClick={() => void submit(question)}
+                            size="sm"
+                            variant="secondary"
+                          />
+                        ))}
+                      </HStack>
+                    ) : null}
                   </ChatMessageList>
                 )}
               </ChatLayout>

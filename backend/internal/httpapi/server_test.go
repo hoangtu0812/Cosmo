@@ -37,6 +37,10 @@ func TestCitationsUsedByAnswerKeepsReferencedOrder(t *testing.T) {
 	}
 }
 
+// A model that answers in headings rather than markers still used what it was
+// given, so the candidates stand in - capped, because the whole retrieval set
+// is not evidence. What keeps this honest is upstream: nothing is retrieved
+// unless the turn decided the question was about the documents.
 func TestCitationsUsedByAnswerCapsUnreferencedFallback(t *testing.T) {
 	candidates := []Citation{{Index: 1}, {Index: 2}, {Index: 3}, {Index: 4}}
 	got := citationsUsedByAnswer("Câu trả lời không có citation inline.", candidates)

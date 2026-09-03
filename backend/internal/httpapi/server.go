@@ -936,36 +936,62 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	assistantID := "msg_" + randomID(18)
 
-	// Retrieval happens before model generation, but it must not look like the
-	// reply is stuck. Sources deliberately remain server-side until generation
-	// finishes: showing evidence before the answer makes the evidence look like
-	// the answer and creates a large, shifting block above the streamed text.
-	writeSSE(w, "status", map[string]string{"stage": "retrieving", "message": "Đang tìm trong Knowledge Base…"})
+	// What the turn needs, decided before it is done. Searching the documents
+	// for a question that has nothing to do with them produced an answer with
+	// a citation to a procedure it never read, which is worse than no citation.
+	writeSSE(w, "status", map[string]string{"stage": "planning", "message": "Đang đọc câu hỏi…"})
 	flusher.Flush()
-	var retrievalStep runs.Step
+	planCtx, cancelPlan := context.WithTimeout(r.Context(), 15*time.Second)
+	plan := s.planTurn(planCtx, models, options, input.Content,
+		s.knowledgeTopicsFor(planCtx, conversationWorkspaceID, agentKnowledge))
+	cancelPlan()
 	if runErr == nil {
-		retrievalStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "retrieval", Type: "retrieval", Name: "Knowledge retrieval", TimeoutMS: 30000})
+		var planStep runs.Step
+		planStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "plan", Type: "plan", Name: "Turn plan", TimeoutMS: 15000})
 		if runErr == nil {
-			retrievalStep, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Running, nil, "", "", "")
+			planStep, runErr = s.runs.TransitionStep(r.Context(), planStep.ID, runs.Running, nil, "", "", "")
+		}
+		if runErr == nil {
+			_, runErr = s.runs.TransitionStep(r.Context(), planStep.ID, runs.Succeeded,
+				map[string]any{"needs_knowledge": plan.NeedsKnowledge, "reason": plan.Reason}, "", "", "")
 		}
 	}
 
 	var citations []Citation
 	// What the turn called, for the transcript to keep beside the answer.
 	var toolCalls []ToolCall
-	retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
-	passages, retrievalErr := s.retrievalContextFor(retrievalCtx, conversationWorkspaceID, input.Content, agentKnowledge)
-	cancelRetrieval()
-	if retrievalErr != nil {
-		s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
-		writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
+	var passages []knowledgePassage
+
+	// Retrieval happens before model generation, but it must not look like the
+	// reply is stuck. Sources deliberately remain server-side until generation
+	// finishes: showing evidence before the answer makes the evidence look like
+	// the answer and creates a large, shifting block above the streamed text.
+	if plan.NeedsKnowledge {
+		writeSSE(w, "status", map[string]string{"stage": "retrieving", "message": "Đang tìm trong Knowledge Base…"})
 		flusher.Flush()
-	}
-	if runErr == nil {
+		var retrievalStep runs.Step
+		if runErr == nil {
+			retrievalStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "retrieval", Type: "retrieval", Name: "Knowledge retrieval", TimeoutMS: 30000})
+			if runErr == nil {
+				retrievalStep, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Running, nil, "", "", "")
+			}
+		}
+
+		retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
+		found, retrievalErr := s.retrievalContextFor(retrievalCtx, conversationWorkspaceID, input.Content, agentKnowledge)
+		cancelRetrieval()
+		passages = found
 		if retrievalErr != nil {
-			_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Failed, nil, "", "retrieval_failed", retrievalErr.Error())
-		} else {
-			_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Succeeded, map[string]any{"passage_count": len(passages)}, "", "", "")
+			s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
+			writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
+			flusher.Flush()
+		}
+		if runErr == nil {
+			if retrievalErr != nil {
+				_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Failed, nil, "", "retrieval_failed", retrievalErr.Error())
+			} else {
+				_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Succeeded, map[string]any{"passage_count": len(passages)}, "", "", "")
+			}
 		}
 	}
 	if len(passages) > 0 {
@@ -1089,9 +1115,14 @@ var inlineCitationPattern = regexp.MustCompile(`\[(\d+)]`)
 
 // citationsUsedByAnswer keeps the evidence list aligned with the answer the
 // reader actually received. Retrieval may collect many candidates, but only
-// passages cited inline are evidence for the generated claims. A model that
-// omits citations falls back to at most three candidates rather than flooding
-// the answer with the whole retrieval set.
+// passages cited inline are evidence for the generated claims.
+//
+// An answer that cites nothing falls back to at most three candidates. That
+// used to be dishonest - a question about the reader's own account came back
+// citing a remote-access procedure - but the turn now searches only when it
+// decided the question was about the documents, so candidates exist only where
+// somebody asked for them, and a model that writes in headings rather than
+// markers still gets its sources listed.
 func citationsUsedByAnswer(answer string, candidates []Citation) []Citation {
 	if len(candidates) == 0 {
 		return []Citation{}

@@ -676,3 +676,37 @@ func buildGroundingPrompt(passages []knowledgePassage) string {
 	}
 	return builder.String()
 }
+
+// knowledgeTopicsFor names the bases a turn could search, for the planner to
+// judge against. Names only: the planner decides whether the question is about
+// this material at all, and reading the material to decide whether to read it
+// would cost more than searching blindly ever did.
+func (s *Server) knowledgeTopicsFor(ctx context.Context, workspaceID string, only []string) []string {
+	rows, err := s.db.Query(ctx, `
+		SELECT kb.id, kb.name FROM knowledge_bases kb
+		JOIN knowledge_mounts m ON m.kb_id = kb.id AND m.target_type = 'workspace' AND m.target_id = $1
+		WHERE (`+workspaceRetrievableKnowledgeSQL+`)`, workspaceID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	chosen := map[string]bool{}
+	for _, id := range only {
+		chosen[id] = true
+	}
+	topics := []string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil
+		}
+		// A published agent searches only what it was built on; a plain chat
+		// searches everything the workspace mounted.
+		if only != nil && !chosen[id] {
+			continue
+		}
+		topics = append(topics, name)
+	}
+	return topics
+}

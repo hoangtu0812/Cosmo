@@ -43,6 +43,9 @@ import {useTranslation} from '../lib/i18n';
 
 function activityOrb(stage: string): OrbState {
   switch (stage) {
+    // Reading the question comes before anything is done about it, and it
+    // looks different from searching because it is.
+    case 'planning': return 'solving';
     case 'retrieving': return 'searching';
     case 'writing': return 'composing';
     default: return 'working';

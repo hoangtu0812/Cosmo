@@ -3,7 +3,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb, type OrbState} from 'thinking-orbs';
-import {Bot, Brain, Cloud, Cpu, ExternalLink, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Sparkles, SquarePen, Trash2, X} from 'lucide-react';
+import {ArrowLeft, Bot, Brain, Cloud, Cpu, ExternalLink, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Sparkles, SquarePen, Trash2, X} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -31,6 +31,7 @@ import {Link} from '@astryxdesign/core/Link';
 import {List} from '@astryxdesign/core/List';
 import {Token} from '@astryxdesign/core/Token';
 import {Text} from '@astryxdesign/core/Text';
+import {TextArea} from '@astryxdesign/core/TextArea';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Agent, api, APIError, Attachment, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
@@ -682,7 +683,9 @@ export default function ChatPage() {
               resizable={documentPanel.props}
               role="complementary"
             >
-              {preview.kind === 'chart' ? (
+              {preview.kind === 'files' ? (
+                <ConversationFiles conversationID={conversationID} onClose={() => setPreview(null)} t={t} />
+              ) : preview.kind === 'chart' ? (
                 <ChartPanel chart={preview.chart} onClose={() => setPreview(null)} t={t} title={preview.title} />
               ) : (
                 <DocumentPreview document={preview} onClose={() => setPreview(null)} t={t} />
@@ -772,7 +775,15 @@ export default function ChatPage() {
                    for now - see docs/ui_backlog.md. */
                 <HStack gap={1} vAlign="center">
                   <Button icon={<Icon icon={SquarePen} size="sm" />} label={t('chat.newChat')} onClick={startNewChat} size="sm" variant="ghost" />
-                  <Button icon={<Icon icon={FolderOpen} size="sm" />} isDisabled isIconOnly label={t('chat.files')} size="sm" variant="ghost" />
+                  <Button
+                    icon={<Icon icon={FolderOpen} size="sm" />}
+                    isDisabled={!conversationID}
+                    isIconOnly
+                    label={t('chat.files')}
+                    onClick={() => setPreview({kind: 'files', title: t('chat.files')})}
+                    size="sm"
+                    variant="ghost"
+                  />
                   <Button icon={<Icon icon={History} size="sm" />} isIconOnly label={t('chat.recentChats')} onClick={() => { setPreview(null); setIsRecentOpen((open) => !open); }} size="sm" variant="ghost" />
                 </HStack>
               }
@@ -1177,7 +1188,8 @@ function DocumentPreview({document: source, onClose, t}: {
 /** What the side panel can be showing. */
 type PreviewTarget =
   | {kind: 'document'; kbID: string; documentID: string; title: string}
-  | {kind: 'chart'; chart: ChartSpec; title: string};
+  | {kind: 'chart'; chart: ChartSpec; title: string}
+  | {kind: 'files'; title: string};
 
 /**
  * A chart with room to be read, and a header that matches the document one.
@@ -1221,4 +1233,106 @@ function storedPanelWidth(): number {
     // Storage can be refused outright; the default is a fine answer.
   }
   return 820;
+}
+
+/**
+ * Every file this conversation has been given.
+ *
+ * Names and sizes, and how much of each was actually read - a spreadsheet cut
+ * at forty thousand characters is the reason an answer stopped at the third
+ * sheet, and a reader looking for that reason should find it here rather than
+ * guessing. Opening one shows the text the model was handed, which is the only
+ * honest answer to "what did it read": the original file is not kept.
+ */
+function ConversationFiles({conversationID, onClose, t}: {
+  conversationID: string;
+  onClose: () => void;
+  t: ReturnType<typeof useTranslation>;
+}) {
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [failed, setFailed] = useState(false);
+  const [reading, setReading] = useState<{file: Attachment; text: string} | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.conversationAttachments(conversationID)
+      .then((result) => { if (!cancelled) setFiles(result.attachments); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [conversationID]);
+
+  async function read(file: Attachment) {
+    try {
+      const result = await api.readAttachment(conversationID, file.id);
+      setReading({file, text: result.text});
+    } catch {
+      setFailed(true);
+    }
+  }
+
+  return (
+    <VStack gap={0} height="100%" width="100%">
+      <Section dividers={['bottom']} padding={3}>
+        <HStack gap={2} hAlign="between" vAlign="center" width="100%">
+          <HStack gap={2} vAlign="center">
+            {reading ? (
+              <IconButton
+                icon={<ArrowLeft size={16} />}
+                label={t('chat.files')}
+                onClick={() => setReading(null)}
+                size="sm"
+                variant="ghost"
+              />
+            ) : null}
+            <Text maxLines={2} type="label">{reading ? reading.file.name : t('chat.files')}</Text>
+          </HStack>
+          <IconButton icon={<X size={16} />} label={t('doc.close')} onClick={onClose} size="sm" variant="ghost" />
+        </HStack>
+      </Section>
+
+      <Section className="grow" padding={reading ? 0 : 3}>
+        {failed ? (
+          <VStack padding={3}>
+            <Text color="secondary" type="supporting">{t('files.failed')}</Text>
+          </VStack>
+        ) : reading ? (
+          <TextArea
+            isLabelHidden
+            isReadOnly
+            label={reading.file.name}
+            rows={26}
+            value={reading.text}
+            width="100%"
+          />
+        ) : files.length === 0 ? (
+          <EmptyState description={t('files.emptyBody')} isCompact title={t('files.empty')} />
+        ) : (
+          <List>
+            {files.map((file) => (
+              <Item
+                align="start"
+                description={[
+                  formatBytes(file.byte_size),
+                  t('files.chars', {count: file.chars.toLocaleString('vi-VN')}),
+                  file.is_truncated ? t('files.truncated') : '',
+                  file.message_id ? '' : t('files.pending'),
+                ].filter(Boolean).join(' · ')}
+                key={file.id}
+                label={
+                  <Link isStandalone onClick={() => void read(file)} weight="medium">{file.name}</Link>
+                }
+              />
+            ))}
+          </List>
+        )}
+      </Section>
+    </VStack>
+  );
+}
+
+/** A size a person reads, rather than a count of bytes. */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
 }

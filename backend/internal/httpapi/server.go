@@ -207,6 +207,8 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/conversations/{conversationID}/messages", s.listMessages)
 		protected.Post("/api/conversations/{conversationID}/messages", s.chat)
 		protected.Delete("/api/conversations/{conversationID}/messages/{messageID}", s.deleteMessage)
+		protected.Get("/api/conversations/{conversationID}/attachments", s.listAttachments)
+		protected.Get("/api/conversations/{conversationID}/attachments/{attachmentID}", s.readAttachment)
 		protected.Post("/api/conversations/{conversationID}/attachments", s.uploadAttachment)
 		protected.Delete("/api/conversations/{conversationID}/attachments/{attachmentID}", s.deleteAttachment)
 

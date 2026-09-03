@@ -308,7 +308,17 @@ export type ToolCallStatus = 'running' | 'complete' | 'error';
 export type MessageToolCall = {id: string; tool: string; action: string; status: ToolCallStatus; arguments?: string; duration_ms?: number; detail?: string; at: number};
 /** A file handed over with a question: read once, answered about, kept with
     the message. Names and sizes only - the text went to the model. */
-export type Attachment = {id: string; name: string; mime: string; byte_size: number; chars: number; is_truncated: boolean};
+export type Attachment = {
+  id: string;
+  name: string;
+  mime: string;
+  byte_size: number;
+  chars: number;
+  is_truncated: boolean;
+  /** The question it arrived with, absent while it is still waiting for one. */
+  message_id?: string;
+  created_at?: string;
+};
 export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; tool_calls?: MessageToolCall[]; attachments?: Attachment[]; created_at: string};
 export type RunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
 export type Run = {
@@ -440,6 +450,10 @@ export const api = {
     form.append('file', file);
     return upload<{attachment: Attachment}>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments`, form);
   },
+  conversationAttachments: (conversationID: string) =>
+    request<{attachments: Attachment[]}>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments`),
+  readAttachment: (conversationID: string, attachmentID: string) =>
+    request<{attachment: Attachment; text: string}>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(attachmentID)}`),
   removeAttachment: (conversationID: string, attachmentID: string) =>
     request<void>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(attachmentID)}`, {method: 'DELETE'}),
   deleteMessage: (conversationID: string, messageID: string) =>

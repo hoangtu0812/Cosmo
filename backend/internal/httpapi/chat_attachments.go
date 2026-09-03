@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -43,6 +44,11 @@ type Attachment struct {
 	ByteSize    int64  `json:"byte_size"`
 	Chars       int    `json:"chars"`
 	IsTruncated bool   `json:"is_truncated"`
+	// Which question this file arrived with, empty while it is still waiting
+	// for one, and when it was attached. Both only for the list, which is read
+	// long after the turn that carried it.
+	MessageID string    `json:"message_id,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
 }
 
 // uploadAttachment reads one file and keeps its text against the conversation.
@@ -251,4 +257,70 @@ func attachmentPrompt(files []attachmentText) string {
 		}
 	}
 	return builder.String()
+}
+
+// listAttachments is every file this conversation has been given, for the
+// reader who wants to see what the model has been working from.
+//
+// Names and sizes, not text: the list is a list. Reading one is a second
+// request, because a conversation with four spreadsheets in it would otherwise
+// send a hundred thousand characters to draw a menu.
+func (s *Server) listAttachments(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	conversationID := chi.URLParam(r, "conversationID")
+	if !s.ownsConversation(r.Context(), user.ID, conversationID) {
+		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
+		return
+	}
+	rows, err := s.db.Query(r.Context(), `
+		SELECT id, name, COALESCE(mime, ''), byte_size, LENGTH(text), is_truncated,
+		       COALESCE(message_id, ''), created_at
+		FROM conversation_attachments
+		WHERE conversation_id = $1
+		ORDER BY created_at`, conversationID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không tải được danh sách tệp.")
+		return
+	}
+	defer rows.Close()
+
+	list := []Attachment{}
+	for rows.Next() {
+		var item Attachment
+		if err := rows.Scan(&item.ID, &item.Name, &item.MIME, &item.ByteSize,
+			&item.Chars, &item.IsTruncated, &item.MessageID, &item.CreatedAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không tải được danh sách tệp.")
+			return
+		}
+		list = append(list, item)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"attachments": list})
+}
+
+// readAttachment hands back the text the model was actually given.
+//
+// Not the original file: the original is not kept, and this is the honest
+// answer to "what did it read" - including where the reading stopped, which a
+// reader wondering why an answer missed the last sheet needs to see.
+func (s *Server) readAttachment(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	conversationID := chi.URLParam(r, "conversationID")
+	if !s.ownsConversation(r.Context(), user.ID, conversationID) {
+		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
+		return
+	}
+	var item Attachment
+	var text string
+	if err := s.db.QueryRow(r.Context(), `
+		SELECT id, name, COALESCE(mime, ''), byte_size, LENGTH(text), is_truncated,
+		       COALESCE(message_id, ''), created_at, text
+		FROM conversation_attachments
+		WHERE id = $1 AND conversation_id = $2`,
+		chi.URLParam(r, "attachmentID"), conversationID).Scan(
+		&item.ID, &item.Name, &item.MIME, &item.ByteSize, &item.Chars,
+		&item.IsTruncated, &item.MessageID, &item.CreatedAt, &text); err != nil {
+		writeError(w, http.StatusNotFound, "Không tìm thấy tệp đính kèm.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"attachment": item, "text": text})
 }

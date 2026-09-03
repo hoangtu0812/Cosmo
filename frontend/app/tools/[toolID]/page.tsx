@@ -20,6 +20,7 @@ import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
+import {useToast} from '@astryxdesign/core/Toast';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Token} from '@astryxdesign/core/Token';
 import {StatusLabel} from '../../components/StatusLabel';
@@ -376,6 +377,11 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   const [failure, setFailure] = useState('');
   const [specURL, setSpecURL] = useState('');
   const [busy, setBusy] = useState('');
+  // Renaming a tool changes the heading, but changing its purpose or who can
+  // see it changes nothing on screen - the fields already show what was typed.
+  // Without a word from the server, a successful save and a save that never
+  // happened look identical.
+  const toast = useToast();
 
   // All three routes end the same way - actions appear in the column beside
   // this one - so they share a handler and the caller only says which.
@@ -414,6 +420,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
       }, workspaceID);
       setSecret('');
       onSaved(result.tool);
+      toast({body: t('tool.saved')});
     } catch (caught) {
       setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
     } finally {

@@ -113,11 +113,26 @@ export default function ChatPage() {
   // Wide enough to read an A4 page at a glance, and draggable from there:
   // how much of the screen a document deserves depends on the document. The
   // width is remembered, so it is a decision made once.
+  // Not autoSaveId: the hook persists from an effect on every size change, and
+  // a size change is every pointer move - so dragging the handle meant a
+  // synchronous localStorage write per frame, on the very thread doing the
+  // dragging. The width is remembered here, once the drag settles.
+  const [initialPanelWidth] = useState(storedPanelWidth);
+  const panelWidthTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const documentPanel = useResizable({
-    autoSaveId: 'cosmo-document-panel',
-    defaultSize: 820,
-    minSizePx: 420,
-    maxSizePx: 1400,
+    defaultSize: initialPanelWidth,
+    minSizePx: PANEL_MIN_WIDTH,
+    maxSizePx: PANEL_MAX_WIDTH,
+    onSizeChange: (size) => {
+      if (panelWidthTimer.current) clearTimeout(panelWidthTimer.current);
+      panelWidthTimer.current = setTimeout(() => {
+        try {
+          window.localStorage.setItem(PANEL_WIDTH_KEY, String(Math.round(size)));
+        } catch {
+          // A browser refusing storage is not a reason to stop resizing.
+        }
+      }, 400);
+    },
   });
   const [renameTitle, setRenameTitle] = useState('');
   const [deleting, setDeleting] = useState<Conversation | null>(null);
@@ -658,7 +673,15 @@ export default function ChatPage() {
         end={preview ? (
           <>
             <ResizeHandle hasDivider isReversed label={t('doc.resize')} resizable={documentPanel.props} />
-            <LayoutPanel label={preview.title} padding={0} resizable={documentPanel.props} role="complementary">
+            <LayoutPanel
+              /* Containment keeps a frame of the drag inside the panel: without
+                 it every pixel re-lays-out the page around it. */
+              className="[contain:layout]"
+              label={preview.title}
+              padding={0}
+              resizable={documentPanel.props}
+              role="complementary"
+            >
               {preview.kind === 'chart' ? (
                 <ChartPanel chart={preview.chart} onClose={() => setPreview(null)} t={t} title={preview.title} />
               ) : (
@@ -1181,4 +1204,21 @@ function ChartPanel({chart, title, onClose, t}: {
       </Section>
     </VStack>
   );
+}
+
+// Where the reader last left the panel's width, and the bounds it may take.
+const PANEL_WIDTH_KEY = 'cosmo-document-panel-width';
+const PANEL_MIN_WIDTH = 420;
+const PANEL_MAX_WIDTH = 1400;
+
+/** The remembered width, or the default when there is none to remember. */
+function storedPanelWidth(): number {
+  if (typeof window === 'undefined') return 820;
+  try {
+    const raw = Number(window.localStorage.getItem(PANEL_WIDTH_KEY));
+    if (Number.isFinite(raw) && raw >= PANEL_MIN_WIDTH && raw <= PANEL_MAX_WIDTH) return raw;
+  } catch {
+    // Storage can be refused outright; the default is a fine answer.
+  }
+  return 820;
 }

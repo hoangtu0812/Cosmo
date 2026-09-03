@@ -110,7 +110,10 @@ type Message struct {
 	// went to the model, and repeating it in the transcript would send the
 	// whole document to the browser on every reload.
 	Attachments []Attachment `json:"attachments,omitempty"`
-	CreatedAt   time.Time    `json:"created_at"`
+	// What this answer cost and where the window went. Only on an assistant
+	// message, and only where the gateway reported it.
+	Usage     *modelgateway.Usage `json:"usage,omitempty"`
+	CreatedAt time.Time           `json:"created_at"`
 }
 
 // Citation points to a source the answer actually retrieved. The frontend
@@ -770,7 +773,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.Query(r.Context(), `
-		SELECT m.id, m.conversation_id, m.role, m.content, COALESCE(m.model, ''), m.citations, m.tool_calls, m.created_at,
+		SELECT m.id, m.conversation_id, m.role, m.content, COALESCE(m.model, ''), m.citations, m.tool_calls, m.usage, m.created_at,
 		       COALESCE((
 		           SELECT jsonb_agg(jsonb_build_object(
 		               'id', a.id, 'name', a.name, 'mime', a.mime,
@@ -790,8 +793,15 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		var citationsJSON []byte
 		var toolCallsJSON []byte
 		var attachmentsJSON []byte
+		var usageJSON []byte
 		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model,
-			&citationsJSON, &toolCallsJSON, &item.CreatedAt, &attachmentsJSON) == nil {
+			&citationsJSON, &toolCallsJSON, &usageJSON, &item.CreatedAt, &attachmentsJSON) == nil {
+			if len(usageJSON) > 0 {
+				var counted modelgateway.Usage
+				if json.Unmarshal(usageJSON, &counted) == nil && counted.PromptTokens > 0 {
+					item.Usage = &counted
+				}
+			}
 			_ = json.Unmarshal(citationsJSON, &item.Citations)
 			_ = json.Unmarshal(toolCallsJSON, &item.ToolCalls)
 			_ = json.Unmarshal(attachmentsJSON, &item.Attachments)
@@ -1191,7 +1201,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options), Citations: citations, ToolCalls: toolCalls}
 	citationsJSON, _ := json.Marshal(citations)
 	toolCallsJSON, _ := json.Marshal(toolCalls)
-	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, created_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, assistantMessage.CreatedAt)
+	var usageJSON []byte
+	if usage.PromptTokens > 0 {
+		usageJSON, _ = json.Marshal(usage)
+		assistantMessage.Usage = &usage
+	}
+	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, usage, created_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, usageJSON, assistantMessage.CreatedAt)
 	if err != nil {
 		if runErr == nil {
 			_, _ = s.runs.TransitionStep(context.Background(), generationStep.ID, runs.Failed, nil, "", "history_write", err.Error())

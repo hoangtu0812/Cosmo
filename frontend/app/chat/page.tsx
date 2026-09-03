@@ -227,6 +227,10 @@ export default function ChatPage() {
     hydratedRef.current = conversationID;
     api.messages(conversationID).then((result) => {
       setMessages(result.messages);
+      // The last answer carries what it cost, so reopening a conversation
+      // shows the window it already measured rather than an empty chip.
+      const counted = [...result.messages].reverse().find((item) => item.usage);
+      if (counted?.usage) setUsage(counted.usage);
       // Every answer records the model that produced it, which makes the
       // transcript the honest answer to "what is this conversation on" when
       // nothing else said. Only fills a target nobody has chosen yet.

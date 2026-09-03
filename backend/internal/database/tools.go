@@ -242,3 +242,12 @@ var conversationAttachmentStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_conversation_attachments_message
 		ON conversation_attachments(message_id)`,
 }
+
+// Migration 16: what a turn cost, kept with the answer.
+//
+// The count arrives with the stream and was shown once, then lost: reopening a
+// conversation left the composer with nothing to say about a window it had
+// already measured. It belongs to the answer, so it is stored on it.
+var messageUsageStatements = []string{
+	`ALTER TABLE messages ADD COLUMN IF NOT EXISTS usage JSONB`,
+}

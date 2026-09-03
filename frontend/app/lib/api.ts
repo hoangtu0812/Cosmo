@@ -330,7 +330,7 @@ export type Attachment = {
   message_id?: string;
   created_at?: string;
 };
-export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; tool_calls?: MessageToolCall[]; attachments?: Attachment[]; created_at: string};
+export type Message = {id: string; conversation_id: string; role: 'user' | 'assistant'; content: string; model?: string; citations?: Citation[]; tool_calls?: MessageToolCall[]; attachments?: Attachment[]; usage?: ChatUsage; created_at: string};
 export type RunStatus = 'queued' | 'running' | 'waiting_approval' | 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
 export type Run = {
   id: string;

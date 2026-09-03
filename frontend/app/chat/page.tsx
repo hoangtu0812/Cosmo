@@ -3,7 +3,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb, type OrbState} from 'thinking-orbs';
-import {Bot, Brain, Cloud, Cpu, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Pencil, Plus, Sparkles, SquarePen, Trash2, X} from 'lucide-react';
+import {Bot, Brain, Cloud, Cpu, ExternalLink, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Pencil, Plus, Sparkles, SquarePen, Trash2, X} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -22,6 +22,7 @@ import type {DropdownMenuOption} from '@astryxdesign/core/DropdownMenu';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
+import {Section} from '@astryxdesign/core/Section';
 import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
 import {Link} from '@astryxdesign/core/Link';
@@ -92,6 +93,10 @@ export default function ChatPage() {
   const [isAttaching, setIsAttaching] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [isRecentOpen, setIsRecentOpen] = useState(false);
+  // The source of a citation, read beside the answer that used it. One panel
+  // on the right, so opening a document puts the conversation list away rather
+  // than fighting it for the same edge.
+  const [preview, setPreview] = useState<{kbID: string; documentID: string; title: string} | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
   const [deleting, setDeleting] = useState<Conversation | null>(null);
   const [busy, setBusy] = useState(false);
@@ -571,7 +576,11 @@ export default function ChatPage() {
   return (
     <>
       <Layout
-        end={isRecentOpen ? (
+        end={preview ? (
+          <LayoutPanel hasDivider label={preview.title} padding={0} role="complementary" width={560}>
+            <DocumentPreview document={preview} onClose={() => setPreview(null)} t={t} />
+          </LayoutPanel>
+        ) : isRecentOpen ? (
           <LayoutPanel hasDivider label={t('chat.recentChats')} padding={4} role="complementary" width={340}>
             <VStack gap={3} width="100%">
               <HStack hAlign="between" vAlign="center" width="100%">
@@ -655,7 +664,7 @@ export default function ChatPage() {
                 <HStack gap={1} vAlign="center">
                   <Button icon={<Icon icon={SquarePen} size="sm" />} label={t('chat.newChat')} onClick={startNewChat} size="sm" variant="ghost" />
                   <Button icon={<Icon icon={FolderOpen} size="sm" />} isDisabled isIconOnly label={t('chat.files')} size="sm" variant="ghost" />
-                  <Button icon={<Icon icon={History} size="sm" />} isIconOnly label={t('chat.recentChats')} onClick={() => setIsRecentOpen((open) => !open)} size="sm" variant="ghost" />
+                  <Button icon={<Icon icon={History} size="sm" />} isIconOnly label={t('chat.recentChats')} onClick={() => { setPreview(null); setIsRecentOpen((open) => !open); }} size="sm" variant="ghost" />
                 </HStack>
               }
             />
@@ -760,12 +769,12 @@ export default function ChatPage() {
                               >
                                 {answerForDisplay(message.content, message.citations ?? [], isActiveStream)}
                               </AnswerWithToolCalls>
-                              {isActiveStream ? null : <CitationList citations={message.citations ?? []} />}
+                              {isActiveStream ? null : <CitationList citations={message.citations ?? []} onOpen={setPreview} />}
                             </VStack>
                             : (streaming ? <VStack gap={3}>
                               <AnswerWithToolCalls calls={liveToolCalls}>{''}</AnswerWithToolCalls>
                               <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state={orbState} /><Text color="secondary" type="supporting">{status}</Text></HStack>
-                              <CitationList citations={message.citations ?? []} />
+                              <CitationList citations={message.citations ?? []} onOpen={setPreview} />
                             </VStack> : '')}
                         </ChatMessageBubble>
                       </ChatMessage>
@@ -844,7 +853,10 @@ function providerName(provider?: string) {
   return names[provider.toLowerCase()] ?? provider;
 }
 
-function CitationList({citations}: {citations: Citation[]}) {
+function CitationList({citations, onOpen}: {
+  citations: Citation[];
+  onOpen: (document: {kbID: string; documentID: string; title: string}) => void;
+}) {
   if (citations.length === 0) return null;
   const groups = groupCitations(citations);
   const list = (
@@ -856,7 +868,9 @@ function CitationList({citations}: {citations: Citation[]}) {
             description={group.description}
             key={`${group.kbID}:${group.documentID}`}
             label={
-              <Link href={api.documentOriginalURL(group.kbID, group.documentID)} isExternalLink isStandalone weight="medium">
+              /* Opens beside the answer rather than in place of it: checking a
+                 source should not cost you the question you asked. */
+              <Link isStandalone onClick={() => onOpen({kbID: group.kbID, documentID: group.documentID, title: group.title})} weight="medium">
                 {group.title}
               </Link>
             }
@@ -918,3 +932,108 @@ function answerForDisplay(content: string, citations: Citation[], hideAllIndexes
     .replace(/[ \t]+([.,;:!?])/g, '$1');
 }
 
+
+/**
+ * One source document, read beside the answer that cited it.
+ *
+ * Fetched rather than framed directly: the API is a different origin from the
+ * app, the session cookie is SameSite=Lax, and a cross-site frame is a
+ * subresource - so the browser would send no cookie and the frame would show a
+ * sign-in error. Fetching it here carries the session, and the bytes are handed
+ * to the frame as a blob.
+ *
+ * "Open in a new window" points at the API instead, because that is a
+ * top-level navigation, which Lax does allow - and a real URL is worth more
+ * than a blob to somebody who wants to keep the document open.
+ */
+function DocumentPreview({document: source, onClose, t}: {
+  document: {kbID: string; documentID: string; title: string};
+  onClose: () => void;
+  t: ReturnType<typeof useTranslation>;
+}) {
+  // Both results carry the document they belong to, so switching documents
+  // shows the new one's loading state rather than the old one's bytes - and
+  // nothing has to be reset synchronously when the effect re-runs.
+  const key = `${source.kbID}:${source.documentID}`;
+  const [loaded, setLoaded] = useState<{key: string; url: string; mime: string} | null>(null);
+  const [failed, setFailed] = useState('');
+  const externalURL = api.documentOriginalURL(source.kbID, source.documentID);
+  const current = loaded?.key === key ? loaded : null;
+  const failure = failed === key ? t('doc.previewFailed') : '';
+
+  useEffect(() => {
+    let objectURL = '';
+    let cancelled = false;
+    const [kbID, documentID] = key.split(':');
+    fetch(api.documentOriginalURL(kbID, documentID), {credentials: 'include'})
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        const blob = await response.blob();
+        if (cancelled) return;
+        objectURL = URL.createObjectURL(blob);
+        setLoaded({key, url: objectURL, mime: blob.type});
+      })
+      .catch(() => { if (!cancelled) setFailed(key); });
+    return () => {
+      cancelled = true;
+      if (objectURL) URL.revokeObjectURL(objectURL);
+    };
+  }, [key]);
+
+  const blobURL = current?.url ?? '';
+  const mime = current?.mime ?? '';
+  const isImage = mime.startsWith('image/');
+  const isFramable = mime === 'application/pdf' || mime.startsWith('text/') || isImage;
+
+  return (
+    <VStack gap={0} height="100%" width="100%">
+      <Section dividers={['bottom']} padding={3}>
+        <HStack gap={2} hAlign="between" vAlign="center" width="100%">
+          <Text maxLines={2} type="label">{source.title}</Text>
+          <HStack gap={1} vAlign="center">
+            <IconButton
+              icon={<ExternalLink size={16} />}
+              label={t('doc.openWindow')}
+              onClick={() => window.open(externalURL, '_blank', 'noopener,noreferrer')}
+              size="sm"
+              variant="ghost"
+            />
+            <IconButton icon={<X size={16} />} label={t('doc.close')} onClick={onClose} size="sm" variant="ghost" />
+          </HStack>
+        </HStack>
+      </Section>
+      <Section padding={0}>
+        {failure ? (
+          <VStack gap={2} padding={4}>
+            <Text color="secondary" type="supporting">{failure}</Text>
+          </VStack>
+        ) : !blobURL ? (
+          <VStack gap={2} padding={4}>
+            <Text color="secondary" type="supporting">{t('chat.loading')}</Text>
+          </VStack>
+        ) : isFramable ? (
+          /* No Astryx primitive frames a document; this is the interop case
+             the styling guidance allows, kept to the one element that needs
+             it. */
+          <iframe
+            className="h-[calc(100vh-9rem)] w-full border-0"
+            src={blobURL}
+            title={source.title}
+          />
+        ) : (
+          <VStack gap={3} padding={4}>
+            <Text color="secondary" type="supporting">{t('doc.noPreview')}</Text>
+            <HStack hAlign="start">
+              <Button
+                icon={<ExternalLink size={14} />}
+                label={t('doc.openWindow')}
+                onClick={() => window.open(externalURL, '_blank', 'noopener,noreferrer')}
+                variant="secondary"
+              />
+            </HStack>
+          </VStack>
+        )}
+      </Section>
+    </VStack>
+  );
+}

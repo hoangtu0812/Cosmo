@@ -433,8 +433,13 @@ export const api = {
   // Deletes the turn, not the message: a question without its answer reads as
   // the assistant volunteering, and an answer without its question as it
   // refusing. The reply says which ids went.
-  attachFile: (conversationID: string, name: string, mime: string, data: string) =>
-    request<{attachment: Attachment}>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments`, {method: 'POST', body: JSON.stringify({name, mime, data})}),
+  attachFile: (conversationID: string, file: File) => {
+    // Multipart, like a knowledge document: base64 in JSON inflated the body by
+    // a third and ran into the shared decoder's one-megabyte limit.
+    const form = new FormData();
+    form.append('file', file);
+    return upload<{attachment: Attachment}>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments`, form);
+  },
   removeAttachment: (conversationID: string, attachmentID: string) =>
     request<void>(`/api/conversations/${encodeURIComponent(conversationID)}/attachments/${encodeURIComponent(attachmentID)}`, {method: 'DELETE'}),
   deleteMessage: (conversationID: string, messageID: string) =>

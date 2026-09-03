@@ -2,8 +2,8 @@ package httpapi
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -58,28 +58,40 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var input struct {
-		Name string `json:"name"`
-		MIME string `json:"mime"`
-		Data string `json:"data"` // base64, no data: prefix
-	}
-	if !decodeJSON(w, r, &input) {
+	// Multipart, as knowledge documents already arrive: the shared JSON decoder
+	// stops at a megabyte, which is smaller than any real document, and base64
+	// would inflate what does fit by a third.
+	r.Body = http.MaxBytesReader(w, r.Body, maxAttachmentBytes+(1<<20))
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		writeError(w, http.StatusRequestEntityTooLarge, "Tệp không hợp lệ hoặc vượt quá 20 MB.")
 		return
 	}
-	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" || len([]rune(input.Name)) > 200 {
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Thiếu tệp đính kèm.")
+		return
+	}
+	defer file.Close()
+
+	name := strings.TrimSpace(header.Filename)
+	if name == "" || len([]rune(name)) > 200 {
 		writeError(w, http.StatusBadRequest, "Tên tệp không hợp lệ.")
 		return
 	}
-	content, err := base64.StdEncoding.DecodeString(input.Data)
-	if err != nil || len(content) == 0 {
-		writeError(w, http.StatusBadRequest, "Tệp không đọc được.")
+	content, err := io.ReadAll(io.LimitReader(file, maxAttachmentBytes+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Không đọc được tệp đính kèm.")
+		return
+	}
+	if len(content) == 0 {
+		writeError(w, http.StatusBadRequest, "Tệp rỗng.")
 		return
 	}
 	if len(content) > maxAttachmentBytes {
 		writeError(w, http.StatusRequestEntityTooLarge, "Tệp tối đa 20 MB.")
 		return
 	}
+	mime := header.Header.Get("Content-Type")
 
 	var pending int
 	if err := s.db.QueryRow(r.Context(),
@@ -89,9 +101,9 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	extracted, err := s.knowledge.ExtractText(r.Context(), input.Name, input.MIME, content)
+	extracted, err := s.knowledge.ExtractText(r.Context(), name, mime, content)
 	if err != nil {
-		s.logger.Error("attachment extract failed", "conversation_id", conversationID, "name", input.Name, "error", err)
+		s.logger.Error("attachment extract failed", "conversation_id", conversationID, "name", name, "error", err)
 		writeError(w, http.StatusUnprocessableEntity, "Không đọc được nội dung tệp này.")
 		return
 	}
@@ -105,8 +117,8 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 
 	item := Attachment{
 		ID:          "att_" + randomID(18),
-		Name:        input.Name,
-		MIME:        input.MIME,
+		Name:        name,
+		MIME:        mime,
 		ByteSize:    int64(len(content)),
 		Chars:       len([]rune(text)),
 		IsTruncated: truncated,

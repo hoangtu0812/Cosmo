@@ -307,15 +307,7 @@ export default function ChatPage() {
       const target = await conversationForAttachment();
       if (!target) return;
       for (const file of files) {
-        // Read as base64 rather than multipart: the same shape the workspace
-        // icon and knowledge uploads already use.
-        const data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
-          reader.onerror = () => reject(new Error(t('attach.readFailed', {name: file.name})));
-          reader.readAsDataURL(file);
-        });
-        const result = await api.attachFile(target, file.name, file.type, data);
+        const result = await api.attachFile(target, file);
         setAttachments((current) => [...current, result.attachment]);
       }
     } catch (caught) {
@@ -1002,7 +994,7 @@ function DocumentPreview({document: source, onClose, t}: {
           </HStack>
         </HStack>
       </Section>
-      <Section padding={0}>
+      <Section className="min-h-0 grow" padding={0}>
         {failure ? (
           <VStack gap={2} padding={4}>
             <Text color="secondary" type="supporting">{failure}</Text>
@@ -1016,7 +1008,7 @@ function DocumentPreview({document: source, onClose, t}: {
              the styling guidance allows, kept to the one element that needs
              it. */
           <iframe
-            className="h-[calc(100vh-9rem)] w-full border-0"
+            className="h-full w-full border-0"
             src={blobURL}
             title={source.title}
           />

@@ -1147,7 +1147,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	} else if !set.isEmpty() {
 		writeSSE(w, "status", map[string]string{
 			"stage":   "tools_ready",
-			"message": "Có tool dùng được",
+			"message": "Đang tìm tool",
 			"detail":  describeToolSet(set),
 		})
 		flusher.Flush()

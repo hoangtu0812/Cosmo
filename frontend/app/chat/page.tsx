@@ -642,6 +642,17 @@ export default function ChatPage() {
                 onClick: () => fileRef.current?.click(),
               }]}
             />
+          </HStack>
+        }
+        isDisabled={streaming || !workspace}
+        onChange={setDraft}
+        onSubmit={(value) => void submit(value)}
+        placeholder={t('chat.placeholder')}
+        /* What the turn will run under - which model, how hard it thinks, how
+           full the window is - belongs beside the button that starts it, not
+           in the queue behind the attach control. */
+        sendActions={
+          <HStack gap={2} vAlign="center">
             <StatusLabel label={workspace?.model_configured ? t('chat.modelReady') : t('chat.modelMissing')} variant={workspace?.model_configured ? 'success' : 'warning'} />
             {usage ? <ContextWindow t={t} usage={usage} /> : null}
             {chatTargetOptions.length > 0 ? (
@@ -674,10 +685,6 @@ export default function ChatPage() {
             ) : null}
           </HStack>
         }
-        isDisabled={streaming || !workspace}
-        onChange={setDraft}
-        onSubmit={(value) => void submit(value)}
-        placeholder={t('chat.placeholder')}
         value={draft}
       />
       <Text color="secondary" display="block" type="supporting">

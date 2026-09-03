@@ -439,6 +439,11 @@ export default function ChatPage() {
     disabled: !item.model,
     icon: <Avatar name={item.name} size="xsm" src={item.has_avatar_image && workspace ? api.agentAvatarURL(item.id, workspace.id) : undefined} tooltip={false} />,
   }));
+  // `model:` means "the workspace default", and `model:<default>` is the same
+  // choice spelled out - which the URL and the transcript both do. Folding one
+  // into the other is what keeps the picker from showing "Select…" over a
+  // conversation that is answering perfectly well.
+  const canonicalTarget = defaultModel && chatTarget === `model:${defaultModel}` ? 'model:' : chatTarget;
   const chatTargetOptions = [
     ...(modelTargetOptions.length ? [{type: 'section' as const, title: t('composer.modelsSection'), options: modelTargetOptions}] : []),
     ...(agentTargetOptions.length ? [{type: 'section' as const, title: t('composer.agentsSection'), options: agentTargetOptions}] : []),
@@ -529,7 +534,7 @@ export default function ChatPage() {
                 onChange={changeChatTarget}
                 options={chatTargetOptions}
                 size="sm"
-                value={chatTarget}
+                value={canonicalTarget}
                 variant="ghost"
               />
             ) : (
@@ -658,7 +663,7 @@ export default function ChatPage() {
         }
         content={
           <Layout
-            contentWidth={960}
+            contentWidth={1120}
             height="fill"
             content={
               <LayoutContent padding={0}>

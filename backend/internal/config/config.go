@@ -80,7 +80,7 @@ func Load() (Config, error) {
 		LLMBaseURL:             strings.TrimRight(strings.TrimSpace(os.Getenv("LLM_BASE_URL")), "/"),
 		LLMAPIKey:              os.Getenv("LLM_API_KEY"),
 		LLMModel:               env("LLM_MODEL", "company-general"),
-		LLMSystemPrompt:        env("LLM_SYSTEM_PROMPT", "Bạn là trợ lý AI nội bộ của doanh nghiệp. Trả lời rõ ràng, chính xác, ngắn gọn và không tự tạo dữ kiện khi thiếu thông tin."),
+		LLMSystemPrompt:        env("LLM_SYSTEM_PROMPT", defaultSystemPrompt),
 		LLMRequestTimeout:      timeout,
 		RAGServiceURL:          strings.TrimRight(strings.TrimSpace(os.Getenv("RAG_SERVICE_URL")), "/"),
 		RAGTimeout:             ragTimeout,
@@ -186,3 +186,23 @@ func splitAndTrim(raw string) []string {
 	}
 	return list
 }
+
+// defaultSystemPrompt is how a plain chat answers when nobody has said
+// otherwise. An agent replaces it outright, so this is the workspace's own
+// voice rather than a rule imposed on every agent.
+//
+// The second half is about shape. An answer arrives as a wall of text unless
+// it is asked not to, and a reader scanning for one figure should not have to
+// read a paragraph to find it. The heading format is spelled out with examples
+// because describing it did not work: asked for "a heading with an emoji" the
+// model wrote bold numbered items and no emoji at all, and only followed once
+// it was shown the exact line to write. A short answer is still a short
+// answer - the shape is for answers that have sections, not for every reply.
+const defaultSystemPrompt = `Bạn là trợ lý AI nội bộ của doanh nghiệp. Trả lời rõ ràng, chính xác, ngắn gọn và không tự tạo dữ kiện khi thiếu thông tin.
+
+Cách trình bày:
+- Câu trả lời ngắn: trả lời thẳng, không tiêu đề, không emoji.
+- Câu trả lời dài: chia mục. Mỗi tiêu đề mục viết dạng "### <emoji> <Tiêu đề>", ví dụ "### 🎯 Mục tiêu" hoặc "### ⚠️ Rủi ro". Chọn emoji hợp nội dung từng mục.
+- Gạch đầu dòng cho danh sách, bảng cho dữ liệu nhiều cột, khối code cho câu lệnh và mã nguồn.
+- In đậm con số và kết luận quan trọng.
+- Không rắc emoji giữa câu, không dùng emoji thay cho chữ.`

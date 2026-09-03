@@ -525,8 +525,17 @@ export const api = {
   // panel wants; omitting it pins the conversation to the published version.
   startAgentConversation: (agentID: string, target: 'draft' | 'published', workspaceID?: string) =>
     request<{conversation: Conversation}>(`/api/agents/${encodeURIComponent(agentID)}/conversations${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({target})}),
-  agentAvatarURL: (agentID: string, workspaceID?: string) =>
-    `${API_BASE}/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
+  /** `version` busts the browser cache when the picture is replaced: the
+      response is cacheable for five minutes, so without it a new face keeps
+      showing the old one. The agent's updated_at is the natural value - an
+      avatar upload bumps it. */
+  agentAvatarURL: (agentID: string, workspaceID?: string, version?: string) => {
+    const query = new URLSearchParams();
+    if (workspaceID) query.set('workspace', workspaceID);
+    if (version) query.set('v', version);
+    const suffix = query.toString();
+    return `${API_BASE}/api/agents/${encodeURIComponent(agentID)}/avatar${suffix ? `?${suffix}` : ''}`;
+  },
   uploadAgentAvatar: (agentID: string, mime: string, data: string, workspaceID?: string) =>
     request<void>(`/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PUT', body: JSON.stringify({mime, data})}),
   deleteAgentAvatar: (agentID: string, workspaceID?: string) =>

@@ -127,11 +127,17 @@ function AgentsView() {
         // rename.
         avatar: editAvatar,
       }, workspaceID);
-      let saved = result.agent;
+      const saved = result.agent;
       if (editAvatarFile) {
         try {
           await api.uploadAgentAvatar(saved.id, editAvatarFile.type, await toBase64(editAvatarFile), workspaceID);
-          saved = {...saved, has_avatar_image: true};
+          // Reloaded rather than patched in place: the upload happens after the
+          // save, so the agent in hand still carries the timestamp from before
+          // it - and that timestamp is what tells the browser the picture
+          // changed.
+          load();
+          setEditing(null);
+          return;
         } catch {
           // The name and the rest are saved; the picture can be tried again.
           setError(t('agent.avatarFailed'));
@@ -313,6 +319,12 @@ function AgentsView() {
                               className={coverZoom}
                               name={agent.avatar || agent.name}
                               size="xl"
+                              /* The card showed the emoji and nothing else, so
+                                 a picture - which is what a chosen character
+                                 becomes - was saved and never seen. */
+                              src={agent.has_avatar_image && workspaceID
+                                ? api.agentAvatarURL(agent.id, workspaceID, agent.updated_at)
+                                : undefined}
                               status={agent.has_unpublished_changes
                                 ? <AvatarStatusDot label={t('agent.unpublished')} variant="neutral" />
                                 : undefined}

@@ -53,6 +53,12 @@ const SERIES_COLORS = [
 const WIDTH = 640;
 const HEIGHT = 280;
 const PAD = {top: 16, right: 16, bottom: 34, left: 48};
+// The widest a group of bars may be. Past this a bar stops reading as a
+// measurement and starts reading as a block of colour.
+const MAX_BAR = 72;
+// Solid accent at that size is a slab of ink. A shade off full strength reads
+// as a bar and lets the gridlines through behind it.
+const BAR_OPACITY = 0.85;
 
 function colorAt(index: number) {
   return SERIES_COLORS[index % SERIES_COLORS.length];
@@ -66,6 +72,24 @@ function tick(value: number): string {
   if (size >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   if (Number.isInteger(value)) return String(value);
   return value.toFixed(2);
+}
+
+/**
+ * The next round number at or above a value: 1, 2, 2.5 or 5 times a power of
+ * ten. An axis divided into quarters of the tallest bar reads 375.19 and
+ * 250.13; divided into quarters of 500 it reads 375 and 250.
+ */
+function niceCeiling(value: number): number {
+  if (value <= 0) return 0;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const scaled = value / magnitude;
+  const step = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 2.5 ? 2.5 : scaled <= 5 ? 5 : 10;
+  return step * magnitude;
+}
+
+/** The same downwards, for an axis that has to reach below zero. */
+function niceFloor(value: number): number {
+  return value >= 0 ? 0 : -niceCeiling(-value);
 }
 
 /** A value as a reader would write it, rather than as a float. */
@@ -195,8 +219,8 @@ function AxisChart({chart, series, isInteractive, onRead}: {
   // always on the axis, so a bar starts where the eye expects it to.
   const totals = labels.map((_, index) => series.reduce((sum, item) => sum + (item.values[index] ?? 0), 0));
   const flat = series.flatMap((item) => item.values);
-  const high = Math.max(0, ...(stacked ? totals : flat));
-  const low = Math.min(0, ...(stacked ? totals : flat));
+  const high = niceCeiling(Math.max(0, ...(stacked ? totals : flat)));
+  const low = niceFloor(Math.min(0, ...(stacked ? totals : flat)));
   const span = high - low || 1;
 
   const plotWidth = WIDTH - PAD.left - PAD.right;
@@ -207,8 +231,12 @@ function AxisChart({chart, series, isInteractive, onRead}: {
 
   const step = (horizontal ? plotHeight : plotWidth) / Math.max(1, labels.length);
   const gap = Math.min(10, step * 0.2);
-  const bandWidth = step - gap;
-  const groupWidth = stacked || series.length === 0 ? bandWidth : bandWidth / series.length;
+  // A bar has a width of its own, rather than whatever the band leaves it:
+  // two categories used to mean two slabs half the plot wide, which reads as
+  // a wall rather than a measurement. The group is centred in its band.
+  const lanes = stacked || series.length === 0 ? 1 : series.length;
+  const groupWidth = Math.min((step - gap) / lanes, MAX_BAR / lanes);
+  const bandInset = (step - groupWidth * lanes) / 2;
 
   // Everything visible at one label, which is what a reader is asking about
   // when they point at a column.
@@ -259,13 +287,13 @@ function AxisChart({chart, series, isInteractive, onRead}: {
               if (horizontal) {
                 const x = PAD.left + ((below + Math.min(0, value) - low) / span) * plotWidth;
                 const length = (Math.abs(value) / span) * plotWidth;
-                const y = PAD.top + index * step + gap / 2 + offset;
-                return <rect fill={colorAt(item.colorIndex)} height={Math.max(1, groupWidth)} key={index} rx={2} width={Math.max(1, length)} x={x} y={y} />;
+                const y = PAD.top + index * step + bandInset + offset;
+                return <rect fill={colorAt(item.colorIndex)} fillOpacity={BAR_OPACITY} height={Math.max(1, groupWidth)} key={index} rx={3} width={Math.max(1, length)} x={x} y={y} />;
               }
               const top = PAD.top + ((high - below - Math.max(value, 0)) / span) * plotHeight;
               const length = (Math.abs(value) / span) * plotHeight;
-              const x = PAD.left + index * step + gap / 2 + offset;
-              return <rect fill={colorAt(item.colorIndex)} height={Math.max(1, length)} key={index} rx={2} width={Math.max(1, groupWidth)} x={x} y={top} />;
+              const x = PAD.left + index * step + bandInset + offset;
+              return <rect fill={colorAt(item.colorIndex)} fillOpacity={BAR_OPACITY} height={Math.max(1, length)} key={index} rx={3} width={Math.max(1, groupWidth)} x={x} y={top} />;
             })}
           </g>
         ))
@@ -327,6 +355,10 @@ function AxisChart({chart, series, isInteractive, onRead}: {
       {labels.map((label, index) => {
         const density = Math.ceil(labels.length / (horizontal ? 12 : 10));
         if (index % density !== 0) return null;
+        // Roughly five pixels a character, and never fewer than six: two
+        // labels have room for a phrase, forty have room for a year.
+        const room = Math.max(6, Math.floor((horizontal ? PAD.left - 10 : step * density) / 5));
+        const shown = label.length > room ? `${label.slice(0, room - 1)}…` : label;
         return horizontal ? (
           <text
             dominantBaseline="middle"
@@ -338,7 +370,7 @@ function AxisChart({chart, series, isInteractive, onRead}: {
             x={PAD.left - 6}
             y={PAD.top + (index + 0.5) * step}
           >
-            {label.length > 12 ? `${label.slice(0, 11)}…` : label}
+            {shown}
           </text>
         ) : (
           <text
@@ -350,7 +382,7 @@ function AxisChart({chart, series, isInteractive, onRead}: {
             x={PAD.left + (index + 0.5) * (plotWidth / Math.max(1, labels.length))}
             y={HEIGHT - 12}
           >
-            {label.length > 10 ? `${label.slice(0, 9)}…` : label}
+            {shown}
           </text>
         );
       })}

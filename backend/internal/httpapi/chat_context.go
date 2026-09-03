@@ -82,3 +82,19 @@ func (s *Server) callerFor(ctx context.Context, user User, workspaceID string) t
 		WHERE w.id = $1`, workspaceID, user.ID).Scan(&caller.WorkspaceName, &caller.WorkspaceRole)
 	return caller
 }
+
+// contextWindowFor is how much this model can be given at once, as the gateway
+// reports it. Zero when it does not say, which the reader is shown as a count
+// with nothing to compare against rather than as an invented limit.
+func (s *Server) contextWindowFor(ctx context.Context, workspaceID, model string) int {
+	if workspaceID == "" || model == "" {
+		return 0
+	}
+	baseURL, _, apiKey, _, _, err := s.workspaceLLM(ctx, workspaceID)
+	if err != nil || baseURL == "" {
+		return 0
+	}
+	// Best effort and cheap to be wrong about: a gateway with no /model/info
+	// simply leaves the reader with a count and no bar.
+	return fetchGatewayModelMetadata(ctx, baseURL, apiKey)[model].ContextWindow
+}

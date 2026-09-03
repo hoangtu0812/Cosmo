@@ -389,6 +389,10 @@ type gatewayModel struct {
 	SupportsReasoning      bool     `json:"supports_reasoning"`
 	ReasoningEfforts       []string `json:"reasoning_efforts,omitempty"`
 	DefaultReasoningEffort string   `json:"default_reasoning_effort,omitempty"`
+	// How much this model can be given at once, as the gateway reports it.
+	// Zero where it does not say, which the reader is shown as a count with
+	// nothing to compare against rather than as a made-up limit.
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 type gatewayModelMetadata struct {
@@ -397,6 +401,7 @@ type gatewayModelMetadata struct {
 	SupportsReasoning      bool
 	ReasoningEfforts       []string
 	DefaultReasoningEffort string
+	ContextWindow          int
 }
 
 // fetchGatewayModelMetadata asks a LiteLLM-style gateway what every model can
@@ -429,6 +434,8 @@ func fetchGatewayModelMetadata(ctx context.Context, baseURL, apiKey string) map[
 			} `json:"litellm_params"`
 			ModelInfo struct {
 				Mode                   string   `json:"mode"`
+				MaxInputTokens         int      `json:"max_input_tokens"`
+				MaxTokens              int      `json:"max_tokens"`
 				Provider               string   `json:"litellm_provider"`
 				SupportsReasoning      *bool    `json:"supports_reasoning"`
 				ReasoningEffortLevels  []string `json:"reasoning_effort_levels"`
@@ -458,9 +465,17 @@ func fetchGatewayModelMetadata(ctx context.Context, baseURL, apiKey string) map[
 		efforts := reasoningEffortsFor(item.ModelInfo.SupportsReasoning, item.ModelInfo.ReasoningEffortLevels,
 			item.ModelInfo.SupportedOpenAIParams, item.ModelInfo.SupportsNoneEffort, item.ModelInfo.SupportsMinimalEffort,
 			item.ModelInfo.SupportsLowEffort, item.ModelInfo.SupportsXHighEffort, item.ModelInfo.SupportsMaxEffort)
+		// max_input_tokens is the window a prompt has to fit in; max_tokens is
+		// what some gateways call the same thing. Neither being present is
+		// normal, and says only that this gateway does not know.
+		window := item.ModelInfo.MaxInputTokens
+		if window == 0 {
+			window = item.ModelInfo.MaxTokens
+		}
 		metadata[item.ModelName] = gatewayModelMetadata{
 			Mode: item.ModelInfo.Mode, Provider: provider, SupportsReasoning: len(efforts) > 0,
 			ReasoningEfforts: efforts, DefaultReasoningEffort: item.ModelInfo.DefaultReasoningEffort,
+			ContextWindow: window,
 		}
 	}
 	return metadata
@@ -480,6 +495,7 @@ func describeGatewayModels(ids []string, metadata map[string]gatewayModelMetadat
 		items = append(items, gatewayModel{
 			ID: id, Mode: info.Mode, Provider: provider, SupportsReasoning: info.SupportsReasoning,
 			ReasoningEfforts: info.ReasoningEfforts, DefaultReasoningEffort: info.DefaultReasoningEffort,
+			ContextWindow: info.ContextWindow,
 		})
 	}
 	return items

@@ -69,6 +69,21 @@ type Options struct {
 	ReasoningEffort string
 }
 
+// Usage is what a turn cost, as the gateway counted it.
+//
+// Reported rather than estimated: counting tokens here would mean carrying a
+// tokenizer per model and being quietly wrong whenever one changed. Zero means
+// the gateway said nothing, which is a fact worth keeping distinct from "the
+// turn was free".
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+	// The model's own limit, where the gateway knows it. Without it a count is
+	// a number with nothing to compare against.
+	ContextWindow int `json:"context_window,omitempty"`
+}
+
 // ResolveModel reports the model a request will actually use.
 func (c *Client) ResolveModel(options Options) string {
 	if options.Model != "" {
@@ -95,9 +110,16 @@ func (c *Client) Complete(ctx context.Context, messages []Message, options Optio
 	return strings.TrimSpace(reply.String()), nil
 }
 
+// Stream keeps the old shape for callers that do not care what a turn cost.
 func (c *Client) Stream(ctx context.Context, history []Message, options Options, onDelta func(string) error) error {
+	_, err := c.StreamWithUsage(ctx, history, options, onDelta)
+	return err
+}
+
+// StreamWithUsage is the same call, and hands back what the gateway counted.
+func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options Options, onDelta func(string) error) (Usage, error) {
 	if !c.HasGateway() || c.ResolveModel(options) == "" {
-		return ErrNotConfigured
+		return Usage{}, ErrNotConfigured
 	}
 	messages := make([]Message, 0, len(history)+1)
 	if c.systemPrompt != "" {
@@ -105,10 +127,13 @@ func (c *Client) Stream(ctx context.Context, history []Message, options Options,
 	}
 	messages = append(messages, history...)
 	body := map[string]any{
-		"model":       c.ResolveModel(options),
-		"messages":    messages,
-		"stream":      true,
-		"temperature": 0.2,
+		"model":    c.ResolveModel(options),
+		"messages": messages,
+		"stream":   true,
+		// The final chunk carries the counts. Without this the stream ends
+		// with no usage at all, which is why a turn's cost was invisible.
+		"stream_options": map[string]any{"include_usage": true},
+		"temperature":    0.2,
 	}
 	if options.ReasoningEffort != "" {
 		// The OpenAI-compatible spelling; LiteLLM maps it per provider.
@@ -116,12 +141,12 @@ func (c *Client) Stream(ctx context.Context, history []Message, options Options,
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("encode model request: %w", err)
+		return Usage{}, fmt.Errorf("encode model request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("create model request: %w", err)
+		return Usage{}, fmt.Errorf("create model request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
@@ -130,13 +155,15 @@ func (c *Client) Stream(ctx context.Context, history []Message, options Options,
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("call model gateway: %w", err)
+		return Usage{}, fmt.Errorf("call model gateway: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("model gateway returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return Usage{}, fmt.Errorf("model gateway returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+
+	var usage Usage
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -155,18 +182,29 @@ func (c *Client) Stream(ctx context.Context, history []Message, options Options,
 					Content string `json:"content"`
 				} `json:"delta"`
 			} `json:"choices"`
+			// The usage chunk arrives last and carries no choices at all.
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
+		if chunk.Usage != nil {
+			usage.PromptTokens = chunk.Usage.PromptTokens
+			usage.CompletionTokens = chunk.Usage.CompletionTokens
+			usage.TotalTokens = chunk.Usage.TotalTokens
+		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
 			if err := onDelta(chunk.Choices[0].Delta.Content); err != nil {
-				return err
+				return usage, err
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read model stream: %w", err)
+		return usage, fmt.Errorf("read model stream: %w", err)
 	}
-	return nil
+	return usage, nil
 }

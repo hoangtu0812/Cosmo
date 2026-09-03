@@ -1123,7 +1123,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err = models.Stream(r.Context(), history, options, func(delta string) error {
+	// The counts come back with the stream, so the reader can be told what the
+	// turn cost rather than shown an estimate of it.
+	usage, err := models.StreamWithUsage(r.Context(), history, options, func(delta string) error {
 		assistant.WriteString(delta)
 		writeSSE(w, "delta", map[string]string{"content": delta})
 		flusher.Flush()
@@ -1139,6 +1141,15 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	// What the turn cost, and what it had to fit in. Sent before the answer is
+	// stored so a reader watching the composer sees it settle with the answer
+	// rather than a beat later.
+	if usage.PromptTokens > 0 {
+		usage.ContextWindow = s.contextWindowFor(r.Context(), conversationWorkspaceID, models.ResolveModel(options))
+		writeSSE(w, "usage", usage)
+		flusher.Flush()
+	}
+
 	citations = citationsUsedByAnswer(assistant.String(), citations)
 	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options), Citations: citations, ToolCalls: toolCalls}
 	citationsJSON, _ := json.Marshal(citations)

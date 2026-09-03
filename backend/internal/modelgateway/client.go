@@ -82,6 +82,10 @@ type Usage struct {
 	// The model's own limit, where the gateway knows it. Without it a count is
 	// a number with nothing to compare against.
 	ContextWindow int `json:"context_window,omitempty"`
+	// What each part of the prompt came to, in characters. Not tokens: the
+	// gateway counts those and only for the whole prompt. Shares of a known
+	// total say more than a total on its own.
+	Parts map[string]int `json:"parts,omitempty"`
 }
 
 // ResolveModel reports the model a request will actually use.

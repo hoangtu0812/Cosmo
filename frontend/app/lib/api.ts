@@ -308,6 +308,17 @@ export type ToolCallStatus = 'running' | 'complete' | 'error';
 export type MessageToolCall = {id: string; tool: string; action: string; status: ToolCallStatus; arguments?: string; duration_ms?: number; detail?: string; at: number};
 /** A file handed over with a question: read once, answered about, kept with
     the message. Names and sizes only - the text went to the model. */
+/** What a turn cost, as the gateway counted it, and where it went. */
+export type ChatUsage = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  /** The model's limit, absent when the gateway does not say. */
+  context_window?: number;
+  /** Each part of the prompt in characters - shares, not token counts. */
+  parts?: Record<string, number>;
+};
+
 export type Attachment = {
   id: string;
   name: string;
@@ -650,6 +661,7 @@ export async function streamChat(
     // second replaces the first rather than adding a row.
     onToolCall?: (call: MessageToolCall) => void;
     onSuggestions?: (data: {questions: string[]}) => void;
+    onUsage?: (data: ChatUsage) => void;
     // A conversation is named from its first exchange, after the answer, so
     // the sidebar renames itself rather than keeping the opening line.
     onTitle?: (data: {title: string}) => void;
@@ -689,6 +701,7 @@ export async function streamChat(
       if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string});
       if (event === 'tool') handlers.onToolCall?.(data as unknown as MessageToolCall);
       if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
+      if (event === 'usage') handlers.onUsage?.(data as ChatUsage);
       if (event === 'title') handlers.onTitle?.(data as {title: string});
       if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
       if (event === 'done') handlers.onDone?.(data as {message: Message});

@@ -828,6 +828,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// Which version of each of those tools the published agent was built on.
 	var agentToolVersions map[string]string
 	var agentRemembers, agentSuggests bool
+	var agentPrompt string
 	if conversationAgentID != "" {
 		// A conversation pinned to a version keeps answering from that frozen
 		// snapshot; one with no pin is a draft conversation, which is what the
@@ -844,6 +845,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		models = s.modelsWith(r.Context(), conversationWorkspaceID, agent.SystemPrompt, agent.Model)
+		// Kept for the context breakdown: an agent's instructions are part of
+		// every prompt it answers, and a reader looking at where the window
+		// went should see them named.
+		agentPrompt = agent.SystemPrompt
 		agentKnowledge = agent.KnowledgeBaseIDs
 		agentTools = agent.ToolIDs
 		agentToolVersions = agent.ToolVersions
@@ -1032,6 +1037,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	var citations []Citation
 	// What the turn called, for the transcript to keep beside the answer.
 	var toolCalls []ToolCall
+	// What each part of the prompt came to, in characters. The gateway counts
+	// the tokens; this is what says which of them were the knowledge base and
+	// which were the file somebody attached.
+	contextParts := map[string]int{}
 	var passages []knowledgePassage
 
 	// Retrieval happens before model generation, but it must not look like the
@@ -1069,7 +1078,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if len(passages) > 0 {
 		// Grounding goes in front of the conversation so the passages frame
 		// the whole exchange rather than arriving as the latest turn.
-		history = append([]modelgateway.Message{{Role: "system", Content: buildGroundingPrompt(passages)}}, history...)
+		grounding := buildGroundingPrompt(passages)
+		contextParts["knowledge"] = len([]rune(grounding))
+		history = append([]modelgateway.Message{{Role: "system", Content: grounding}}, history...)
 		for index, passage := range passages {
 			citations = append(citations, Citation{
 				Index:      index + 1,
@@ -1086,6 +1097,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// are labelled as the reader's own so an answer does not present them as
 	// indexed workspace knowledge.
 	if block := attachmentPrompt(readable); block != "" {
+		contextParts["files"] = len([]rune(block))
 		history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
 	}
 
@@ -1094,6 +1106,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// that could name whose profile it wanted would be reading other people's.
 	caller := s.callerFor(r.Context(), user, conversationWorkspaceID)
 	if block := conversationContext(caller, s.workspaceContext(r.Context(), conversationWorkspaceID)); block != "" {
+		contextParts["context"] = len([]rune(block))
 		history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
 	}
 	toolCtx := tools.WithCaller(r.Context(), caller)
@@ -1108,6 +1121,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if setErr != nil {
 		s.logger.Error("tool set failed", "conversation_id", conversationID, "error", setErr)
 	} else if !set.isEmpty() {
+		if described, marshalErr := json.Marshal(set.definitions); marshalErr == nil {
+			contextParts["tools"] = len([]rune(string(described)))
+		}
 		history, toolCalls = s.runToolRounds(toolCtx, w, flusher, set, history, options, models, chatRun.ID, &assistant)
 	}
 
@@ -1146,6 +1162,27 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// rather than a beat later.
 	if usage.PromptTokens > 0 {
 		usage.ContextWindow = s.contextWindowFor(r.Context(), conversationWorkspaceID, models.ResolveModel(options))
+		// The instructions the model runs under, whether an agent's or the
+		// workspace's, and then whatever the blocks above did not account for:
+		// the exchange itself.
+		instructions := s.cfg.LLMSystemPrompt
+		if conversationAgentID != "" && agentPrompt != "" {
+			instructions = agentPrompt
+		}
+		contextParts["instructions"] = len([]rune(instructions))
+		total := 0
+		for _, message := range history {
+			total += len([]rune(message.Content))
+		}
+		for name, size := range contextParts {
+			if name != "instructions" && name != "tools" {
+				total -= size
+			}
+		}
+		if total > 0 {
+			contextParts["messages"] = total
+		}
+		usage.Parts = contextParts
 		writeSSE(w, "usage", usage)
 		flusher.Flush()
 	}

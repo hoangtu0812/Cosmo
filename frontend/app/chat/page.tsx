@@ -34,7 +34,7 @@ import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
-import {Agent, api, APIError, Attachment, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
+import {Agent, api, APIError, Attachment, ChatUsage, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
 import {AnswerWithToolCalls} from '../components/AnswerWithToolCalls';
 import {CopyButton} from '../components/CopyButton';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
@@ -96,6 +96,9 @@ export default function ChatPage() {
   // What the turn suggested asking next. Cleared when the next question is
   // asked, so they never outlive the answer they belong to.
   const [followUps, setFollowUps] = useState<string[]>([]);
+  // What the last turn cost. Kept per conversation, because it describes this
+  // exchange rather than the app.
+  const [usage, setUsage] = useState<ChatUsage | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   // Named the moment they are chosen, before the server has read a byte: a
   // scanned PDF goes through layout analysis and the wait is long enough to
@@ -238,6 +241,7 @@ export default function ChatPage() {
   function openConversation(conversation: Conversation) {
     setPreview(null);
     setFollowUps([]);
+    setUsage(null);
     setConversationID(conversation.id);
     setChatTarget(conversation.agent_id ? `agent:${conversation.agent_id}` : 'model:');
     setReasoningEffort('');
@@ -251,6 +255,7 @@ export default function ChatPage() {
     setAttachments([]);
     setUploading([]);
     setFollowUps([]);
+    setUsage(null);
     // The document was opened from an answer in the conversation being left.
     setPreview(null);
     setChatTarget('model:');
@@ -456,6 +461,7 @@ export default function ChatPage() {
           (item) => item.id === targetID ? {...item, title} : item,
         )),
         onSuggestions: ({questions}) => setFollowUps(questions),
+        onUsage: setUsage,
         onStatus: ({stage, message}) => {
           setStatus(message);
           setOrbState(activityOrb(stage));
@@ -626,6 +632,7 @@ export default function ChatPage() {
               }]}
             />
             <StatusLabel label={workspace?.model_configured ? t('chat.modelReady') : t('chat.modelMissing')} variant={workspace?.model_configured ? 'success' : 'warning'} />
+            {usage ? <ContextWindow t={t} usage={usage} /> : null}
             {chatTargetOptions.length > 0 ? (
               <Selector
                 hasSearch
@@ -1335,4 +1342,112 @@ function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} B`;
+}
+
+// The parts a prompt is assembled from, in the order they are stacked into it,
+// each with the colour it takes in the bar.
+const CONTEXT_PARTS: {key: string; label: string; color: string}[] = [
+  {key: 'messages', label: 'usage.messages', color: 'var(--color-accent)'},
+  {key: 'files', label: 'usage.files', color: 'var(--color-success)'},
+  {key: 'knowledge', label: 'usage.knowledge', color: 'var(--color-warning)'},
+  {key: 'tools', label: 'usage.tools', color: 'var(--color-error)'},
+  {key: 'instructions', label: 'usage.instructions', color: 'var(--color-text-secondary)'},
+  {key: 'context', label: 'usage.context', color: 'var(--color-border)'},
+];
+
+/**
+ * How much of the model's window the last turn used.
+ *
+ * The total is the gateway's own count - estimating tokens here would mean
+ * carrying a tokenizer per model and being quietly wrong. The split is not:
+ * every block is assembled on the server, so its size in characters is known
+ * exactly, and the shares of a known total say more than a total alone. The
+ * breakdown says so rather than presenting an estimate as a measurement.
+ */
+function ContextWindow({usage, t}: {usage: ChatUsage; t: ReturnType<typeof useTranslation>}) {
+  const window = usage.context_window ?? 0;
+  const share = window > 0 ? Math.min(1, usage.prompt_tokens / window) : 0;
+  const parts = CONTEXT_PARTS
+    .map((part) => ({...part, size: usage.parts?.[part.key] ?? 0}))
+    .filter((part) => part.size > 0);
+  const measured = parts.reduce((sum, part) => sum + part.size, 0);
+
+  return (
+    <DropdownMenu
+      alignment="start"
+      button={{
+        label: window > 0
+          ? t('usage.chip', {used: compactTokens(usage.prompt_tokens), window: compactTokens(window)})
+          : t('usage.chipNoWindow', {used: compactTokens(usage.prompt_tokens)}),
+        size: 'sm',
+        variant: 'ghost',
+      }}
+      hasChevron={false}
+    >
+      <VStack gap={3} padding={3} width={280}>
+        <VStack gap={1} width="100%">
+          <HStack gap={2} hAlign="between" vAlign="center" width="100%">
+            <Text type="label">{t('usage.title')}</Text>
+            {window > 0 ? (
+              <Text color="secondary" type="supporting">{`${Math.round(share * 100)}%`}</Text>
+            ) : null}
+          </HStack>
+          {window > 0 ? (
+            /* One bar, filled by the parts in proportion: a stack of numbers
+               says how much, a bar says how much of what is left. */
+            <svg aria-hidden height={8} width="100%">
+              <rect fill="var(--color-border)" height={8} rx={4} width="100%" />
+              {parts.map((part, index) => {
+                const before = parts.slice(0, index).reduce((sum, item) => sum + item.size, 0);
+                return (
+                  <rect
+                    fill={part.color}
+                    height={8}
+                    key={part.key}
+                    width={`${(part.size / Math.max(1, measured)) * share * 100}%`}
+                    x={`${(before / Math.max(1, measured)) * share * 100}%`}
+                  />
+                );
+              })}
+            </svg>
+          ) : null}
+        </VStack>
+
+        <VStack gap={1} width="100%">
+          {parts.map((part) => (
+            <HStack gap={2} hAlign="between" key={part.key} vAlign="center" width="100%">
+              <HStack gap={2} vAlign="center">
+                <svg aria-hidden height={8} width={8}>
+                  <rect fill={part.color} height={8} rx={2} width={8} />
+                </svg>
+                <Text type="supporting">{t(part.label as Parameters<typeof t>[0])}</Text>
+              </HStack>
+              <Text color="secondary" type="supporting">
+                {`${Math.round((part.size / Math.max(1, measured)) * 100)}%`}
+              </Text>
+            </HStack>
+          ))}
+        </VStack>
+
+        <VStack gap={0} width="100%">
+          <Text color="secondary" type="supporting">
+            {t('usage.tokens', {
+              prompt: usage.prompt_tokens.toLocaleString('vi-VN'),
+              completion: usage.completion_tokens.toLocaleString('vi-VN'),
+            })}
+          </Text>
+          {/* Said plainly, because a share drawn from character counts is not
+              a token count and should not be read as one. */}
+          <Text color="secondary" type="supporting">{t('usage.estimate')}</Text>
+        </VStack>
+      </VStack>
+    </DropdownMenu>
+  );
+}
+
+/** 12.4k rather than 12,431: a chip is read at a glance. */
+function compactTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return String(tokens);
 }

@@ -260,7 +260,11 @@ function AgentEditorView() {
                   size="sm"
                   variant="ghost"
                 />
-                <Avatar name={agent.avatar || agent.name} size="sm" />
+                <Avatar
+                  name={agent.avatar || agent.name}
+                  size="sm"
+                  src={agent.has_avatar_image ? api.agentAvatarURL(agent.id, workspaceID, agent.updated_at) : undefined}
+                />
                 {/* Name and introduction belong to the agent's identity, so they
                     sit in the header and leave the Prompt tab to the prompt. */}
                 <VStack gap={0}>
@@ -862,7 +866,11 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
         // composer pinned to the floor.
         <VStack gap={5} hAlign="center" height="100%" padding={6} vAlign="center" width="100%">
           <VStack gap={2} hAlign="center">
-            <Avatar name={agent.avatar || agent.name} size="lg" />
+            <Avatar
+              name={agent.avatar || agent.name}
+              size="lg"
+              src={agent.has_avatar_image ? api.agentAvatarURL(agent.id, workspaceID, agent.updated_at) : undefined}
+            />
             <Text type="large">{agent.name}</Text>
             {agent.opening_line ? (
               <Text color="secondary" type="body">{agent.opening_line}</Text>

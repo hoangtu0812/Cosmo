@@ -1,6 +1,6 @@
 'use client';
 
-import {ChevronRight, Maximize2, Wrench} from 'lucide-react';
+import {Maximize2, Wrench} from 'lucide-react';
 import {Button} from '@astryxdesign/core/Button';
 import {Collapsible} from '@astryxdesign/core/Collapsible';
 import {HStack, VStack} from '@astryxdesign/core/Layout';
@@ -114,7 +114,6 @@ function ToolCallPill({call, onOpenChart}: {
               />
             </HStack>
           ) : null}
-          <Icon icon={ChevronRight} size="sm" />
         </HStack>
       }
     >

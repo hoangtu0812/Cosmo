@@ -1387,10 +1387,26 @@ function ContextWindow({usage, t}: {usage: ChatUsage; t: ReturnType<typeof useTr
     <DropdownMenu
       alignment="start"
       button={{
+        // The ring is the label; the figures it stands for go to the screen
+        // reader and the tooltip, where they are read on purpose rather than
+        // occupying the header at all times.
+        icon: <ContextRing share={share} isKnown={window > 0} />,
+        isIconOnly: true,
         label: window > 0
-          ? t('usage.chip', {used: compactTokens(usage.prompt_tokens), window: compactTokens(window)})
+          ? t('usage.chip', {
+              percent: String(Math.round(share * 100)),
+              used: compactTokens(usage.prompt_tokens),
+              window: compactTokens(window),
+            })
           : t('usage.chipNoWindow', {used: compactTokens(usage.prompt_tokens)}),
         size: 'sm',
+        tooltip: window > 0
+          ? t('usage.chip', {
+              percent: String(Math.round(share * 100)),
+              used: compactTokens(usage.prompt_tokens),
+              window: compactTokens(window),
+            })
+          : t('usage.chipNoWindow', {used: compactTokens(usage.prompt_tokens)}),
         variant: 'ghost',
       }}
       hasChevron={false}
@@ -1503,5 +1519,58 @@ function TurnActivity({status, trace, orbState, t}: {
         <Text color="secondary" type="supporting">{t('trace.hint')}</Text>
       </VStack>
     </Collapsible>
+  );
+}
+
+/**
+ * How full the window is, as a ring.
+ *
+ * Two numbers with a slash between them are a division the reader has to do
+ * before they mean anything, and the answer they are doing it for is a single
+ * proportion. The ring is that proportion, so it is read at a glance and the
+ * figures behind it move to the tooltip and the panel.
+ *
+ * The arc turns as it fills - accent while there is room, warning past 70%,
+ * error past 90% - because running out of window is the one thing about it
+ * worth interrupting for.
+ */
+function ContextRing({share, isKnown}: {share: number; isKnown: boolean}) {
+  const radius = 7;
+  const circumference = 2 * Math.PI * radius;
+  // A window barely touched still deserves to read as started rather than as
+  // empty, so the arc keeps a sliver once anything is in it.
+  const drawn = share > 0 ? Math.max(share, 0.015) : 0;
+  const color = share >= 0.9
+    ? 'var(--color-error)'
+    : share >= 0.7
+      ? 'var(--color-warning)'
+      : 'var(--color-accent)';
+
+  return (
+    <svg aria-hidden height={18} viewBox="0 0 18 18" width={18}>
+      <circle
+        cx={9}
+        cy={9}
+        fill="none"
+        r={radius}
+        stroke="var(--color-border)"
+        strokeWidth={2.5}
+      />
+      {/* Without a window figure from the gateway there is no share to draw,
+          and an empty track says that more honestly than a guessed arc. */}
+      {isKnown ? (
+        <circle
+          cx={9}
+          cy={9}
+          fill="none"
+          r={radius}
+          stroke={color}
+          strokeDasharray={`${circumference * drawn} ${circumference}`}
+          strokeLinecap="round"
+          strokeWidth={2.5}
+          transform="rotate(-90 9 9)"
+        />
+      ) : null}
+    </svg>
   );
 }

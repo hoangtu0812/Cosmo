@@ -29,6 +29,10 @@ const (
 	// Four per message. Past that a person is describing a folder, and a
 	// knowledge base is the right shape for a folder.
 	maxAttachmentsPerTurn = 4
+	// What every attachment in a conversation may cost a single turn, together.
+	// A spreadsheet runs to tens of thousands of characters; three of them
+	// would leave no room for the exchange they are being asked about.
+	maxAttachmentContextRunes = 90000
 )
 
 // Attachment is a file read for one turn.
@@ -153,14 +157,61 @@ func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// pendingAttachments are the files attached but not yet asked about. Reading
-// them claims them for this turn, so the next question does not carry the same
-// files again.
+// pendingAttachments are the files attached but not yet asked about. The
+// question about to be sent claims them, which is what stops the next question
+// claiming them again.
 func (s *Server) pendingAttachments(ctx context.Context, conversationID string) ([]attachmentText, error) {
-	rows, err := s.db.Query(ctx, `
+	return s.readAttachments(ctx, `
 		SELECT id, name, text, is_truncated FROM conversation_attachments
 		WHERE conversation_id = $1 AND message_id IS NULL
 		ORDER BY created_at`, conversationID)
+}
+
+// conversationAttachments is everything attached to this conversation, ever.
+//
+// A file does not stop existing because the question that carried it has been
+// answered: "summarise this" and "now chart it" are two turns about one
+// spreadsheet, and the second used to arrive with nothing but the first
+// answer's prose.
+//
+// Newest first, and cut at a budget - the last file attached is the one being
+// asked about, so it is the one that survives a conversation with more files
+// than fit.
+func (s *Server) conversationAttachments(ctx context.Context, conversationID string) ([]attachmentText, error) {
+	list, err := s.readAttachments(ctx, `
+		SELECT id, name, text, is_truncated FROM conversation_attachments
+		WHERE conversation_id = $1
+		ORDER BY created_at DESC`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+
+	kept := make([]attachmentText, 0, len(list))
+	budget := maxAttachmentContextRunes
+	for _, item := range list {
+		runes := []rune(item.Text)
+		if len(runes) > budget {
+			if budget < 2000 {
+				// What is left is too little to be worth reading, and a
+				// hundred characters of a spreadsheet is worse than none.
+				break
+			}
+			item.Text = string(runes[:budget])
+			item.IsTruncated = true
+		}
+		budget -= len([]rune(item.Text))
+		kept = append(kept, item)
+	}
+	// Back into the order they were attached, which is the order they are
+	// talked about.
+	for left, right := 0, len(kept)-1; left < right; left, right = left+1, right-1 {
+		kept[left], kept[right] = kept[right], kept[left]
+	}
+	return kept, nil
+}
+
+func (s *Server) readAttachments(ctx context.Context, query, conversationID string) ([]attachmentText, error) {
+	rows, err := s.db.Query(ctx, query, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +243,7 @@ func attachmentPrompt(files []attachmentText) string {
 		return ""
 	}
 	var builder strings.Builder
-	builder.WriteString("Người dùng đính kèm tệp dưới đây cùng câu hỏi. Đây là tệp của họ, không phải tài liệu nội bộ đã được lập chỉ mục.\n")
+	builder.WriteString("Tệp người dùng đã đính kèm trong cuộc trò chuyện này. Đây là tệp của họ, không phải tài liệu nội bộ đã được lập chỉ mục. Dùng lại cho các câu hỏi sau, đừng yêu cầu gửi lại.\n")
 	for _, file := range files {
 		fmt.Fprintf(&builder, "\n--- %s ---\n%s\n", file.Name, file.Text)
 		if file.IsTruncated {

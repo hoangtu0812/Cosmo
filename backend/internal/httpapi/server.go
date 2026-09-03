@@ -896,12 +896,17 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM messages WHERE conversation_id = $1`, conversationID).Scan(&priorMessages)
 	isFirstTurn := priorMessages == 0
 
-	// Anything attached to this question, read when it was attached rather than
-	// now: a file that cannot be read is worth saying so at the moment somebody
-	// attaches it, not after they have asked about it.
+	// Two lists, because they answer different questions. The pending ones are
+	// what this question claims; every attachment in the conversation is what
+	// the model is allowed to read - a file does not stop existing because the
+	// question that carried it has been answered.
 	attached, attachErr := s.pendingAttachments(r.Context(), conversationID)
 	if attachErr != nil {
 		s.logger.Error("read attachments", "conversation_id", conversationID, "error", attachErr)
+	}
+	readable, readableErr := s.conversationAttachments(r.Context(), conversationID)
+	if readableErr != nil {
+		s.logger.Error("read conversation attachments", "conversation_id", conversationID, "error", readableErr)
 	}
 
 	userMessage := Message{ID: "msg_" + randomID(18), ConversationID: conversationID, Role: "user", Content: input.Content, CreatedAt: time.Now()}
@@ -1003,8 +1008,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	writeSSE(w, "status", map[string]string{"stage": "planning", "message": "Đang đọc câu hỏi…"})
 	flusher.Flush()
 	planCtx, cancelPlan := context.WithTimeout(r.Context(), 15*time.Second)
-	attachedNames := make([]string, 0, len(attached))
-	for _, file := range attached {
+	attachedNames := make([]string, 0, len(readable))
+	for _, file := range readable {
 		attachedNames = append(attachedNames, file.Name)
 	}
 	plan := s.planTurn(planCtx, models, options, input.Content,
@@ -1078,7 +1083,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// The attached files go in front of the exchange like grounding does, and
 	// are labelled as the reader's own so an answer does not present them as
 	// indexed workspace knowledge.
-	if block := attachmentPrompt(attached); block != "" {
+	if block := attachmentPrompt(readable); block != "" {
 		history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
 	}
 

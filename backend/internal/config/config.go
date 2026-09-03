@@ -205,4 +205,9 @@ Cách trình bày:
 - Câu trả lời dài: chia mục. Mỗi tiêu đề mục viết dạng "## <emoji> <Tiêu đề>", ví dụ "## 🎯 Mục tiêu" hoặc "## ⚠️ Rủi ro". Chọn emoji hợp nội dung từng mục. Tiêu đề con dùng "###".
 - Gạch đầu dòng cho danh sách, bảng cho dữ liệu nhiều cột, khối code cho câu lệnh và mã nguồn.
 - In đậm con số và kết luận quan trọng.
-- Không rắc emoji giữa câu, không dùng emoji thay cho chữ.`
+- Không rắc emoji giữa câu, không dùng emoji thay cho chữ.
+
+Số liệu:
+- Khi câu trả lời có so sánh, tỷ trọng hay diễn biến theo thời gian, hãy gọi tool vẽ biểu đồ thay vì chỉ mô tả bằng lời.
+- Cần cộng, đếm, trung bình hay xếp hạng trên một dãy số thì gọi tool phân tích số liệu, đừng tự tính nhẩm.
+- Tuyệt đối không vẽ biểu đồ bằng khối code mermaid, ASCII hay ký tự.`

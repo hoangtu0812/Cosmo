@@ -3,7 +3,7 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb, type OrbState} from 'thinking-orbs';
-import {Bot, Brain, Cloud, Cpu, ExternalLink, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Pencil, Plus, Sparkles, SquarePen, Trash2, X} from 'lucide-react';
+import {Bot, Brain, Cloud, Cpu, ExternalLink, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Sparkles, SquarePen, Trash2, X} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -524,13 +524,21 @@ export default function ChatPage() {
               ref={fileRef}
               type="file"
             />
-            <IconButton
-              icon={<Plus size={16} />}
-              isDisabled={isAttaching || streaming || !workspace}
-              label={t('attach.add')}
-              onClick={() => fileRef.current?.click()}
-              size="sm"
-              variant="ghost"
+            {/* A menu rather than a single action: attaching a file is the
+                first of the things you can bring into a question, and the +
+                is where the rest will arrive. One entry today is honest about
+                that; a button pretending to be only a file picker would have
+                to be rebuilt into this the moment the second one lands. */}
+            <DropdownMenu
+              alignment="start"
+              button={{icon: <Plus size={16} />, isDisabled: isAttaching || streaming || !workspace, isIconOnly: true, label: t('attach.menu'), size: 'sm', variant: 'ghost'}}
+              hasChevron={false}
+              items={[{
+                icon: <Paperclip size={15} />,
+                label: t('attach.add'),
+                description: t('attach.addHint'),
+                onClick: () => fileRef.current?.click(),
+              }]}
             />
             <StatusLabel label={workspace?.model_configured ? t('chat.modelReady') : t('chat.modelMissing')} variant={workspace?.model_configured ? 'success' : 'warning'} />
             {chatTargetOptions.length > 0 ? (

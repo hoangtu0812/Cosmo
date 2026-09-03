@@ -857,6 +857,7 @@ export default function ChatPage() {
                           {message.content
                             ? <VStack gap={3}>
                               <AnswerWithToolCalls
+                                onOpenChart={(drawn) => setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')})}
                                 calls={isActiveStream ? liveToolCalls : message.tool_calls ?? []}
                                 isStreaming={isActiveStream}
                               >
@@ -865,7 +866,10 @@ export default function ChatPage() {
                               {isActiveStream ? null : <CitationList citations={message.citations ?? []} onOpen={setPreview} />}
                             </VStack>
                             : (streaming ? <VStack gap={3}>
-                              <AnswerWithToolCalls calls={liveToolCalls}>{''}</AnswerWithToolCalls>
+                              <AnswerWithToolCalls
+                                calls={liveToolCalls}
+                                onOpenChart={(drawn) => setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')})}
+                              >{''}</AnswerWithToolCalls>
                               <HStack gap={2} vAlign="center"><ThinkingOrb size={20} state={orbState} /><Text color="secondary" type="supporting">{status}</Text></HStack>
                               <CitationList citations={message.citations ?? []} onOpen={setPreview} />
                             </VStack> : '')}

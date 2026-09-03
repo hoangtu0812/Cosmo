@@ -52,6 +52,12 @@ type ToolCall struct {
 // the run inspector holds the rest.
 const toolDetailRunes = 300
 
+// Except a chart, which is not a glance at an answer - it is the answer. The
+// client draws from this exact text, so a chart cut to three hundred runes is
+// unparseable JSON and no chart at all, which is what happened to every chart
+// with more than a handful of points.
+const chartDetailRunes = 20000
+
 func summarise(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	runes := []rune(trimmed)
@@ -59,6 +65,15 @@ func summarise(raw string) string {
 		return string(runes[:toolDetailRunes]) + "…"
 	}
 	return trimmed
+}
+
+// summariseResult keeps a drawable result whole and shortens everything else.
+func summariseResult(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if strings.HasPrefix(trimmed, `{"chart":`) && len([]rune(trimmed)) <= chartDetailRunes {
+		return trimmed
+	}
+	return summarise(raw)
 }
 
 // A model may ask for tools, be given results, and ask again. Three rounds is
@@ -181,7 +196,7 @@ func (s *Server) runToolRounds(
 				shown.Detail = callErr.Error()
 			} else {
 				shown.Status = "complete"
-				shown.Detail = summarise(result.Body)
+				shown.Detail = summariseResult(result.Body)
 			}
 			reported = append(reported, shown)
 			writeSSE(w, "tool", shown)

@@ -40,6 +40,7 @@ import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {Selector} from '@astryxdesign/core/Selector';
+import {ChartSpec, ChartView, chartFromResult} from '../components/ChartView';
 import {StatusLabel} from '../components/StatusLabel';
 import {useTranslation} from '../lib/i18n';
 
@@ -105,7 +106,10 @@ export default function ChatPage() {
   // The source of a citation, read beside the answer that used it. One panel
   // on the right, so opening a document puts the conversation list away rather
   // than fighting it for the same edge.
-  const [preview, setPreview] = useState<{kbID: string; documentID: string; title: string} | null>(null);
+  // The panel shows one of two things - a cited document, or a chart the turn
+  // drew. Both are "look at this while you read"; keeping them in one slot is
+  // what stops them fighting for the same edge.
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
   // Wide enough to read an A4 page at a glance, and draggable from there:
   // how much of the screen a document deserves depends on the document. The
   // width is remembered, so it is a decision made once.
@@ -417,13 +421,21 @@ export default function ChatPage() {
         },
         // Calls arrive twice - running, then settled - so they are held by id
         // and the second arrival replaces the first rather than adding a row.
-        onToolCall: (call) => setLiveToolCalls((current) => {
-          const index = current.findIndex((item) => item.id === call.id);
-          if (index < 0) return [...current, call];
-          const next = [...current];
-          next[index] = call;
-          return next;
-        }),
+        onToolCall: (call) => {
+          setLiveToolCalls((current) => {
+            const index = current.findIndex((item) => item.id === call.id);
+            if (index < 0) return [...current, call];
+            const next = [...current];
+            next[index] = call;
+            return next;
+          });
+          // A chart is the one result worth interrupting the reading for, so
+          // it opens itself rather than waiting to be clicked.
+          if (call.status === 'complete') {
+            const drawn = chartFromResult(call.detail);
+            if (drawn) setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')});
+          }
+        },
         onTitle: ({title}) => setConversations((current) => current.map(
           (item) => item.id === targetID ? {...item, title} : item,
         )),
@@ -647,7 +659,11 @@ export default function ChatPage() {
           <>
             <ResizeHandle hasDivider label={t('doc.resize')} resizable={documentPanel.props} />
             <LayoutPanel label={preview.title} padding={0} resizable={documentPanel.props} role="complementary">
-              <DocumentPreview document={preview} onClose={() => setPreview(null)} t={t} />
+              {preview.kind === 'chart' ? (
+                <ChartPanel chart={preview.chart} onClose={() => setPreview(null)} t={t} title={preview.title} />
+              ) : (
+                <DocumentPreview document={preview} onClose={() => setPreview(null)} t={t} />
+              )}
             </LayoutPanel>
           </>
         ) : isRecentOpen ? (
@@ -948,7 +964,7 @@ function providerName(provider?: string) {
 
 function CitationList({citations, onOpen}: {
   citations: Citation[];
-  onOpen: (document: {kbID: string; documentID: string; title: string}) => void;
+  onOpen: (target: PreviewTarget) => void;
 }) {
   if (citations.length === 0) return null;
   const groups = groupCitations(citations);
@@ -963,7 +979,7 @@ function CitationList({citations, onOpen}: {
             label={
               /* Opens beside the answer rather than in place of it: checking a
                  source should not cost you the question you asked. */
-              <Link isStandalone onClick={() => onOpen({kbID: group.kbID, documentID: group.documentID, title: group.title})} weight="medium">
+              <Link isStandalone onClick={() => onOpen({kind: 'document', kbID: group.kbID, documentID: group.documentID, title: group.title})} weight="medium">
                 {group.title}
               </Link>
             }
@@ -1126,6 +1142,38 @@ function DocumentPreview({document: source, onClose, t}: {
             </HStack>
           </VStack>
         )}
+      </Section>
+    </VStack>
+  );
+}
+
+/** What the side panel can be showing. */
+type PreviewTarget =
+  | {kind: 'document'; kbID: string; documentID: string; title: string}
+  | {kind: 'chart'; chart: ChartSpec; title: string};
+
+/**
+ * A chart with room to be read, and a header that matches the document one.
+ *
+ * The same chart the answer shows inline, drawn large and interactive: the
+ * inline one is a stamp saying a chart exists, this is the chart.
+ */
+function ChartPanel({chart, title, onClose, t}: {
+  chart: ChartSpec;
+  title: string;
+  onClose: () => void;
+  t: ReturnType<typeof useTranslation>;
+}) {
+  return (
+    <VStack gap={0} height="100%" width="100%">
+      <Section dividers={['bottom']} padding={3}>
+        <HStack gap={2} hAlign="between" vAlign="center" width="100%">
+          <Text maxLines={2} type="label">{title}</Text>
+          <IconButton icon={<X size={16} />} label={t('doc.close')} onClick={onClose} size="sm" variant="ghost" />
+        </HStack>
+      </Section>
+      <Section className="grow" padding={4}>
+        <ChartView chart={chart} isInteractive />
       </Section>
     </VStack>
   );

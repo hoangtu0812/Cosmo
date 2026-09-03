@@ -1,5 +1,6 @@
 'use client';
 
+import {useState} from 'react';
 import {HStack, VStack} from '@astryxdesign/core/Layout';
 import {Text} from '@astryxdesign/core/Text';
 
@@ -67,31 +68,97 @@ function tick(value: number): string {
   return value.toFixed(2);
 }
 
-export function ChartView({chart}: {chart: ChartSpec}) {
+export function ChartView({chart, isInteractive = false}: {chart: ChartSpec; isInteractive?: boolean}) {
   const isRound = chart.type === 'pie' || chart.type === 'donut';
+  // What the pointer is on, and which series have been switched off. Both are
+  // inert on the inline copy: a chart in the middle of an answer should not
+  // change under the cursor while somebody is reading past it.
+  const [hovered, setHovered] = useState<Point | null>(null);
+  const [hidden, setHidden] = useState<number[]>([]);
+  const point = isInteractive ? hovered : null;
+
+  const legend = isRound
+    ? chart.labels.map((name, index) => ({name, index}))
+    : chart.series.map((item, index) => ({name: item.name ?? '', index}));
+  const hasLegend = chart.series.length > 1 || Boolean(chart.series[0]?.name) || (isRound && isInteractive);
+
   return (
     <VStack gap={2} width="100%">
       {chart.title ? <Text type="label">{chart.title}</Text> : null}
-      {isRound ? <RoundChart chart={chart} /> : <AxisChart chart={chart} />}
-      {chart.series.length > 1 || chart.series[0]?.name ? (
+      {isRound
+        ? <RoundChart chart={chart} hidden={hidden} isInteractive={isInteractive} onHover={setHovered} />
+        : <AxisChart chart={chart} hidden={hidden} isInteractive={isInteractive} onHover={setHovered} />}
+
+      {/* What the pointer is on, said in words under the chart rather than in
+          a floating box: a tooltip that follows the cursor has to be chased,
+          and there is room here for it to simply sit. */}
+      {point ? (
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <svg aria-hidden height={10} width={10}>
+            <rect fill={colorAt(point.colorIndex)} height={10} rx={2} width={10} />
+          </svg>
+          <Text type="label">{point.label}</Text>
+          <Text type="body">{formatValue(point.value)}</Text>
+          {point.share !== undefined ? (
+            <Text color="secondary" type="supporting">{`${(point.share * 100).toFixed(1)}%`}</Text>
+          ) : null}
+          {point.seriesName ? <Text color="secondary" type="supporting">{point.seriesName}</Text> : null}
+        </HStack>
+      ) : null}
+
+      {hasLegend ? (
         <HStack gap={3} vAlign="center" wrap="wrap">
-          {(isRound ? chart.labels : chart.series.map((item) => item.name ?? '')).map((name, index) => (
-            <HStack gap={1} key={`${name}-${index}`} vAlign="center">
-              <svg aria-hidden height={10} width={10}>
-                <rect fill={colorAt(index)} height={10} rx={2} width={10} />
-              </svg>
-              <Text color="secondary" type="supporting">{name || `#${index + 1}`}</Text>
-            </HStack>
-          ))}
+          {legend.map((item) => {
+            const isOff = hidden.includes(item.index);
+            const label = item.name || `#${item.index + 1}`;
+            // Only an axis chart can drop a series: a pie with a slice
+            // removed is a different pie, not the same one with less on it.
+            const canToggle = isInteractive && !isRound && legend.length > 1;
+            return (
+              <HStack
+                gap={1}
+                key={`${label}-${item.index}`}
+                onClick={canToggle
+                  ? () => setHidden((current) => current.includes(item.index)
+                    ? current.filter((index) => index !== item.index)
+                    : [...current, item.index])
+                  : undefined}
+                vAlign="center"
+              >
+                <svg aria-hidden height={10} width={10}>
+                  <rect fill={isOff ? 'var(--color-border)' : colorAt(item.index)} height={10} rx={2} width={10} />
+                </svg>
+                <Text color="secondary" type="supporting">{isOff ? `${label} · ${'—'}` : label}</Text>
+              </HStack>
+            );
+          })}
         </HStack>
       ) : null}
     </VStack>
   );
 }
 
+/** What the pointer is resting on. */
+type Point = {label: string; value: number; colorIndex: number; seriesName?: string; share?: number};
+
+/** A value as a reader would write it, rather than as a float. */
+function formatValue(value: number): string {
+  if (Number.isInteger(value)) return value.toLocaleString('vi-VN');
+  return value.toLocaleString('vi-VN', {maximumFractionDigits: 2});
+}
+
 /** bar, hbar, line and area: everything measured against one numeric axis. */
-function AxisChart({chart}: {chart: ChartSpec}) {
-  const {labels, series} = chart;
+function AxisChart({chart, hidden, isInteractive, onHover}: {
+  chart: ChartSpec;
+  hidden: number[];
+  isInteractive: boolean;
+  onHover: (point: Point | null) => void;
+}) {
+  const {labels} = chart;
+  // A hidden series is dropped from the drawing but keeps its place in the
+  // colour order, so switching one off does not recolour the others.
+  const series = chart.series.map((item, index) => ({...item, colorIndex: index, isHidden: hidden.includes(index)}))
+    .filter((item) => !item.isHidden);
   const stacked = Boolean(chart.is_stacked);
   const horizontal = chart.type === 'hbar';
 
@@ -99,6 +166,8 @@ function AxisChart({chart}: {chart: ChartSpec}) {
   // single value. Zero is always on the axis, so a bar starts where the eye
   // expects it to.
   const totals = labels.map((_, index) => series.reduce((sum, item) => sum + (item.values[index] ?? 0), 0));
+  // Everything measured off the series still on screen, so hiding the tall one
+  // rescales the rest rather than leaving them in its shadow.
   const flat = series.flatMap((item) => item.values);
   const high = Math.max(0, ...(stacked ? totals : flat));
   const low = Math.min(0, ...(stacked ? totals : flat));
@@ -157,11 +226,35 @@ function AxisChart({chart}: {chart: ChartSpec}) {
                 const x = PAD.left + ((below + Math.min(0, value) - low) / span) * plotWidth;
                 const length = (Math.abs(value) / span) * plotWidth;
                 const y = PAD.top + index * step + gap / 2 + (stacked ? 0 : seriesIndex * groupWidth);
-                return <rect fill={colorAt(seriesIndex)} height={Math.max(1, groupWidth)} key={index} rx={2} width={Math.max(1, length)} x={x} y={y} />;
+                return (
+                  <rect
+                    fill={colorAt(item.colorIndex)}
+                    height={Math.max(1, groupWidth)}
+                    key={index}
+                    onMouseEnter={isInteractive ? () => onHover({label: labels[index] ?? '', value, colorIndex: item.colorIndex, seriesName: item.name}) : undefined}
+                    onMouseLeave={isInteractive ? () => onHover(null) : undefined}
+                    rx={2}
+                    width={Math.max(1, length)}
+                    x={x}
+                    y={y}
+                  />
+                );
               }
               const top = PAD.top + ((high - below - Math.max(value, 0)) / span) * plotHeight;
               const length = (Math.abs(value) / span) * plotHeight;
-              return <rect fill={colorAt(seriesIndex)} height={Math.max(1, length)} key={index} rx={2} width={Math.max(1, groupWidth)} x={start} y={top} />;
+              return (
+                <rect
+                  fill={colorAt(item.colorIndex)}
+                  height={Math.max(1, length)}
+                  key={index}
+                  onMouseEnter={isInteractive ? () => onHover({label: labels[index] ?? '', value, colorIndex: item.colorIndex, seriesName: item.name}) : undefined}
+                  onMouseLeave={isInteractive ? () => onHover(null) : undefined}
+                  rx={2}
+                  width={Math.max(1, groupWidth)}
+                  x={start}
+                  y={top}
+                />
+              );
             })}
           </g>
         ))
@@ -180,7 +273,7 @@ function AxisChart({chart}: {chart: ChartSpec}) {
             <g key={seriesIndex}>
               {chart.type === 'area' ? (
                 <polygon
-                  fill={colorAt(seriesIndex)}
+                  fill={colorAt(item.colorIndex)}
                   fillOpacity={0.18}
                   points={`${first},${zero} ${points.join(' ')} ${last},${zero}`}
                 />
@@ -188,14 +281,27 @@ function AxisChart({chart}: {chart: ChartSpec}) {
               <polyline
                 fill="none"
                 points={points.join(' ')}
-                stroke={colorAt(seriesIndex)}
+                stroke={colorAt(item.colorIndex)}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2}
               />
               {item.values.map((value, index) => {
                 const [x, y] = (points[index] ?? '0,0').split(',');
-                return <circle cx={x} cy={y} fill={colorAt(seriesIndex)} key={index} r={2.5} />;
+                return (
+                  <circle
+                    cx={x}
+                    cy={y}
+                    fill={colorAt(item.colorIndex)}
+                    key={index}
+                    onMouseEnter={isInteractive ? () => onHover({label: labels[index] ?? '', value, colorIndex: item.colorIndex, seriesName: item.name}) : undefined}
+                    onMouseLeave={isInteractive ? () => onHover(null) : undefined}
+                    /* A dot the size of the line is hard to hit, so the
+                       target is bigger than the mark. */
+                    r={isInteractive ? 6 : 2.5}
+                    fillOpacity={isInteractive ? 0.9 : 1}
+                  />
+                );
               })}
             </g>
           );
@@ -237,7 +343,13 @@ function AxisChart({chart}: {chart: ChartSpec}) {
 }
 
 /** pie and donut: one series as shares of its own total. */
-function RoundChart({chart}: {chart: ChartSpec}) {
+function RoundChart({chart, hidden, isInteractive, onHover}: {
+  chart: ChartSpec;
+  hidden: number[];
+  isInteractive: boolean;
+  onHover: (point: Point | null) => void;
+}) {
+  void hidden;
   const values = chart.series[0]?.values ?? [];
   const total = values.reduce((sum, value) => sum + value, 0);
   const size = 220;
@@ -285,7 +397,20 @@ function RoundChart({chart}: {chart: ChartSpec}) {
         const path = inner > 0
           ? `M ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} L ${inner1} ${innerY1} A ${inner} ${inner} 0 ${large} 0 ${inner2} ${innerY2} Z`
           : `M ${centre} ${centre} L ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} Z`;
-        return <path d={path} fill={colorAt(slice.index)} key={slice.index} />;
+        return (
+          <path
+            d={path}
+            fill={colorAt(slice.index)}
+            key={slice.index}
+            onMouseEnter={isInteractive ? () => onHover({
+              label: chart.labels[slice.index] ?? '',
+              value: slice.value,
+              colorIndex: slice.index,
+              share: slice.value / total,
+            }) : undefined}
+            onMouseLeave={isInteractive ? () => onHover(null) : undefined}
+          />
+        );
       })}
     </svg>
   );

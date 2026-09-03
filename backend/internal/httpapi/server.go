@@ -1174,7 +1174,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 	// Suggestions come after the answer is saved, so a failure here can never
 	// cost the reader the reply itself.
-	if agentSuggests {
+	// An agent decides for itself whether it offers follow-ups; a plain chat
+	// always does. Without them the model writes its offers into the prose -
+	// "tôi có thể vẽ tiếp: biểu đồ theo ban, biểu đồ theo tư vấn viên" - and a
+	// reader has to retype the one they want.
+	if agentSuggests || conversationAgentID == "" {
 		if followUps := s.agents.SuggestFollowUps(r.Context(), input.Content, assistantMessage.Content, models, options); len(followUps) > 0 {
 			writeSSE(w, "suggestions", map[string]any{"questions": followUps})
 			flusher.Flush()

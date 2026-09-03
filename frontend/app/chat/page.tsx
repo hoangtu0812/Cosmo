@@ -664,13 +664,14 @@ export default function ChatPage() {
         }
         content={
           <Layout
-            /* contentWidth centres the column and puts its scrollbar at the
-               column's own edge, not the window's. With nothing beside it that
-               reads as a comfortable measure; with a document open it left the
-               scrollbar stranded in the middle, a hand's width from the panel
-               it was next to. So the column fills the space it has whenever
-               something shares the screen with it. */
-            contentWidth={preview || isRecentOpen ? '100%' : 1120}
+            /* A measure, not the whole pane. Letting the column fill the space
+               when a document opened beside it did close the gap between the
+               scrollbar and the panel, and made every line run the width of
+               the window to do it - which was worse than the gap. The gap is
+               this column's own margin; closing it properly means moving the
+               measure inside the scroller, which Astryx's ChatLayout offers
+               only at a fixed 800. */
+            contentWidth={1120}
             height="fill"
             content={
               <LayoutContent padding={0}>

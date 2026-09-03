@@ -72,8 +72,12 @@ type Workspace struct {
 	Icon        string `json:"icon,omitempty"`
 	// True when an uploaded image exists; the client fetches it from
 	// /api/workspaces/{id}/icon rather than receiving it inline.
-	HasIconImage bool   `json:"has_icon_image"`
-	Role         string `json:"role"`
+	HasIconImage bool `json:"has_icon_image"`
+	// What this workspace wants said in every answer: what it does, who its
+	// members are, how it wants to be addressed. Empty until somebody writes
+	// it, and then prepended to every turn.
+	Context string `json:"context"`
+	Role    string `json:"role"`
 	// Model status is per workspace now, so the chat surface can tell the user
 	// which workspace still needs a gateway without a second request.
 	ModelConfigured bool   `json:"model_configured"`
@@ -624,7 +628,7 @@ func (s *Server) userAvatar(w http.ResponseWriter, r *http.Request) {
 func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	rows, err := s.db.Query(r.Context(), `
-		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.description, ''), COALESCE(w.icon, ''),
+		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.description, ''), COALESCE(w.icon, ''), COALESCE(w.context, ''),
 			-- A personal workspace shows the account's own picture, so it has
 			-- an icon whenever the reader does.
 			(w.icon_image IS NOT NULL OR (w.type = 'personal' AND EXISTS (
@@ -645,7 +649,7 @@ func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item Workspace
 		var baseURL, model string
-		if rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Type, &item.Description, &item.Icon, &item.HasIconImage, &item.Role, &baseURL, &model) == nil {
+		if rows.Scan(&item.ID, &item.Name, &item.Slug, &item.Type, &item.Description, &item.Icon, &item.Context, &item.HasIconImage, &item.Role, &baseURL, &model) == nil {
 			if baseURL != "" {
 				item.ModelConfigured = true
 				item.ModelAlias = model
@@ -980,17 +984,26 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	// Who is asking and where. The prompt gets it as a block below; the tools
+	// get it on the context, where the Profile built-in reads it - a model
+	// that could name whose profile it wanted would be reading other people's.
+	caller := s.callerFor(r.Context(), user, conversationWorkspaceID)
+	if block := conversationContext(caller, s.workspaceContext(r.Context(), conversationWorkspaceID)); block != "" {
+		history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
+	}
+	toolCtx := tools.WithCaller(r.Context(), caller)
+
 	// The answer is accumulated across both phases: a tool round can narrate
 	// before it calls, and that narration is part of the same answer.
 	var assistant strings.Builder
 	// What this turn may call. An agent brings what it was wired to; a plain
 	// chat brings what the workspace installed and switched on - nothing at
 	// all until somebody does both, so the ordinary chat pays for none of this.
-	set, setErr := s.toolSetFor(r.Context(), conversationAgentID, conversationWorkspaceID, agentTools, agentToolVersions)
+	set, setErr := s.toolSetFor(toolCtx, conversationAgentID, conversationWorkspaceID, agentTools, agentToolVersions)
 	if setErr != nil {
 		s.logger.Error("tool set failed", "conversation_id", conversationID, "error", setErr)
 	} else if !set.isEmpty() {
-		history, toolCalls = s.runToolRounds(r.Context(), w, flusher, set, history, options, models, chatRun.ID, &assistant)
+		history, toolCalls = s.runToolRounds(toolCtx, w, flusher, set, history, options, models, chatRun.ID, &assistant)
 	}
 
 	writeSSE(w, "status", map[string]string{"stage": "writing", "message": "Đang soạn câu trả lời…"})

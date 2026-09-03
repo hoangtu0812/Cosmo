@@ -115,6 +115,25 @@ func Catalog() []CatalogEntry {
 				Parameters:        []Parameter{text("timezone", "An IANA name such as Asia/Ho_Chi_Minh; UTC if omitted", "body", false)},
 			}},
 		},
+		{
+			ID:          "profile",
+			Name:        "Profile",
+			Description: "Who is asking: their name, address and role, and the workspace they are in",
+			Icon:        "🪪",
+			Category:    CategoryBuiltin,
+			Kind:        KindBuiltin,
+			Actions: []Action{{
+				Name:              "current_user",
+				Description:       "The person asking this question: name, email, role, and the workspace they are working in",
+				ResultType:        "object",
+				ResultDescription: "Returns object: name, email, role, workspace, workspace_role.",
+				Method:            "POST",
+				Path:              "/",
+				// No parameters on purpose. Whose profile this is comes from
+				// the session, not from the model.
+				Parameters: []Parameter{},
+			}},
+		},
 
 		// ---------------------------------------------------------------
 		// Developer tools

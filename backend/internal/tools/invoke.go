@@ -144,7 +144,7 @@ func (repository *Repository) Invoke(ctx context.Context, tool Tool, action Acti
 	// protocol; everything below builds a plain HTTP request instead.
 	switch tool.Kind {
 	case KindBuiltin:
-		return repository.invokeBuiltin(action, arguments)
+		return repository.invokeBuiltin(ctx, action, arguments)
 	case KindMCP:
 		return repository.invokeMCP(ctx, tool, action, arguments)
 	}

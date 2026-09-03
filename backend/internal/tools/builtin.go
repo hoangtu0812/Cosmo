@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -57,10 +58,57 @@ var builtins = map[string]builtinFunc{
 	},
 }
 
+// callerBuiltins are the built-ins that describe the person asking rather than
+// the world. They take no arguments from the model at all: what they answer is
+// decided by who is signed in, which the model has no business naming.
+var callerBuiltins = map[string]func(Caller) (string, error){
+	"current_user": func(caller Caller) (string, error) {
+		profile := map[string]string{
+			"name":  caller.UserName,
+			"email": caller.UserEmail,
+			"role":  caller.UserRole,
+		}
+		// A conversation is always in a workspace, but a run started outside
+		// one would say nothing here rather than something wrong.
+		if caller.WorkspaceName != "" {
+			profile["workspace"] = caller.WorkspaceName
+			profile["workspace_role"] = caller.WorkspaceRole
+		}
+		payload, err := json.Marshal(profile)
+		if err != nil {
+			return "", err
+		}
+		return string(payload), nil
+	},
+}
+
 // invokeBuiltin runs one locally. It reports a failure as an error rather than
 // a status, because there is no endpoint whose status could be reported.
-func (repository *Repository) invokeBuiltin(action Action, arguments map[string]any) (CallResult, error) {
+func (repository *Repository) invokeBuiltin(ctx context.Context, action Action, arguments map[string]any) (CallResult, error) {
 	started := time.Now()
+	if run, found := callerBuiltins[action.Name]; found {
+		caller, ok := CallerFrom(ctx)
+		if !ok {
+			return CallResult{
+				Status:     400,
+				DurationMS: time.Since(started).Milliseconds(),
+				Body:       "không xác định được người dùng của lượt gọi này",
+			}, nil
+		}
+		body, err := run(caller)
+		if err != nil {
+			return CallResult{
+				Status:     400,
+				DurationMS: time.Since(started).Milliseconds(),
+				Body:       err.Error(),
+			}, nil
+		}
+		return CallResult{
+			Status:     200,
+			DurationMS: time.Since(started).Milliseconds(),
+			Body:       body,
+		}, nil
+	}
 	run, found := builtins[action.Name]
 	if !found {
 		return CallResult{}, ErrNotFound

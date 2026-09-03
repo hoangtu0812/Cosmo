@@ -207,3 +207,13 @@ var toolVersionStatements = []string{
 	// existed pins nothing and keeps reading the live tool.
 	`ALTER TABLE agent_versions ADD COLUMN IF NOT EXISTS tool_versions JSONB NOT NULL DEFAULT '{}'::jsonb`,
 }
+
+// Migration 14: what a workspace wants said in every answer.
+//
+// One workspace is a refinery's IT desk and the next is a finance team; the
+// same question deserves different footing in each. This is where a workspace
+// writes that footing down once, rather than every member repeating it in
+// every conversation.
+var workspaceContextStatements = []string{
+	`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS context TEXT NOT NULL DEFAULT ''`,
+}

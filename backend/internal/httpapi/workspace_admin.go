@@ -927,6 +927,7 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 		Name        *string `json:"name"`
 		Description *string `json:"description"`
 		Icon        *string `json:"icon"`
+		Context     *string `json:"context"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -936,6 +937,19 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 	if input.Icon != nil && s.isPersonalWorkspace(r.Context(), workspaceID) {
 		writeError(w, http.StatusBadRequest, "Không gian cá nhân dùng ảnh đại diện của tài khoản.")
 		return
+	}
+	if input.Context != nil {
+		// Long enough to describe a department, short enough that prepending it
+		// to every turn stays honest about what it costs.
+		text := strings.TrimSpace(*input.Context)
+		if len([]rune(text)) > 2000 {
+			writeError(w, http.StatusBadRequest, "Bối cảnh workspace không được quá 2000 ký tự.")
+			return
+		}
+		if _, err := s.db.Exec(r.Context(), `UPDATE workspaces SET context = $2 WHERE id = $1`, workspaceID, text); err != nil {
+			writeError(w, http.StatusInternalServerError, "Không thể lưu bối cảnh workspace.")
+			return
+		}
 	}
 	if input.Name != nil {
 		name := strings.TrimSpace(*input.Name)
@@ -975,10 +989,10 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	var workspace Workspace
 	err := s.db.QueryRow(r.Context(), `
-		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.description, ''), COALESCE(w.icon, ''), (w.icon_image IS NOT NULL), m.role
+		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.description, ''), COALESCE(w.icon, ''), COALESCE(w.context, ''), (w.icon_image IS NOT NULL), m.role
 		FROM workspaces w JOIN workspace_memberships m ON m.workspace_id = w.id AND m.user_id = $2
 		WHERE w.id = $1`, workspaceID, currentUser(r.Context()).ID).
-		Scan(&workspace.ID, &workspace.Name, &workspace.Slug, &workspace.Type, &workspace.Description, &workspace.Icon, &workspace.HasIconImage, &workspace.Role)
+		Scan(&workspace.ID, &workspace.Name, &workspace.Slug, &workspace.Type, &workspace.Description, &workspace.Icon, &workspace.Context, &workspace.HasIconImage, &workspace.Role)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể đọc lại workspace.")
 		return

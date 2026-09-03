@@ -6,6 +6,9 @@ export type User = {id: string; email: string; name: string; role: 'admin' | 'us
 export type Workspace = {
   id: string;
   name: string;
+  /** What this workspace wants said in every answer - what it does, who its
+      members are, how it wants to be addressed. Prepended to every turn. */
+  context?: string;
   description: string;
   slug: string;
   type: 'personal' | 'team' | 'project';
@@ -413,7 +416,7 @@ export const api = {
     request<{conversation: {id: string; title: string}}>(`/api/conversations/${encodeURIComponent(conversationID)}`, {method: 'PATCH', body: JSON.stringify({title})}),
   deleteConversation: (conversationID: string) =>
     request<void>(`/api/conversations/${encodeURIComponent(conversationID)}`, {method: 'DELETE'}),
-  updateWorkspace: (workspaceID: string, body: {name?: string; description?: string; icon?: string}) =>
+  updateWorkspace: (workspaceID: string, body: {name?: string; description?: string; icon?: string; context?: string}) =>
     request<{workspace: Workspace}>(`/api/workspaces/${encodeURIComponent(workspaceID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
   uploadWorkspaceIcon: (workspaceID: string, mime: string, data: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/icon`, {method: 'PUT', body: JSON.stringify({mime, data})}),

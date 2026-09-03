@@ -42,6 +42,7 @@ var migrations = []Migration{
 	{Version: 11, Name: "workflows", Statements: workflowStatements},
 	{Version: 12, Name: "workspace_tools", Statements: workspaceToolStatements},
 	{Version: 13, Name: "tool_versions", Statements: toolVersionStatements},
+	{Version: 14, Name: "workspace_context", Statements: workspaceContextStatements},
 }
 
 var runEngineStatements = []string{

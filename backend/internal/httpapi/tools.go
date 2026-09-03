@@ -179,7 +179,7 @@ func (s *Server) deleteToolAction(w http.ResponseWriter, r *http.Request) {
 // hands back what came off the wire. It is restricted to people who may edit
 // the tool: the response can contain whatever the credential unlocks.
 func (s *Server) testToolAction(w http.ResponseWriter, r *http.Request) {
-	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, user, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -194,7 +194,10 @@ func (s *Server) testToolAction(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	result, err := s.tools.Invoke(r.Context(), item, action, input.Arguments)
+	// The test runs as the reader, so a built-in that describes them has the
+	// same answer here as it would mid-conversation.
+	ctx := tools.WithCaller(r.Context(), s.callerFor(r.Context(), user, workspaceID))
+	result, err := s.tools.Invoke(ctx, item, action, input.Arguments)
 	if err != nil {
 		writeToolError(w, err)
 		return

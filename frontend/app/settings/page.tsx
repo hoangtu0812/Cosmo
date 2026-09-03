@@ -18,6 +18,7 @@ import {Section} from '@astryxdesign/core/Section';
 import {Switch} from '@astryxdesign/core/Switch';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
+import {TextArea} from '@astryxdesign/core/TextArea';
 import {TextInput} from '@astryxdesign/core/TextInput';
 import {api, APIError, Invitation, LLMSettings, Member, Tool, User, Workspace} from '../lib/api';
 import {PageHeader} from '../components/PageHeader';
@@ -415,6 +416,7 @@ function WorkspaceSettings({canChooseIcon, onError, onNotice, onUpdated, workspa
   const [identityName, setIdentityName] = useState(workspace?.name ?? '');
   const [identityDescription, setIdentityDescription] = useState(workspace?.description ?? '');
   const [identityIcon, setIdentityIcon] = useState(workspace?.icon ?? '');
+  const [identityContext, setIdentityContext] = useState(workspace?.context ?? '');
   const [savingIdentity, setSavingIdentity] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const canEdit = workspace?.role === 'owner' || workspace?.role === 'admin';
@@ -424,7 +426,15 @@ function WorkspaceSettings({canChooseIcon, onError, onNotice, onUpdated, workspa
     setSavingIdentity(true);
     onError('');
     try {
-      const result = await api.updateWorkspace(workspace.id, {name: identityName, description: identityDescription, icon: identityIcon});
+      const result = await api.updateWorkspace(workspace.id, {
+        name: identityName,
+        description: identityDescription,
+        context: identityContext,
+        // A personal workspace wears the account's picture, and the server
+        // refuses an icon for it, so the field is not sent where it is not
+        // shown either.
+        ...(canChooseIcon ? {icon: identityIcon} : {}),
+      });
       onUpdated(result.workspace);
       onNotice(t('workspace.identitySaved'));
     } catch (caught) {
@@ -477,6 +487,18 @@ function WorkspaceSettings({canChooseIcon, onError, onNotice, onUpdated, workspa
               ) : null}
             </HStack>
             <TextInput label={t('workspace.description')} onChange={setIdentityDescription} value={identityDescription} width="100%" />
+            {/* Read by the model on every turn in this workspace, which is why
+                it says so rather than leaving people to guess what it is for. */}
+            <TextArea
+              description={t('workspace.contextHint')}
+              label={t('workspace.context')}
+              maxLength={2000}
+              onChange={setIdentityContext}
+              placeholder={t('workspace.contextPlaceholder')}
+              rows={4}
+              value={identityContext}
+              width="100%"
+            />
             <HStack gap={2} hAlign="end">
               <input
                 accept="image/png,image/jpeg,image/webp,image/gif"

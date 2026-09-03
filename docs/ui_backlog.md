@@ -84,7 +84,6 @@ trong thư viện, và lần chạy bỏ qua rồi nói rõ.
 
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
-| Xoá workspace | Settings › Workspace | Endpoint xoá, dọn KB/agent/hội thoại liên quan | chưa xếp |
 
 ## Agent
 

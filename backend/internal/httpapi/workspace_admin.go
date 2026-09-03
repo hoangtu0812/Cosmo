@@ -668,6 +668,10 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.isPersonalWorkspace(r.Context(), workspaceID) {
+		writeError(w, http.StatusBadRequest, "Không gian cá nhân chỉ dành cho một người. Hãy tạo workspace mới để làm việc cùng người khác.")
+		return
+	}
 	var input struct {
 		Email string `json:"email"`
 		Role  string `json:"role"`
@@ -927,6 +931,12 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
+	// Name and description are yours to write either way; the icon is not,
+	// because a personal workspace wears the account's own picture.
+	if input.Icon != nil && s.isPersonalWorkspace(r.Context(), workspaceID) {
+		writeError(w, http.StatusBadRequest, "Không gian cá nhân dùng ảnh đại diện của tài khoản.")
+		return
+	}
 	if input.Name != nil {
 		name := strings.TrimSpace(*input.Name)
 		if name == "" || len([]rune(name)) > 80 {
@@ -999,7 +1009,21 @@ func (s *Server) workspaceIcon(w http.ResponseWriter, r *http.Request) {
 	}
 	var image []byte
 	var mime string
-	err := s.db.QueryRow(r.Context(), `SELECT icon_image, COALESCE(icon_mime, '') FROM workspaces WHERE id = $1`, workspaceID).Scan(&image, &mime)
+	var kind string
+	err := s.db.QueryRow(r.Context(),
+		`SELECT icon_image, COALESCE(icon_mime, ''), type FROM workspaces WHERE id = $1`,
+		workspaceID).Scan(&image, &mime, &kind)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Workspace chưa có ảnh biểu tượng.")
+		return
+	}
+	// A personal workspace wears the face the account already has. Read through
+	// rather than copied at sign-in, so it follows the account rather than
+	// going stale the first time somebody changes their picture.
+	if kind == "personal" && len(image) == 0 {
+		err = s.db.QueryRow(r.Context(),
+			`SELECT avatar_image, COALESCE(avatar_mime, '') FROM users WHERE id = $1`, user.ID).Scan(&image, &mime)
+	}
 	if err != nil || len(image) == 0 {
 		writeError(w, http.StatusNotFound, "Workspace chưa có ảnh biểu tượng.")
 		return
@@ -1016,6 +1040,10 @@ func (s *Server) workspaceIcon(w http.ResponseWriter, r *http.Request) {
 func (s *Server) uploadWorkspaceIcon(w http.ResponseWriter, r *http.Request) {
 	workspaceID, ok := s.requireWorkspaceAdmin(w, r)
 	if !ok {
+		return
+	}
+	if s.isPersonalWorkspace(r.Context(), workspaceID) {
+		writeError(w, http.StatusBadRequest, "Không gian cá nhân dùng ảnh đại diện của tài khoản.")
 		return
 	}
 	var input struct {
@@ -1056,8 +1084,67 @@ func (s *Server) deleteWorkspaceIcon(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if s.isPersonalWorkspace(r.Context(), workspaceID) {
+		writeError(w, http.StatusBadRequest, "Không gian cá nhân dùng ảnh đại diện của tài khoản.")
+		return
+	}
 	if _, err := s.db.Exec(r.Context(), `UPDATE workspaces SET icon_image = NULL, icon_mime = NULL WHERE id = $1`, workspaceID); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể xoá ảnh biểu tượng.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// isPersonalWorkspace reports whether this is the workspace made for one
+// person at sign-in. Three things follow from it - no invitations, no chosen
+// icon, no deleting - so the question is asked in one place and the callers
+// only state their own refusal.
+func (s *Server) isPersonalWorkspace(ctx context.Context, workspaceID string) bool {
+	var kind string
+	if err := s.db.QueryRow(ctx, `SELECT type FROM workspaces WHERE id = $1`, workspaceID).Scan(&kind); err != nil {
+		return false
+	}
+	return kind == "personal"
+}
+
+// deleteWorkspace removes a workspace and everything in it. Only its owner,
+// and never a personal one: it is where a person lands at sign-in, and a
+// member with none would have nowhere to stand.
+func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r.Context())
+	workspaceID := chi.URLParam(r, "workspaceID")
+	var role string
+	if err := s.db.QueryRow(r.Context(),
+		`SELECT role FROM workspace_memberships WHERE user_id = $1 AND workspace_id = $2`,
+		user.ID, workspaceID).Scan(&role); err != nil || role != "owner" {
+		writeError(w, http.StatusForbidden, "Chỉ chủ workspace mới xoá được workspace.")
+		return
+	}
+	if s.isPersonalWorkspace(r.Context(), workspaceID) {
+		writeError(w, http.StatusBadRequest, "Không gian cá nhân không xoá được.")
+		return
+	}
+
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể xoá workspace.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	// Everything the workspace owns goes with it through ON DELETE CASCADE.
+	// last_workspace_id has no foreign key, so it is cleared here or a member
+	// signs in pointing at a workspace that is gone.
+	if _, err := tx.Exec(r.Context(),
+		`UPDATE users SET last_workspace_id = NULL, updated_at = NOW() WHERE last_workspace_id = $1`, workspaceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể xoá workspace.")
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `DELETE FROM workspaces WHERE id = $1`, workspaceID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể xoá workspace.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể xoá workspace.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

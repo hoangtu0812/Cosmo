@@ -5,6 +5,7 @@ import {useRouter} from 'next/navigation';
 import {Copy, Trash2} from 'lucide-react';
 import {Avatar} from '@astryxdesign/core/Avatar';
 import {Token} from '@astryxdesign/core/Token';
+import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
@@ -33,9 +34,15 @@ export default function SettingsPage() {
   const [workspaceID, setWorkspaceID] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const workspace = useMemo(() => workspaces.find((item) => item.id === workspaceID), [workspaces, workspaceID]);
   const canAdmin = user?.role === 'admin' || workspace?.role === 'owner' || workspace?.role === 'admin';
+  // The workspace made for one person at sign-in. It cannot be given away, or
+  // given a face other than the account's own, or thrown away - there would be
+  // nowhere to land at the next sign-in.
+  const isPersonal = workspace?.type === 'personal';
 
   useEffect(() => {
     Promise.all([api.me(), api.workspaces()]).then(([me, result]) => {
@@ -51,6 +58,21 @@ export default function SettingsPage() {
       else setError(caught instanceof Error ? caught.message : t('settings.loadFailed'));
     });
   }, [router, t]);
+
+  async function removeWorkspace() {
+    if (!workspaceID) return;
+    setIsDeleting(true);
+    try {
+      await api.deleteWorkspace(workspaceID);
+      // The workspace this page was about is gone, so the page cannot stay on
+      // it. Chat resolves whichever workspace is left.
+      router.replace('/chat');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('workspace.deleteFailed'));
+      setIsDeleting(false);
+      setIsDeleteOpen(false);
+    }
+  }
 
   return (
     <>
@@ -72,37 +94,54 @@ export default function SettingsPage() {
               {workspaceID ? (
                 <>
                   <WorkspaceSettings
+                    canChooseIcon={!isPersonal}
                     onError={setError}
                     onNotice={setNotice}
                     onUpdated={(updated) => setWorkspaces((current) => current.map((item) => item.id === updated.id ? {...item, ...updated} : item))}
                     workspace={workspace}
                   />
-                  {/* The reference closes its settings with this. Cosmo has no
-                      endpoint to delete a workspace, so the section shows what
-                      is coming and the button stays disabled. Tracked in
-                      docs/ui_backlog.md. */}
-                  <Card width="100%">
-                    <VStack gap={3}>
-                      <Text type="label">{t('workspace.deleteTitle')}</Text>
-                      <Text color="secondary" type="supporting">{t('workspace.deleteBody')}</Text>
-                      <HStack hAlign="start">
-                        <Button
-                          icon={<Trash2 size={14} />}
-                          isDisabled
-                          label={t('workspace.deleteAction')}
-                          variant="secondary"
-                        />
-                      </HStack>
-                    </VStack>
-                  </Card>
+                  {/* Only where there is something to delete: the personal
+                      workspace is where a person lands at sign-in, so it stays
+                      whether they like it or not, and the section that would
+                      say otherwise is not shown at all. */}
+                  {!isPersonal && workspace?.role === 'owner' ? (
+                    <Card width="100%">
+                      <VStack gap={3}>
+                        <Text type="label">{t('workspace.deleteTitle')}</Text>
+                        <Text color="secondary" type="supporting">{t('workspace.deleteBody')}</Text>
+                        <HStack hAlign="start">
+                          <Button
+                            icon={<Trash2 size={14} />}
+                            label={t('workspace.deleteAction')}
+                            onClick={() => setIsDeleteOpen(true)}
+                            variant="secondary"
+                          />
+                        </HStack>
+                      </VStack>
+                    </Card>
+                  ) : null}
                   <ModelSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
                   <InstalledToolSettings canAdmin={!!canAdmin} onError={setError} workspaceID={workspaceID} />
-                  <MemberSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
+                  {isPersonal ? null : (
+                    <MemberSettings canAdmin={!!canAdmin} onError={setError} onNotice={setNotice} workspaceID={workspaceID} />
+                  )}
                 </>
               ) : null}
             </VStack>
           </LayoutContent>
         }
+      />
+
+      <AlertDialog
+        actionLabel={t('workspace.deleteAction')}
+        cancelLabel={t('common.cancel')}
+        description={t('workspace.deleteConfirm', {name: workspace?.name ?? ''})}
+        actionVariant="destructive"
+        isActionLoading={isDeleting}
+        isOpen={isDeleteOpen}
+        onAction={() => void removeWorkspace()}
+        onOpenChange={(open) => { if (!open && !isDeleting) setIsDeleteOpen(false); }}
+        title={t('workspace.deleteTitle')}
       />
     </>
   );
@@ -365,7 +404,8 @@ function MemberSettings({canAdmin, onError, onNotice, workspaceID}: {canAdmin: b
 // Downscales an upload to a small square before it reaches the API, so the
 // stored icon stays well under the server's 256 KB cap whatever the source is.
 
-function WorkspaceSettings({onError, onNotice, onUpdated, workspace}: {
+function WorkspaceSettings({canChooseIcon, onError, onNotice, onUpdated, workspace}: {
+  canChooseIcon: boolean;
   onError: (value: string) => void;
   onNotice: (value: string) => void;
   onUpdated: (workspace: Workspace) => void;
@@ -432,7 +472,9 @@ function WorkspaceSettings({onError, onNotice, onUpdated, workspace}: {
                 src={workspace.has_icon_image ? api.workspaceIconURL(workspace.id) : undefined}
               />
               <TextInput label={t('workspace.name')} onChange={setIdentityName} value={identityName} width="100%" />
-              <TextInput label={t('workspace.icon')} onChange={setIdentityIcon} value={identityIcon} width={96} />
+              {canChooseIcon ? (
+                <TextInput label={t('workspace.icon')} onChange={setIdentityIcon} value={identityIcon} width={96} />
+              ) : null}
             </HStack>
             <TextInput label={t('workspace.description')} onChange={setIdentityDescription} value={identityDescription} width="100%" />
             <HStack gap={2} hAlign="end">
@@ -443,10 +485,14 @@ function WorkspaceSettings({onError, onNotice, onUpdated, workspace}: {
                 ref={fileRef}
                 type="file"
               />
-              {workspace.has_icon_image && (
+              {canChooseIcon && workspace.has_icon_image && (
                 <Button label={t('workspace.removeImage')} onClick={() => void removeIcon()} variant="ghost" />
               )}
-              <Button label={t('workspace.uploadImage')} onClick={() => fileRef.current?.click()} variant="secondary" />
+              {canChooseIcon ? (
+                <Button label={t('workspace.uploadImage')} onClick={() => fileRef.current?.click()} variant="secondary" />
+              ) : (
+                <Text color="secondary" type="supporting">{t('workspace.personalIcon')}</Text>
+              )}
               <Button isDisabled={!identityName.trim() || savingIdentity} isLoading={savingIdentity} label={t('workspace.saveIdentity')} onClick={() => void saveIdentity()} variant="primary" />
             </HStack>
           </VStack>

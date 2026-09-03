@@ -197,6 +197,7 @@ func (s *Server) Router() http.Handler {
 
 		protected.Post("/api/workspaces", s.createWorkspace)
 		protected.Patch("/api/workspaces/{workspaceID}", s.updateWorkspace)
+		protected.Delete("/api/workspaces/{workspaceID}", s.deleteWorkspace)
 		protected.Get("/api/workspaces/{workspaceID}/icon", s.workspaceIcon)
 		protected.Put("/api/workspaces/{workspaceID}/icon", s.uploadWorkspaceIcon)
 		protected.Delete("/api/workspaces/{workspaceID}/icon", s.deleteWorkspaceIcon)
@@ -623,7 +624,12 @@ func (s *Server) userAvatar(w http.ResponseWriter, r *http.Request) {
 func (s *Server) workspaces(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	rows, err := s.db.Query(r.Context(), `
-		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.description, ''), COALESCE(w.icon, ''), (w.icon_image IS NOT NULL), m.role,
+		SELECT w.id, w.name, w.slug, w.type, COALESCE(w.description, ''), COALESCE(w.icon, ''),
+			-- A personal workspace shows the account's own picture, so it has
+			-- an icon whenever the reader does.
+			(w.icon_image IS NOT NULL OR (w.type = 'personal' AND EXISTS (
+				SELECT 1 FROM users u WHERE u.id = m.user_id AND u.avatar_image IS NOT NULL
+			))), m.role,
 		       COALESCE(c.base_url, ''), COALESCE(c.model, '')
 		FROM workspace_memberships m
 		JOIN workspaces w ON w.id = m.workspace_id

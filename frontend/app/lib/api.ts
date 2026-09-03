@@ -564,6 +564,8 @@ export const api = {
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'PUT'}),
   unmountKnowledge: (workspaceID: string, kbID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
+  deleteWorkspace: (workspaceID: string) =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}`, {method: 'DELETE'}),
   createWorkspace: (name: string, description = '') => request<{workspace: Workspace}>('/api/workspaces', {method: 'POST', body: JSON.stringify({name, description})}),
   workspaceModels: (workspaceID: string) => request<{models: GatewayModel[]; default: string}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/models`),
 	workspaceKnowledgeModels: (workspaceID: string) =>

@@ -39,6 +39,16 @@ const columns = `
 	t.kind, t.auth_type, t.auth_header_name, t.auth_hint, (t.auth_secret IS NOT NULL),
 	COALESCE((SELECT COUNT(*) FROM tool_actions a WHERE a.tool_id = t.id), 0),
 	COALESCE((SELECT w.name FROM workspaces w WHERE w.id = t.owner_workspace_id), ''),
+	COALESCE((SELECT v.version_number FROM tool_versions v WHERE v.id = t.published_version_id), 0),
+	COALESCE(t.published_version_id, ''),
+	-- Whether the draft has moved since it was published. A tool never
+	-- published counts as changed: there is something to publish.
+	(t.published_version_id IS NULL OR EXISTS (
+		SELECT 1 FROM tool_versions v WHERE v.id = t.published_version_id
+		AND (t.updated_at > v.created_at
+		     OR EXISTS (SELECT 1 FROM tool_actions a
+		                WHERE a.tool_id = t.id AND a.updated_at > v.created_at))
+	)),
 	t.created_at, t.updated_at`
 
 // workspaceColumns carry the two things that are only true of a tool relative
@@ -81,7 +91,9 @@ func scan(row pgx.Row, userID string) (Tool, error) {
 		&tool.ID, &tool.Name, &tool.Description, &tool.Icon, &tagsRaw, &tool.OwnerUserID,
 		&tool.OwnerName, &tool.WorkspaceID, &tool.Visibility, &tool.BaseURL,
 		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
-		&tool.ActionCount, &tool.WorkspaceName, &tool.CreatedAt, &tool.UpdatedAt,
+		&tool.ActionCount, &tool.WorkspaceName, &tool.PublishedVersion,
+		&tool.PublishedVersionID, &tool.HasUnpublishedChanges,
+		&tool.CreatedAt, &tool.UpdatedAt,
 	); err != nil {
 		return Tool{}, err
 	}
@@ -100,7 +112,9 @@ func scanInWorkspace(row pgx.Row, userID string) (Tool, error) {
 		&tool.ID, &tool.Name, &tool.Description, &tool.Icon, &tagsRaw, &tool.OwnerUserID,
 		&tool.OwnerName, &tool.WorkspaceID, &tool.Visibility, &tool.BaseURL,
 		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
-		&tool.ActionCount, &tool.WorkspaceName, &tool.CreatedAt, &tool.UpdatedAt,
+		&tool.ActionCount, &tool.WorkspaceName, &tool.PublishedVersion,
+		&tool.PublishedVersionID, &tool.HasUnpublishedChanges,
+		&tool.CreatedAt, &tool.UpdatedAt,
 		&tool.ReferenceCount, &autoCall,
 	); err != nil {
 		return Tool{}, err

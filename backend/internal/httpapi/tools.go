@@ -15,7 +15,7 @@ import (
 func writeToolError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, tools.ErrNotOffered), errors.Is(err, tools.ErrNotInstalled),
-		errors.Is(err, tools.ErrKeyedAutoCall):
+		errors.Is(err, tools.ErrKeyedAutoCall), errors.Is(err, tools.ErrNoActions):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, tools.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
@@ -525,4 +525,46 @@ func (s *Server) setToolShares(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Publishing a tool freezes what it offers, so an agent published afterwards
+// keeps calling that and not whatever the tool becomes later. Only someone who
+// may edit the tool may publish it, which toolForWrite already decides.
+func (s *Server) publishTool(w http.ResponseWriter, r *http.Request) {
+	item, user, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	if !ok {
+		return
+	}
+	var input struct {
+		Changelog string `json:"changelog"`
+	}
+	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
+		return
+	}
+	version, err := s.tools.Publish(r.Context(), item.ID, user.ID, strings.TrimSpace(input.Changelog))
+	if err != nil {
+		writeToolError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"version": version})
+}
+
+func (s *Server) listToolVersions(w http.ResponseWriter, r *http.Request) {
+	user, workspaceID, ok := s.agentWorkspace(w, r, r.URL.Query().Get("workspace"))
+	if !ok {
+		return
+	}
+	toolID := chi.URLParam(r, "toolID")
+	// Read through the same visibility rule as the tool itself: a version list
+	// is a description of a tool, and must not reach further than the tool.
+	if _, err := s.tools.Get(r.Context(), toolID, user.ID, workspaceID); err != nil {
+		writeToolError(w, err)
+		return
+	}
+	items, err := s.tools.Versions(r.Context(), toolID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể tải danh sách phiên bản.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"versions": items})
 }

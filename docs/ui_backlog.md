@@ -44,7 +44,6 @@ khi publish, và model tự gọi trong lượt trả lời.
 | Mục | Ở đâu | Cần gì để bật | Giai đoạn |
 |---|---|---|---|
 | MCP qua stdio | Thêm tool › MCP | Chạy server như tiến trình con; hiện hỗ trợ Streamable HTTP | chưa xếp |
-| Phiên bản của tool | Editor tool | Publish New Version kèm semver và changelog, như agent đã có | chưa xếp |
 | Kiểu tham số đầy đủ | Editor action | Integer, Object, và kiểu mảng, ngoài string/number/boolean | chưa xếp |
 | Header và timeout riêng | Editor action | Đặt header và timeout cho từng action | chưa xếp |
 | Tham số dùng chung | Trang tool | Tham số áp cho mọi action của một tool | chưa xếp |

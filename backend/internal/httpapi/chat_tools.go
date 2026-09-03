@@ -208,9 +208,12 @@ func (s *Server) runToolRounds(
 // A workspace with nothing installed produces an empty set, and an empty set
 // skips the whole tool phase - so an ordinary chat costs exactly what it cost
 // before this existed.
-func (s *Server) toolSetFor(ctx context.Context, agentID, workspaceID string, pinned []string) (toolSet, error) {
+func (s *Server) toolSetFor(ctx context.Context, agentID, workspaceID string, pinned []string, versions map[string]string) (toolSet, error) {
 	if agentID != "" {
-		list, actions, err := s.tools.AttachedTools(ctx, agentID, pinned)
+		// A published agent calls the tools as they read when it was
+		// published; a draft conversation calls them as they stand now, which
+		// is what the editor's debug panel is for.
+		list, actions, err := s.tools.PinnedTools(ctx, agentID, pinned, versions)
 		if err != nil {
 			return toolSet{}, err
 		}

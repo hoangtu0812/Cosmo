@@ -145,7 +145,11 @@ type Runtime struct {
 	KnowledgeBaseIDs []string
 	// Empty when the conversation runs the draft rather than a published
 	// version; the caller then reads the live attachment instead.
-	ToolIDs               []string
+	ToolIDs []string
+	// Which version of each of those tools the agent was published against,
+	// keyed by tool id. A tool that had never been published is absent, and
+	// the caller reads its draft.
+	ToolVersions          map[string]string
 	IsMemoryEnabled       bool
 	HasSuggestedQuestions bool
 }

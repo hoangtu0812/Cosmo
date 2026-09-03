@@ -149,6 +149,11 @@ export type Tool = {
       whether a plain chat there may reach for it. Two states, not one. */
   is_installed: boolean;
   auto_call: boolean;
+  /** The live version's number, 0 when never published, and whether the draft
+      has moved since. An agent published now calls the live version. */
+  published_version: number;
+  published_version_id: string;
+  has_unpublished_changes: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -217,6 +222,24 @@ export type Agent = {
 
 // Every field is optional so the editor can save one tab without resending the
 // rest; the server keeps what it is not sent.
+/** A tool as it read when it was published. No credential: a key is current
+    state, not part of what was frozen. */
+export type ToolVersion = {
+  id: string;
+  tool_id: string;
+  version_number: number;
+  base_url: string;
+  kind: string;
+  auth_type: string;
+  auth_header_name: string;
+  actions: ToolAction[];
+  changelog: string;
+  published_by: string;
+  published_name: string;
+  created_at: string;
+  is_live: boolean;
+};
+
 export type AgentVersion = {
   id: string;
   agent_id: string;
@@ -489,6 +512,10 @@ export const api = {
     request<void>(`/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'PUT', body: JSON.stringify({mime, data})}),
   deleteAgentAvatar: (agentID: string, workspaceID?: string) =>
     request<void>(`/api/agents/${encodeURIComponent(agentID)}/avatar${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
+  publishTool: (toolID: string, changelog: string, workspaceID?: string) =>
+    request<{version: ToolVersion}>(`/api/tools/${encodeURIComponent(toolID)}/publish${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({changelog})}),
+  toolVersions: (toolID: string, workspaceID?: string) =>
+    request<{versions: ToolVersion[]}>(`/api/tools/${encodeURIComponent(toolID)}/versions${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   publishAgent: (agentID: string, changelog: string, workspaceID?: string) =>
     request<{agent: Agent}>(`/api/agents/${encodeURIComponent(agentID)}/publish${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({changelog})}),
   agentVersions: (agentID: string, workspaceID?: string) =>

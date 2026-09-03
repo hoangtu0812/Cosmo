@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -33,7 +34,7 @@ func (repository *Repository) Publish(ctx context.Context, agentID, publishedBy,
 		INSERT INTO agent_versions (
 			id, agent_id, version_number, model, system_prompt, opening_line,
 			preset_questions, has_suggested_questions, is_memory_enabled,
-			knowledge_base_ids, tool_ids, changelog, published_by
+			knowledge_base_ids, tool_ids, tool_versions, changelog, published_by
 		)
 		SELECT
 			$1, a.id,
@@ -48,6 +49,15 @@ func (repository *Repository) Publish(ctx context.Context, agentID, publishedBy,
 				SELECT jsonb_agg(at.tool_id ORDER BY at.created_at)
 				FROM agent_tools at WHERE at.agent_id = a.id
 			), '[]'::jsonb),
+			-- Which version of each tool this agent was built against. A tool
+			-- never published is absent, and the agent keeps reading its draft,
+			-- which is how every tool behaved before versions existed.
+			COALESCE((
+				SELECT jsonb_object_agg(at.tool_id, t.published_version_id)
+				FROM agent_tools at
+				JOIN tools t ON t.id = at.tool_id
+				WHERE at.agent_id = a.id AND t.published_version_id IS NOT NULL
+			), '{}'::jsonb),
 			$3, $4
 		FROM agents a
 		WHERE a.id = $2
@@ -130,21 +140,32 @@ func (repository *Repository) SaveDraft(ctx context.Context, current Agent, chan
 }
 
 // RuntimeForVersion reads an immutable published snapshot. A conversation
-// pinned to a version keeps answering from it even after the draft moves on.
+// pinned to a version keeps answering from it even after the draft moves on -
+// including the versions of the tools it was published against.
 func (repository *Repository) RuntimeForVersion(ctx context.Context, versionID string) (Runtime, error) {
 	var item Runtime
-	var knowledge, tools []byte
+	var knowledge, tools, toolVersions []byte
 	err := repository.db.QueryRow(ctx, `
-		SELECT model, system_prompt, is_memory_enabled, has_suggested_questions, knowledge_base_ids, tool_ids
+		SELECT model, system_prompt, is_memory_enabled, has_suggested_questions,
+		       knowledge_base_ids, tool_ids, tool_versions
 		FROM agent_versions WHERE id = $1`, versionID).Scan(
 		&item.Model, &item.SystemPrompt, &item.IsMemoryEnabled,
-		&item.HasSuggestedQuestions, &knowledge, &tools)
+		&item.HasSuggestedQuestions, &knowledge, &tools, &toolVersions)
 	if err != nil {
 		return Runtime{}, err
 	}
 	item.KnowledgeBaseIDs = decodeStringList(knowledge)
 	item.ToolIDs = decodeStringList(tools)
+	item.ToolVersions = decodeStringMap(toolVersions)
 	return item, nil
+}
+
+func decodeStringMap(raw []byte) map[string]string {
+	pairs := map[string]string{}
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &pairs)
+	}
+	return pairs
 }
 
 // PublishedVersionID is what a new conversation should pin itself to. It is

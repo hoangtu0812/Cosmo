@@ -80,8 +80,8 @@ type Tool struct {
 	// offered to: an offer arriving from nobody in particular is hard to
 	// judge, and the id says nothing to a reader.
 	WorkspaceName string `json:"workspace_name"`
-	Visibility  string   `json:"visibility"`
-	BaseURL     string   `json:"base_url"`
+	Visibility    string `json:"visibility"`
+	BaseURL       string `json:"base_url"`
 	// "http" for an API described by hand, "mcp" for a server that
 	// describes itself. See internal/tools/mcp.go.
 	Kind           string `json:"kind"`
@@ -100,11 +100,17 @@ type Tool struct {
 	// Whether the workspace framing this read has installed the tool, and
 	// whether it lets a plain chat reach for it. Two states, not one: a tool
 	// can be installed for an agent's use without answering questions itself.
-	IsInstalled bool      `json:"is_installed"`
-	AutoCall    bool      `json:"auto_call"`
-	IsEditable  bool      `json:"is_editable"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	IsInstalled bool `json:"is_installed"`
+	AutoCall    bool `json:"auto_call"`
+	// The live version's number, 0 for a tool never published, and whether the
+	// draft has moved since. An agent published from here on calls the live
+	// version, so the editor has to be able to say which one that is.
+	PublishedVersion      int       `json:"published_version"`
+	PublishedVersionID    string    `json:"published_version_id"`
+	HasUnpublishedChanges bool      `json:"has_unpublished_changes"`
+	IsEditable            bool      `json:"is_editable"`
+	CreatedAt             time.Time `json:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at"`
 }
 
 // Parameter is one input an action takes. It is described rather than typed in

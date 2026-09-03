@@ -169,3 +169,41 @@ var workspaceToolStatements = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_workspace_tools_workspace ON workspace_tools(workspace_id)`,
 }
+
+// Migration 13: a tool can be published, and what was published stays put.
+//
+// Editing a tool changed it for every agent already built on it, at once and
+// without warning - a renamed action or a changed path broke a published agent
+// mid-conversation. A version freezes the callable surface: where the tool
+// lives, how it authenticates, and the actions as they read at that moment.
+//
+// The credential is deliberately not part of it. A key is current state, not
+// a description of the tool, and a snapshot that carried one would resurrect a
+// revoked key on rollback.
+var toolVersionStatements = []string{
+	`CREATE TABLE IF NOT EXISTS tool_versions (
+		id TEXT PRIMARY KEY,
+		tool_id TEXT NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+		version_number INTEGER NOT NULL,
+		base_url TEXT NOT NULL DEFAULT '',
+		kind TEXT NOT NULL DEFAULT 'http',
+		auth_type TEXT NOT NULL DEFAULT 'none',
+		auth_header_name TEXT NOT NULL DEFAULT '',
+		actions JSONB NOT NULL DEFAULT '[]'::jsonb,
+		changelog TEXT NOT NULL DEFAULT '',
+		published_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		UNIQUE (tool_id, version_number)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_tool_versions_tool ON tool_versions(tool_id, version_number DESC)`,
+
+	// Which version an agent is calling. NULL means the tool has never been
+	// published, and callers fall back to the draft - which is how every tool
+	// behaved until now, so nothing that already works stops working.
+	`ALTER TABLE tools ADD COLUMN IF NOT EXISTS published_version_id TEXT REFERENCES tool_versions(id) ON DELETE SET NULL`,
+
+	// What each published agent pinned: tool id to tool version id, decided
+	// when the agent was published. An agent published before this column
+	// existed pins nothing and keeps reading the live tool.
+	`ALTER TABLE agent_versions ADD COLUMN IF NOT EXISTS tool_versions JSONB NOT NULL DEFAULT '{}'::jsonb`,
+}

@@ -2,16 +2,19 @@
 
 import {Suspense, useCallback, useEffect, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ArrowLeft, Home, Play, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Zap} from 'lucide-react';
+import {ArrowLeft, History, Home, Play, Plus, RefreshCw, Search, ShieldCheck, Sparkles, Trash2, Zap} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
+import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {Switch} from '@astryxdesign/core/Switch';
 import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Icon} from '@astryxdesign/core/Icon';
 import {IconButton} from '@astryxdesign/core/IconButton';
-import {HStack, Layout, LayoutContent, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
+import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, LayoutPanel, VStack} from '@astryxdesign/core/Layout';
+import {Item} from '@astryxdesign/core/Item';
+import {List} from '@astryxdesign/core/List';
 import {SelectableCard} from '@astryxdesign/core/SelectableCard';
 import {Selector} from '@astryxdesign/core/Selector';
 import {Text} from '@astryxdesign/core/Text';
@@ -20,7 +23,7 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Token} from '@astryxdesign/core/Token';
 import {StatusLabel} from '../../components/StatusLabel';
-import {api, APIError, Tool, ToolAction, ToolCallResult, ToolParameter} from '../../lib/api';
+import {api, APIError, Tool, ToolAction, ToolCallResult, ToolParameter, ToolVersion} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 export default function ToolDetailPage() {
@@ -45,6 +48,11 @@ function ToolDetailScreen() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [deleting, setDeleting] = useState<ToolAction | null>(null);
+  const [isPublishOpen, setIsPublishOpen] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [changelog, setChangelog] = useState('');
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [versions, setVersions] = useState<ToolVersion[]>([]);
 
   const load = useCallback(() => {
     if (!toolID) return;
@@ -76,6 +84,23 @@ function ToolDetailScreen() {
       setSelected(result.action);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    }
+  }
+
+  async function publish() {
+    setIsPublishing(true);
+    setError('');
+    try {
+      await api.publishTool(toolID, changelog.trim(), workspaceID);
+      setChangelog('');
+      setIsPublishOpen(false);
+      // The header reads the tool's publish state, and publishing is exactly
+      // what changes it.
+      load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t('tool.publishFailed'));
+    } finally {
+      setIsPublishing(false);
     }
   }
 
@@ -179,9 +204,39 @@ function ToolDetailScreen() {
           <LayoutHeader hasDivider>
             <Toolbar
               endContent={
-                tool && !tool.is_editable
-                  ? <StatusLabel label={t('agent.readOnly')} variant="warning" />
-                  : undefined
+                tool && !tool.is_editable ? (
+                  <StatusLabel label={t('agent.readOnly')} variant="warning" />
+                ) : tool ? (
+                  <HStack gap={3} vAlign="center">
+                    {/* An agent published from now on calls the live version,
+                        so the number belongs beside the button that moves it. */}
+                    <Text color={tool.has_unpublished_changes ? 'accent' : 'secondary'} type="supporting">
+                      {tool.has_unpublished_changes
+                        ? t('tool.unpublished')
+                        : t('tool.publishedVersion', {version: String(tool.published_version)})}
+                    </Text>
+                    <IconButton
+                      icon={<History size={16} />}
+                      label={t('tool.versions')}
+                      onClick={() => {
+                        setIsHistoryOpen(true);
+                        api.toolVersions(toolID, workspaceID)
+                          .then((result) => setVersions(result.versions))
+                          .catch(() => setVersions([]));
+                      }}
+                      size="sm"
+                      variant="ghost"
+                    />
+                    <Button
+                      isDisabled={!tool.has_unpublished_changes || actions.length === 0}
+                      isLoading={isPublishing}
+                      label={t('tool.publish')}
+                      onClick={() => setIsPublishOpen(true)}
+                      size="sm"
+                      variant="primary"
+                    />
+                  </HStack>
+                ) : undefined
               }
               label={tool?.name ?? ''}
               startContent={
@@ -230,6 +285,67 @@ function ToolDetailScreen() {
         onOpenChange={(open) => { if (!open) setDeleting(null); }}
         title={t('tool.deleteAction')}
       />
+
+      <Dialog isOpen={isPublishOpen} onOpenChange={setIsPublishOpen} purpose="form">
+        <Layout
+          content={
+            <LayoutContent>
+              <VStack gap={3}>
+                <Text color="secondary" type="supporting">
+                  {tool && tool.published_version > 0
+                    ? t('tool.publishFrom', {version: String(tool.published_version)})
+                    : t('tool.publishFirst')}
+                </Text>
+                <TextArea
+                  label={t('agent.changelog')}
+                  maxLength={500}
+                  onChange={setChangelog}
+                  placeholder={t('agent.changelogPlaceholder')}
+                  rows={4}
+                  value={changelog}
+                  width="100%"
+                />
+              </VStack>
+            </LayoutContent>
+          }
+          footer={
+            <LayoutFooter>
+              <HStack gap={2} hAlign="end">
+                <Button label={t('common.cancel')} onClick={() => setIsPublishOpen(false)} variant="secondary" />
+                <Button isLoading={isPublishing} label={t('tool.publish')} onClick={() => void publish()} variant="primary" />
+              </HStack>
+            </LayoutFooter>
+          }
+          header={<DialogHeader onOpenChange={setIsPublishOpen} title={t('tool.publish')} />}
+        />
+      </Dialog>
+
+      <Dialog isOpen={isHistoryOpen} onOpenChange={setIsHistoryOpen} purpose="info">
+        <Layout
+          content={
+            <LayoutContent>
+              {versions.length === 0 ? (
+                <Text color="secondary" type="supporting">{t('tool.versionsEmpty')}</Text>
+              ) : (
+                <List>
+                  {versions.map((version) => (
+                    <Item
+                      as="li"
+                      description={`${version.changelog || t('agent.versionNoChangelog')} · ${t('tool.actionCount', {count: version.actions.length})} · ${new Date(version.created_at).toLocaleString()}`}
+                      endContent={version.is_live
+                        ? <StatusLabel label={t('agent.versionCurrent')} variant="success" />
+                        : undefined}
+                      key={version.id}
+                      label={t('tool.publishedVersion', {version: String(version.version_number)})}
+                    />
+                  ))}
+                </List>
+              )}
+            </LayoutContent>
+          }
+          header={<DialogHeader onOpenChange={setIsHistoryOpen} title={t('tool.versions')} />}
+        />
+      </Dialog>
     </>
   );
 }

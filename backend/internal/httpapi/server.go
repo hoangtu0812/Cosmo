@@ -222,6 +222,8 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/agents/{agentID}", s.getAgent)
 		protected.Patch("/api/agents/{agentID}", s.updateAgent)
 		protected.Delete("/api/agents/{agentID}", s.deleteAgent)
+		protected.Post("/api/tools/{toolID}/publish", s.publishTool)
+		protected.Get("/api/tools/{toolID}/versions", s.listToolVersions)
 		protected.Post("/api/agents/{agentID}/publish", s.publishAgent)
 		protected.Get("/api/agents/{agentID}/versions", s.listAgentVersions)
 		protected.Get("/api/agents/{agentID}/conversations", s.listAgentConversations)
@@ -772,6 +774,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// Nil while the conversation runs the draft, which means "whatever is
 	// attached now"; a published version fills it with what it froze.
 	var agentTools []string
+	// Which version of each of those tools the published agent was built on.
+	var agentToolVersions map[string]string
 	var agentRemembers, agentSuggests bool
 	if conversationAgentID != "" {
 		// A conversation pinned to a version keeps answering from that frozen
@@ -791,6 +795,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		models = s.modelsWith(r.Context(), conversationWorkspaceID, agent.SystemPrompt, agent.Model)
 		agentKnowledge = agent.KnowledgeBaseIDs
 		agentTools = agent.ToolIDs
+		agentToolVersions = agent.ToolVersions
 		agentRemembers = agent.IsMemoryEnabled
 		agentSuggests = agent.HasSuggestedQuestions
 	}
@@ -975,7 +980,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// What this turn may call. An agent brings what it was wired to; a plain
 	// chat brings what the workspace installed and switched on - nothing at
 	// all until somebody does both, so the ordinary chat pays for none of this.
-	set, setErr := s.toolSetFor(r.Context(), conversationAgentID, conversationWorkspaceID, agentTools)
+	set, setErr := s.toolSetFor(r.Context(), conversationAgentID, conversationWorkspaceID, agentTools, agentToolVersions)
 	if setErr != nil {
 		s.logger.Error("tool set failed", "conversation_id", conversationID, "error", setErr)
 	} else if !set.isEmpty() {

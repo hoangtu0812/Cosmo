@@ -339,7 +339,7 @@ function KnowledgeCard({base, primary, secondary, t, workspaceID}: {
 	workspaceID: string;
 }) {
   return (
-    <Card className={cardHover} padding={0} width="100%">
+    <Card className={cardHover} height="100%" padding={0} width="100%">
       <VStack gap={0} height="100%">
         {/* The icon zooms inside its band rather than moving with the card,
             so the hover reads as one gesture. */}

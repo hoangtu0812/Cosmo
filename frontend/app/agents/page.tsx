@@ -243,7 +243,7 @@ function AgentsView() {
                     // Portrait card, as the reference has it: the face on a band
                     // of its own, then the name, then what the agent is for.
                     <CardContextMenu items={agent.is_editable ? actions : []} key={agent.id} label={t('agent.moreActions')}>
-                    <Card className={cardHover} onClick={() => openAgent(agent)} padding={0} width="100%" xstyle={entry}>
+                    <Card className={cardHover} height="100%" onClick={() => openAgent(agent)} padding={0} width="100%" xstyle={entry}>
                       <VStack gap={0} height="100%">
                         {/* The face sits on a tinted band, as the reference
                             has it, so a wall of cards reads as faces first. */}

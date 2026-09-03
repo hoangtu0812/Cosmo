@@ -19,14 +19,20 @@ import {HStack} from '@astryxdesign/core/Layout';
  */
 export type CardMenuItems = ContextMenuOption[];
 
-/** Wraps a whole card so right-click anywhere on it opens the menu. */
+/**
+ * Wraps a whole card so right-click anywhere on it opens the menu.
+ *
+ * It is also the grid's item, which is why it fills its cell: the grid
+ * stretches what it lays out, and anything that stops short here leaves the
+ * card inside as short as its own text.
+ */
 export function CardContextMenu({items, label, children}: {
   items: CardMenuItems;
   label: string;
   children: ReactNode;
 }) {
   return (
-    <ContextMenu className="w-full" items={items} label={label} menuWidth={220}>
+    <ContextMenu className="h-full w-full" items={items} label={label} menuWidth={220}>
       {children}
     </ContextMenu>
   );

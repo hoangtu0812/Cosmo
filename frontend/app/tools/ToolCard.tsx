@@ -38,7 +38,7 @@ export function ToolCard({tool, actions, canInstall, isBusy, origin, onOpen, onI
 
   return (
     <CardContextMenu items={actions} label={t('kb.manage')}>
-      <Card className={cardHover} onClick={onOpen} padding={0} width="100%">
+      <Card className={cardHover} height="100%" onClick={onOpen} padding={0} width="100%">
         <VStack gap={0} height="100%">
           <Section padding={5} variant="muted">
             <HStack hAlign="center" width="100%">
@@ -47,8 +47,10 @@ export function ToolCard({tool, actions, canInstall, isBusy, origin, onOpen, onI
               </Card>
             </HStack>
           </Section>
-          <Section padding={4}>
-            <VStack gap={2}>
+          {/* Takes what the band above leaves, so the control at its foot can
+              sit on the bottom edge and line up with its neighbours. */}
+          <Section className="grow" padding={4}>
+            <VStack className="h-full" gap={2}>
               <HStack gap={2} hAlign="between" vAlign="center" width="100%">
                 <Text maxLines={1} type="label">{tool.name}</Text>
                 {actions.length > 0 ? <CardMenuButton items={actions} label={t('kb.manage')} /> : null}
@@ -78,7 +80,7 @@ export function ToolCard({tool, actions, canInstall, isBusy, origin, onOpen, onI
                   controls - and the switch is dead while the tool holds a key,
                   which the server refuses anyway. Letting go of it is in the
                   menu, with the other things done once. */}
-              <HStack gap={2} onClick={(event) => event.stopPropagation()} vAlign="center" width="100%">
+              <HStack className="mt-auto" gap={2} onClick={(event) => event.stopPropagation()} vAlign="center" width="100%">
                 {tool.is_installed ? (
                   <Switch
                     isDisabled={isBusy || tool.has_secret || !canInstall}

@@ -200,8 +200,6 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/admin/audit-logs/export", s.exportAuditLogs)
 		protected.Get("/api/admin/analytics", s.platformAnalytics)
 		protected.Get("/api/admin/system", s.systemStatus)
-		protected.Put("/api/admin/system", s.updateSystemSettings)
-		protected.Post("/api/admin/system/models", s.listSystemGatewayModels)
 		protected.Post("/api/admin/system/knowledge/reindex", s.reindexKnowledgeDocuments)
 		protected.Get("/api/admin/system/knowledge/reindex", s.knowledgeIndexStatus)
 		protected.Get("/api/workspaces", s.workspaces)

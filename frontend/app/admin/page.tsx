@@ -1,6 +1,6 @@
 'use client';
 
-import {useCallback, useEffect, useState} from 'react';
+import {useEffect, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {ArrowLeft, ClipboardList, LayoutDashboard, ServerCog, ShieldCheck, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
@@ -17,13 +17,11 @@ import {Item} from '@astryxdesign/core/Item';
 import {HStack, Layout, LayoutContent, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {List} from '@astryxdesign/core/List';
 import {ProgressBar} from '@astryxdesign/core/ProgressBar';
-import {Selector} from '@astryxdesign/core/Selector';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
-import {TextInput} from '@astryxdesign/core/TextInput';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {StatusLabel} from '../components/StatusLabel';
-import {AdminUser, api, APIError, GatewayModel, KnowledgeIndexStatus, SystemStatus, User} from '../lib/api';
+import {AdminUser, api, APIError, KnowledgeIndexStatus, SystemStatus, User} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {UserProfileCard} from '../components/UserProfileCard';
 import {AuditPanel} from './AuditPanel';
@@ -43,7 +41,6 @@ export default function AdminPage() {
   const [system, setSystem] = useState<SystemStatus | null>(null);
   const [error, setError] = useState('');
   const [pendingUserID, setPendingUserID] = useState('');
-  const [isSavingSystem, setIsSavingSystem] = useState(false);
   const [isReindexing, setIsReindexing] = useState(false);
   const [indexStatus, setIndexStatus] = useState<KnowledgeIndexStatus | null>(null);
   const [notice, setNotice] = useState('');
@@ -96,22 +93,6 @@ export default function AdminPage() {
     }
   }
 
-  async function updateSystemModels(settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) {
-    setIsSavingSystem(true);
-    setError('');
-    try {
-      setSystem(await api.updateSystemSettings({
-        embedding_model: settings.embeddingModel,
-        reranker_model: settings.rerankerModel,
-        gateway_base_url: settings.gatewayBaseURL,
-        ...(settings.gatewayAPIKey ? {gateway_api_key: settings.gatewayAPIKey} : {}),
-      }));
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('admin.loadFailed'));
-    } finally {
-      setIsSavingSystem(false);
-    }
-  }
 
   async function reindexKnowledge() {
     setIsReindexing(true);
@@ -168,7 +149,7 @@ export default function AdminPage() {
               {section === 'dashboard' && <DashboardPanel onError={setError} />}
               {section === 'users' && <UsersPanel pendingUserID={pendingUserID} t={t} users={users} onUpdateRole={updateRole} />}
               {section === 'audit' && <AuditPanel onError={setError} />}
-              {section === 'system' && <SystemPanel indexStatus={indexStatus} isReindexing={isReindexing} isSaving={isSavingSystem} system={system} t={t} onReindex={reindexKnowledge} onSave={updateSystemModels} />}
+              {section === 'system' && <SystemPanel indexStatus={indexStatus} isReindexing={isReindexing} system={system} t={t} onReindex={reindexKnowledge} />}
             </VStack>
           </LayoutContent>
         }
@@ -214,48 +195,10 @@ function UsersPanel({users, pendingUserID, onUpdateRole, t}: {users: AdminUser[]
   );
 }
 
-// modelOptions narrows the gateway's models to the kind a field takes. A
-// gateway that reports no mode for anything yields no match, and then every
-// model stays on offer rather than leaving the field with nothing to pick. The
-// saved value is always present so a stored model is never silently dropped.
-function modelOptions(models: GatewayModel[], mode: string, selected: string) {
-  const matching = models.filter((model) => model.mode === mode);
-  const offered = (matching.length > 0 ? matching : models).map((model) => model.id);
-  if (selected && !offered.includes(selected)) offered.unshift(selected);
-  return offered.map((id) => ({label: id, value: id}));
-}
-
-function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onReindex, t}: {system: SystemStatus | null; indexStatus: KnowledgeIndexStatus | null; isSaving: boolean; isReindexing: boolean; onSave: (settings: {embeddingModel: string; rerankerModel: string; gatewayBaseURL: string; gatewayAPIKey: string}) => void; onReindex: () => void; t: ReturnType<typeof useTranslation>}) {
-  const [embeddingModel, setEmbeddingModel] = useState('');
-  const [rerankerModel, setRerankerModel] = useState('');
-  const [gatewayBaseURL, setGatewayBaseURL] = useState('');
-  const [gatewayAPIKey, setGatewayAPIKey] = useState('');
-  const [gatewayModels, setGatewayModels] = useState<GatewayModel[]>([]);
-  const [isLoadingModels, setIsLoadingModels] = useState(false);
+function SystemPanel({system, indexStatus, isReindexing, onReindex, t}: {system: SystemStatus | null; indexStatus: KnowledgeIndexStatus | null; isReindexing: boolean; onReindex: () => void; t: ReturnType<typeof useTranslation>}) {
   const [isReindexDialogOpen, setIsReindexDialogOpen] = useState(false);
-  useEffect(() => {
-    setEmbeddingModel(system?.embedding_model ?? '');
-    setRerankerModel(system?.reranker_model ?? '');
-    setGatewayBaseURL(system?.system_gateway.base_url ?? '');
-    setGatewayAPIKey('');
-  }, [system?.embedding_model, system?.reranker_model, system?.system_gateway.base_url]);
-  const loadGatewayModels = useCallback((baseURL: string, apiKey: string) => {
-    setIsLoadingModels(true);
-    api.systemGatewayModels({base_url: baseURL, ...(apiKey ? {api_key: apiKey} : {})})
-      .then((result) => setGatewayModels(result.ok ? result.models : []))
-      .catch(() => setGatewayModels([]))
-      .finally(() => setIsLoadingModels(false));
-  }, []);
-  // A gateway that is already saved has a stored key, so its models can be
-  // listed on arrival and the pickers open ready to use.
-  const savedBaseURL = system?.system_gateway.base_url ?? '';
-  const isGatewayConfigured = system?.system_gateway.configured ?? false;
-  useEffect(() => {
-    if (isGatewayConfigured && savedBaseURL) loadGatewayModels(savedBaseURL, '');
-  }, [isGatewayConfigured, savedBaseURL, loadGatewayModels]);
   const rows: [string, boolean][] = system ? [
     [t('admin.entra'), system.entra_enabled],
-    [t('admin.gateway'), system.system_gateway.configured],
     [t('admin.knowledge'), system.knowledge_enabled],
     [t('admin.cookieSecure'), system.cookie_secure],
   ] : [];
@@ -274,47 +217,6 @@ function SystemPanel({system, indexStatus, isSaving, isReindexing, onSave, onRei
           {system && <Item as="li" label={t('admin.adminEmails')} endContent={<Text type="label">{String(system.admin_email_count)}</Text>} />}
         </List>
       </Card>
-      {system && <Card width="100%">
-        <VStack gap={4}>
-          <Text type="label">{t('admin.gateway')}</Text>
-          <TextInput label={t('admin.gatewayBaseURL')} onChange={setGatewayBaseURL} value={gatewayBaseURL} />
-          <TextInput label={system.system_gateway.has_api_key ? t('admin.gatewayKeyStored', {hint: system.system_gateway.api_key_hint ?? ''}) : t('admin.gatewayApiKey')} onChange={setGatewayAPIKey} placeholder="sk-..." type="password" value={gatewayAPIKey} />
-          <HStack hAlign="end">
-            <Button
-              isDisabled={!gatewayBaseURL.trim() || isLoadingModels}
-              isLoading={isLoadingModels}
-              label={t('admin.loadModels')}
-              onClick={() => loadGatewayModels(gatewayBaseURL.trim(), gatewayAPIKey.trim())}
-              variant="secondary"
-            />
-          </HStack>
-        </VStack>
-      </Card>}
-      {system && <Card width="100%">
-        <VStack gap={4}>
-          <Selector
-            disabledMessage={t('admin.modelsUnloaded')}
-            isDisabled={gatewayModels.length === 0}
-            label={t('admin.embeddingModel')}
-            onChange={setEmbeddingModel}
-            options={modelOptions(gatewayModels, 'embedding', embeddingModel)}
-            value={embeddingModel}
-            width="100%"
-          />
-          <Selector
-            disabledMessage={t('admin.modelsUnloaded')}
-            isDisabled={gatewayModels.length === 0}
-            label={t('admin.rerankerModel')}
-            onChange={setRerankerModel}
-            options={modelOptions(gatewayModels, 'rerank', rerankerModel)}
-            value={rerankerModel}
-            width="100%"
-          />
-          <HStack hAlign="end">
-            <Button isDisabled={!embeddingModel.trim() || !rerankerModel.trim()} isLoading={isSaving} label={t('admin.saveSystem')} onClick={() => onSave({embeddingModel: embeddingModel.trim(), rerankerModel: rerankerModel.trim(), gatewayBaseURL: gatewayBaseURL.trim(), gatewayAPIKey: gatewayAPIKey.trim()})} variant="primary" />
-          </HStack>
-        </VStack>
-      </Card>}
       {system && <Card width="100%">
         <VStack gap={3}>
           <HStack hAlign="between" vAlign="center">

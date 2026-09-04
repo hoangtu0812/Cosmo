@@ -1,23 +1,15 @@
 package httpapi
 
 import (
-	"context"
-	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"cosmo/backend/internal/knowledge"
-	"cosmo/backend/internal/secrets"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5"
 )
-
-const defaultEmbeddingModel = "BAAI/bge-m3"
-const defaultRerankerModel = "BAAI/bge-reranker-v2-m3"
 
 // AdminUser is deliberately limited to provisioned Cosmo accounts. Listing a
 // whole Entra tenant would require broad Graph application permissions, while
@@ -34,26 +26,14 @@ type AdminUser struct {
 }
 
 type SystemStatus struct {
-	EntraEnabled        bool                  `json:"entra_enabled"`
-	EntraTenantID       string                `json:"entra_tenant_id,omitempty"`
-	ModelGatewayEnabled bool                  `json:"model_gateway_enabled"`
-	KnowledgeEnabled    bool                  `json:"knowledge_enabled"`
-	CookieSecure        bool                  `json:"cookie_secure"`
-	SessionTTL          string                `json:"session_ttl"`
-	AdminEmailCount     int                   `json:"admin_email_count"`
-	ConfigurationSource string                `json:"configuration_source"`
-	EmbeddingModel      string                `json:"embedding_model"`
-	RerankerModel       string                `json:"reranker_model"`
-	SystemGateway       SystemGatewaySettings `json:"system_gateway"`
-}
-
-// SystemGatewaySettings is the safe, administrator-facing view of the gateway
-// used by platform tasks. Its API key is never included in an API response.
-type SystemGatewaySettings struct {
-	BaseURL    string `json:"base_url"`
-	HasAPIKey  bool   `json:"has_api_key"`
-	APIKeyHint string `json:"api_key_hint,omitempty"`
-	Configured bool   `json:"configured"`
+	EntraEnabled        bool   `json:"entra_enabled"`
+	EntraTenantID       string `json:"entra_tenant_id,omitempty"`
+	ModelGatewayEnabled bool   `json:"model_gateway_enabled"`
+	KnowledgeEnabled    bool   `json:"knowledge_enabled"`
+	CookieSecure        bool   `json:"cookie_secure"`
+	SessionTTL          string `json:"session_ttl"`
+	AdminEmailCount     int    `json:"admin_email_count"`
+	ConfigurationSource string `json:"configuration_source"`
 }
 
 func (s *Server) requirePlatformAdmin(w http.ResponseWriter, r *http.Request) (User, bool) {
@@ -146,264 +126,17 @@ func (s *Server) systemStatus(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requirePlatformAdmin(w, r); !ok {
 		return
 	}
-	models, err := s.knowledgeModelSettings(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể tải cấu hình mô hình knowledge.")
-		return
-	}
-	gateway, err := s.systemGatewaySettings(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể tải cấu hình system model gateway.")
-		return
-	}
 	writeJSON(w, http.StatusOK, SystemStatus{
 		EntraEnabled: s.cfg.EntraEnabled(), EntraTenantID: s.cfg.EntraTenantID,
 		ModelGatewayEnabled: s.cfg.LLMEnabled(), KnowledgeEnabled: s.cfg.KnowledgeEnabled(),
 		CookieSecure: s.cfg.CookieSecure, SessionTTL: s.cfg.SessionTTL.String(),
 		AdminEmailCount:     len(s.cfg.PlatformAdminEmails),
-		ConfigurationSource: "Các mô hình knowledge được lưu trong Cosmo. Bí mật triển khai vẫn cấu hình trong .env.",
-		EmbeddingModel:      models.EmbeddingModel,
-		RerankerModel:       models.RerankerModel,
-		SystemGateway:       gateway,
+		ConfigurationSource: "Model gateway theo từng workspace; mô hình embedding và reranker theo từng knowledge base.",
 	})
 }
 
-func (s *Server) systemGateway(ctx context.Context) (baseURL, apiKey, hint string, err error) {
-	var sealed []byte
-	err = s.db.QueryRow(ctx, `SELECT base_url, api_key_sealed, api_key_hint FROM system_model_gateway_config WHERE id = TRUE`).Scan(&baseURL, &sealed, &hint)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", "", nil
-	}
-	if err != nil {
-		return "", "", "", err
-	}
-	if len(sealed) == 0 {
-		return baseURL, "", hint, nil
-	}
-	apiKey, err = s.secrets.Open(sealed)
-	if err != nil {
-		s.logger.Warn("system gateway api key could not be decrypted", "error", err)
-		return baseURL, "", hint, nil
-	}
-	return baseURL, apiKey, hint, nil
-}
-
-func (s *Server) systemGatewaySettings(ctx context.Context) (SystemGatewaySettings, error) {
-	baseURL, apiKey, hint, err := s.systemGateway(ctx)
-	if err != nil {
-		return SystemGatewaySettings{}, err
-	}
-	return SystemGatewaySettings{
-		BaseURL: baseURL, HasAPIKey: apiKey != "" || hint != "", APIKeyHint: hint, Configured: baseURL != "",
-	}, nil
-}
-
-// knowledgeModelSettings returns safe, platform-wide model identifiers. A
-// default keeps existing installs working until an administrator first saves
-// this section in the console.
-func (s *Server) knowledgeModelSettings(ctx context.Context) (knowledge.ModelSettings, error) {
-	values := map[string]string{
-		"embedding_model": defaultEmbeddingModel,
-		"reranker_model":  defaultRerankerModel,
-	}
-	rows, err := s.db.Query(ctx, `SELECT key, value FROM system_settings WHERE key IN ('embedding_model', 'reranker_model')`)
-	if err != nil {
-		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var key, value string
-		if err := rows.Scan(&key, &value); err != nil {
-			return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
-		}
-		if strings.TrimSpace(value) != "" {
-			values[key] = value
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
-	}
-	baseURL, apiKey, _, err := s.systemGateway(ctx)
-	if err != nil {
-		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, err
-	}
-	if baseURL == "" {
-		return knowledge.ModelSettings{EmbeddingModel: values["embedding_model"], RerankerModel: values["reranker_model"]}, errors.New("system model gateway is not configured")
-	}
-	return knowledge.ModelSettings{
-		EmbeddingModel: values["embedding_model"],
-		RerankerModel:  values["reranker_model"],
-		GatewayBaseURL: baseURL,
-		GatewayAPIKey:  apiKey,
-	}, nil
-}
-
-func (s *Server) updateSystemSettings(w http.ResponseWriter, r *http.Request) {
-	actor, ok := s.requirePlatformAdmin(w, r)
-	if !ok {
-		return
-	}
-	var input struct {
-		EmbeddingModel string  `json:"embedding_model"`
-		RerankerModel  string  `json:"reranker_model"`
-		GatewayBaseURL string  `json:"gateway_base_url"`
-		GatewayAPIKey  *string `json:"gateway_api_key"`
-	}
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	input.EmbeddingModel = strings.TrimSpace(input.EmbeddingModel)
-	input.RerankerModel = strings.TrimSpace(input.RerankerModel)
-	if input.EmbeddingModel == "" || input.RerankerModel == "" || len(input.EmbeddingModel) > 200 || len(input.RerankerModel) > 200 {
-		writeError(w, http.StatusBadRequest, "Tên mô hình embedding và reranker là bắt buộc, tối đa 200 ký tự.")
-		return
-	}
-	input.GatewayBaseURL = strings.TrimRight(strings.TrimSpace(input.GatewayBaseURL), "/")
-	if input.GatewayBaseURL != "" {
-		parsed, err := url.Parse(input.GatewayBaseURL)
-		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			writeError(w, http.StatusBadRequest, "Base URL của system model gateway phải là một địa chỉ http hoặc https hợp lệ.")
-			return
-		}
-	}
-	if len(input.GatewayBaseURL) > 500 {
-		writeError(w, http.StatusBadRequest, "Base URL của system model gateway quá dài.")
-		return
-	}
-	var sealed []byte
-	hint := ""
-	if input.GatewayAPIKey != nil {
-		key := strings.TrimSpace(*input.GatewayAPIKey)
-		if key != "" {
-			if !s.secrets.Configured() {
-				writeError(w, http.StatusServiceUnavailable, "Máy chủ chưa có SESSION_SECRET nên không thể mã hoá API key.")
-				return
-			}
-			var err error
-			sealed, err = s.secrets.Seal(key)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "Không thể mã hoá API key.")
-				return
-			}
-			hint = secrets.Hint(key)
-		}
-	}
-
-	// Read before writing: an audit row that says only what a setting became
-	// leaves the reader to guess whether anything actually changed.
-	previous, _ := s.knowledgeModelSettings(r.Context())
-
-	tx, err := s.db.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình hệ thống.")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	for key, value := range map[string]string{"embedding_model": input.EmbeddingModel, "reranker_model": input.RerankerModel} {
-		if _, err := tx.Exec(r.Context(), `
-			INSERT INTO system_settings(key, value, updated_at, updated_by)
-			VALUES($1, $2, NOW(), $3)
-			ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW(), updated_by = EXCLUDED.updated_by`, key, value, actor.ID); err != nil {
-			writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình hệ thống.")
-			return
-		}
-	}
-	if input.GatewayAPIKey == nil {
-		if _, err := tx.Exec(r.Context(), `
-			INSERT INTO system_model_gateway_config(id, base_url, updated_at, updated_by)
-			VALUES(TRUE, $1, NOW(), $2)
-			ON CONFLICT(id) DO UPDATE SET base_url = EXCLUDED.base_url, updated_at = NOW(), updated_by = EXCLUDED.updated_by`, input.GatewayBaseURL, actor.ID); err != nil {
-			writeError(w, http.StatusInternalServerError, "Không thể lưu system model gateway.")
-			return
-		}
-	} else if _, err := tx.Exec(r.Context(), `
-		INSERT INTO system_model_gateway_config(id, base_url, api_key_sealed, api_key_hint, updated_at, updated_by)
-		VALUES(TRUE, $1, $2, $3, NOW(), $4)
-		ON CONFLICT(id) DO UPDATE SET base_url = EXCLUDED.base_url, api_key_sealed = EXCLUDED.api_key_sealed,
-		api_key_hint = EXCLUDED.api_key_hint, updated_at = NOW(), updated_by = EXCLUDED.updated_by`, input.GatewayBaseURL, sealed, hint, actor.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể lưu system model gateway.")
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình hệ thống.")
-		return
-	}
-	// The key itself is never recorded; whether one was set or cleared is.
-	credential := "unchanged"
-	if input.GatewayAPIKey != nil {
-		credential = "cleared"
-		if len(sealed) > 0 {
-			credential = "replaced"
-		}
-	}
-	s.audit(r, auditEvent{
-		Action: "admin.system.settings_updated", TargetType: "system", TargetID: "platform",
-		Metadata: map[string]string{
-			"embedding_model":    input.EmbeddingModel,
-			"reranker_model":     input.RerankerModel,
-			"gateway_base_url":   input.GatewayBaseURL,
-			"gateway_api_key":    credential,
-			"gateway_key_hint":   hint,
-			"previous_embedding": previous.EmbeddingModel,
-			"previous_reranker":  previous.RerankerModel,
-		},
-	})
-	gateway, err := s.systemGatewaySettings(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể tải cấu hình system model gateway.")
-		return
-	}
-	system := SystemStatus{
-		EntraEnabled: s.cfg.EntraEnabled(), EntraTenantID: s.cfg.EntraTenantID,
-		ModelGatewayEnabled: s.cfg.LLMEnabled(), KnowledgeEnabled: s.cfg.KnowledgeEnabled(),
-		CookieSecure: s.cfg.CookieSecure, SessionTTL: s.cfg.SessionTTL.String(),
-		AdminEmailCount:     len(s.cfg.PlatformAdminEmails),
-		ConfigurationSource: "Các mô hình knowledge được lưu trong Cosmo. Bí mật triển khai vẫn cấu hình trong .env.",
-		EmbeddingModel:      input.EmbeddingModel,
-		RerankerModel:       input.RerankerModel,
-		SystemGateway:       gateway,
-	}
-	writeJSON(w, http.StatusOK, system)
-}
-
-func (s *Server) listSystemGatewayModels(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requirePlatformAdmin(w, r); !ok {
-		return
-	}
-	var input struct {
-		BaseURL string `json:"base_url"`
-		APIKey  string `json:"api_key"`
-	}
-	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
-		return
-	}
-	baseURL, apiKey, _, err := s.systemGateway(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể đọc system model gateway.")
-		return
-	}
-	if candidate := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/"); candidate != "" {
-		baseURL = candidate
-	}
-	if candidate := strings.TrimSpace(input.APIKey); candidate != "" {
-		apiKey = candidate
-	}
-	if baseURL == "" {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": "Chưa có Base URL.", "models": []gatewayModel{}})
-		return
-	}
-	models, probeErr := fetchGatewayModels(r.Context(), baseURL, apiKey)
-	if probeErr != nil {
-		s.logger.Warn("list system gateway models", "error", probeErr)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "message": "Không kết nối được tới gateway.", "models": []gatewayModel{}})
-		return
-	}
-	// The mode is what lets the console offer embedding models and rerankers
-	// separately. A gateway that does not report one still lists every model.
-	described := describeGatewayModels(models, fetchGatewayModelMetadata(r.Context(), baseURL, apiKey), false)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "models": described})
-}
-
+// reindexDocument is one document to rebuild, read before the work starts so
+// the transaction does not stay open for the length of the rebuild.
 type reindexDocument struct {
 	ID          string
 	KBID        string
@@ -414,9 +147,6 @@ type reindexDocument struct {
 	StorageKey  string
 }
 
-// reindexKnowledgeDocuments rebuilds Qdrant from the original files. It is a
-// platform-admin operation because the collection is shared across every
-// workspace. The original document objects and database metadata are kept.
 func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requirePlatformAdmin(w, r); !ok {
 		return

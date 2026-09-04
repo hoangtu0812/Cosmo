@@ -360,3 +360,16 @@ var retrievalLogMessageStatements = []string{
 	`CREATE INDEX IF NOT EXISTS idx_knowledge_retrieval_log_message
 	 ON knowledge_retrieval_log(message_id) WHERE message_id IS NOT NULL`,
 }
+
+// The platform embedding and reranker choices, and the gateway that was
+// configured to list them, are gone from the console. Nothing ever read them:
+// retrieval takes its gateway from the workspace and its models from each
+// knowledge base, where a missing model is a hard error rather than a
+// fall-through to these.
+//
+// The rows go too. A setting nobody reads is one somebody will later change and
+// wonder why nothing happened.
+var dropPlatformModelSettingsStatements = []string{
+	`DELETE FROM system_settings WHERE key IN
+	 ('embedding_model', 'reranker_model', 'gateway_base_url', 'gateway_api_key', 'gateway_api_key_hint')`,
+}

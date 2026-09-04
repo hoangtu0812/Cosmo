@@ -251,3 +251,16 @@ var conversationAttachmentStatements = []string{
 var messageUsageStatements = []string{
 	`ALTER TABLE messages ADD COLUMN IF NOT EXISTS usage JSONB`,
 }
+
+// A tool that authenticates with OAuth stores a registration rather than a
+// key, and "oauth2" was not one of the three values the column allowed - so
+// saving one failed inside Postgres, surfaced as "Không thể xử lý tool", and
+// the feature could not be used at all.
+//
+// The constraint is replaced rather than dropped: it is what stops a typo
+// becoming an auth type that silently sends no credential.
+var toolOAuthStatements = []string{
+	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_auth_type_check`,
+	`ALTER TABLE tools ADD CONSTRAINT tools_auth_type_check
+	 CHECK (auth_type IN ('none', 'bearer', 'header', 'oauth2'))`,
+}

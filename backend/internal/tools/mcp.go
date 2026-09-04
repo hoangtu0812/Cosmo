@@ -107,6 +107,10 @@ func (repository *Repository) mcpRequest(ctx context.Context, tool Tool, session
 		response.Body.Close()
 		return nil, errMCPSessionGone
 	}
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		response.Body.Close()
+		return nil, ErrToolUnauthorized
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		response.Body.Close()
 		return nil, ErrCallFailed

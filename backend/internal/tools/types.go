@@ -74,6 +74,10 @@ var (
 	ErrDuplicateAction     = errors.New("Đã có action trùng tên trong tool này.")
 	ErrSecretsOff          = errors.New("Chưa cấu hình khoá mã hoá nên không lưu được thông tin xác thực.")
 	ErrCallFailed          = errors.New("Không gọi được endpoint của tool.")
+	// A server that answers 401 or 403 is reachable and working; it is the
+	// credential that is missing or wrong. Reporting that as a failure to call
+	// sends the reader looking at the network.
+	ErrToolUnauthorized = errors.New("MCP server từ chối: thiếu hoặc sai thông tin xác thực.")
 )
 
 // Tool is one HTTP integration the workspace can call.

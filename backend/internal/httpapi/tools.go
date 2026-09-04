@@ -25,6 +25,10 @@ func writeToolError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, tools.ErrSecretsOff):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
+	case errors.Is(err, tools.ErrToolUnauthorized):
+		writeError(w, http.StatusBadGateway, err.Error())
+	case errors.Is(err, tools.ErrOAuthConfig), errors.Is(err, tools.ErrOAuthToken):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, tools.ErrCallFailed):
 		// 502: we are reporting someone else's endpoint failing, not our own.
 		writeError(w, http.StatusBadGateway, err.Error())

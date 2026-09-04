@@ -408,3 +408,12 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Thêm integration tests trên PostgreSQL thật cho 0/40/100 tin cũ, timestamp trùng, cách ly conversation và lưu câu hỏi đúng một lần.
 - Kiểm tra: integration tests mới và `go test ./...` đều qua trên database test riêng đã migrate; các integration database hiện có cũng được chạy.
 - CHAT-01 còn phần ngân sách context và quản lý lịch sử tool; CHAT-02 còn idempotency và thứ tự các lượt đồng thời. Thay đổi này chưa giải quyết những phần đó.
+
+### 2026-09-05 — AGT-01: Lưu draft có revision và transaction
+
+- Kiểm tra và khóa revision trước khi thay đổi nội dung; lỗi cập nhật KB hoặc callback gắn tool rollback toàn bộ transaction.
+- Revision bắt buộc ở endpoint lưu draft và gắn tool. Client gửi revision khi sửa thông tin agent hoặc gắn tool; autosave không chạy chồng với thao tác gắn tool.
+- Giữ trạng thái dirty nếu người dùng gõ thêm trong lúc đang lưu.
+- Thêm integration tests cho hai writer cùng revision, rollback KB, rollback binding và từ chối revision thiếu/không hợp lệ.
+- Kiểm tra: `go test ./...` với database test riêng, frontend build và TypeScript đều qua. Đã xóa một file validator Next.js sinh cũ trong `.next` không tương thích với route types của Vinext để kiểm tra TypeScript đúng môi trường hiện tại.
+- Chưa thay đổi cơ chế pin dependency và quyền chạy draft; xử lý ở AGT-02/03.

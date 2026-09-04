@@ -91,11 +91,13 @@ function AgentEditorView() {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isStale, setIsStale] = useState(false);
   const latest = useRef<Agent | null>(null);
+  const savingDraft = useRef(false);
   latest.current = agent;
 
   const saveDraft = useCallback(async () => {
     const current = latest.current;
-    if (!current || !current.is_editable) return;
+    if (!current || !current.is_editable || savingDraft.current) return;
+    savingDraft.current = true;
     setIsSaving(true);
     setError('');
     try {
@@ -115,6 +117,8 @@ function AgentEditorView() {
       // Only the fields the server owns are taken back. Replacing the whole
       // agent would overwrite whatever is being typed while the save is in
       // flight, which is exactly what an autosave must never do.
+      const editedDuringSave = latest.current !== current;
+      if (latest.current) latest.current = {...latest.current, draft_revision: result.agent.draft_revision};
       setAgent((live) => live ? {
         ...live,
         draft_revision: result.agent.draft_revision,
@@ -123,7 +127,7 @@ function AgentEditorView() {
         has_unpublished_changes: result.agent.has_unpublished_changes,
         updated_at: result.agent.updated_at,
       } : live);
-      setIsDirty(false);
+      setIsDirty(editedDuringSave);
       setSavedAt(Date.now());
     } catch (caught) {
       // A conflict means someone else saved; the draft on screen is no longer
@@ -131,6 +135,7 @@ function AgentEditorView() {
       if (caught instanceof APIError && caught.status === 409) setIsStale(true);
       setError(caught instanceof Error ? caught.message : t('agent.saveFailed'));
     } finally {
+      savingDraft.current = false;
       setIsSaving(false);
     }
   }, [t, workspaceID]);
@@ -154,24 +159,34 @@ function AgentEditorView() {
   // Attaching is one fact, not a form: it saves when the switch moves, and the
   // list is set from what the server confirms rather than from what was asked.
   async function setToolAttached(toolID: string, isAttached: boolean) {
+    const current = latest.current;
+    if (!current || isStale || savingDraft.current) return;
+    savingDraft.current = true;
+    setIsSaving(true);
     const next = isAttached
       ? [...attachedToolIDs, toolID]
       : attachedToolIDs.filter((item) => item !== toolID);
     setAttachedToolIDs(next);
     try {
-      const result = await api.setAgentTools(agentID, next, workspaceID);
+      const result = await api.setAgentTools(agentID, next, current.draft_revision, workspaceID);
       setAttachedToolIDs(result.tool_ids);
+      if (latest.current) latest.current = {...latest.current, draft_revision: result.draft_revision};
+      setAgent((live) => live ? {...live, draft_revision: result.draft_revision, has_unpublished_changes: true} : live);
     } catch (caught) {
       setAttachedToolIDs(attachedToolIDs);
+      if (caught instanceof APIError && caught.status === 409) setIsStale(true);
       setError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    } finally {
+      savingDraft.current = false;
+      setIsSaving(false);
     }
   }
 
   useEffect(() => {
-    if (!isDirty || isStale) return;
+    if (!isDirty || isStale || isSaving) return;
     const timer = setTimeout(() => void saveDraft(), 1200);
     return () => clearTimeout(timer);
-  }, [agent, isDirty, isStale, saveDraft]);
+  }, [agent, isDirty, isStale, isSaving, saveDraft]);
 
   async function publish() {
     if (!agent) return;
@@ -402,7 +417,7 @@ function AgentEditorView() {
                           </VStack>
                         </HStack>
                         <Switch
-                          isDisabled={isReadOnly || item.action_count === 0}
+                          isDisabled={isReadOnly || isSaving || isStale || item.action_count === 0}
                           isLabelHidden
                           label={item.name}
                           onChange={(checked: boolean) => void setToolAttached(item.id, checked)}

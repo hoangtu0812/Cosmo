@@ -21,7 +21,7 @@ func writeAgentError(w http.ResponseWriter, err error) {
 	case errors.Is(err, agents.ErrStaleDraft):
 		// 409: the request was well formed, but the world moved under it.
 		writeError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, agents.ErrNameLength), errors.Is(err, agents.ErrIntroLength),
+	case errors.Is(err, agents.ErrNameLength), errors.Is(err, agents.ErrIntroLength), errors.Is(err, agents.ErrRevisionRequired),
 		errors.Is(err, agents.ErrKnowledgeNotInstalled), errors.Is(err, agents.ErrKnowledgeSave):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:

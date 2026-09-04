@@ -8,11 +8,20 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type database interface {
+	Begin(context.Context) (pgx.Tx, error)
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 type Repository struct {
-	db     *pgxpool.Pool
+	db     database
 	logger *slog.Logger
 }
 
@@ -213,6 +222,12 @@ func (repository *Repository) Get(ctx context.Context, agentID, userID, workspac
 // the caller already loaded and was authorised against, so this never has to
 // re-decide who may write.
 func (repository *Repository) Update(ctx context.Context, current Agent, changes Changes) error {
+	return repository.SaveDraft(ctx, current, changes, current.DraftRevision)
+}
+
+// updateDraft is called only on the transaction that already checked and
+// locked the revision. A failed binding change rolls back these fields too.
+func (repository *Repository) updateDraft(ctx context.Context, current Agent, changes Changes) error {
 	name := current.Name
 	if changes.Name != nil {
 		validated, err := ValidateName(*changes.Name)
@@ -278,7 +293,7 @@ func (repository *Repository) Update(ctx context.Context, current Agent, changes
 		return err
 	}
 	if changes.KnowledgeBaseIDs != nil {
-		return repository.SetKnowledgeBases(ctx, current.ID, current.WorkspaceID, *changes.KnowledgeBaseIDs)
+		return repository.setKnowledgeBases(ctx, current.ID, current.WorkspaceID, *changes.KnowledgeBaseIDs)
 	}
 	return nil
 }
@@ -294,7 +309,7 @@ func (repository *Repository) Delete(ctx context.Context, agentID string) error 
 // more thing in the workspace that draws on it. Merely being visible - a base
 // published to everyone but not installed here - is not enough, or an agent
 // would become a way to read a base the workspace never took on.
-func (repository *Repository) SetKnowledgeBases(ctx context.Context, agentID, workspaceID string, kbIDs []string) error {
+func (repository *Repository) setKnowledgeBases(ctx context.Context, agentID, workspaceID string, kbIDs []string) error {
 	wanted := CleanStringList(kbIDs, MaxKnowledgeBases, 64)
 	if _, err := repository.db.Exec(ctx, `DELETE FROM agent_knowledge_bases WHERE agent_id = $1`, agentID); err != nil {
 		return ErrKnowledgeSave

@@ -119,6 +119,7 @@ function AgentsView() {
     setError('');
     try {
       const result = await api.updateAgent(editing.id, {
+        draft_revision: editing.draft_revision,
         name: editName.trim(),
         introduction: editIntroduction.trim(),
         tags: editTags.split(',').map((tag) => tag.trim()).filter(Boolean),

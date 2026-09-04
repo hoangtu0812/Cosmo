@@ -117,26 +117,45 @@ func (repository *Repository) Versions(ctx context.Context, agentID string) ([]V
 	return items, rows.Err()
 }
 
-// SaveDraft applies changes only if the caller read the current revision, and
-// bumps it. Passing revision 0 means "I am not tracking revisions", which the
-// editor uses for the first save after loading; anything else must match.
+// SaveDraft checks the revision before changing any fields or bindings.
 func (repository *Repository) SaveDraft(ctx context.Context, current Agent, changes Changes, revision int64) error {
-	if revision != 0 && revision != current.DraftRevision {
+	return repository.SaveDraftWithBindings(ctx, current, changes, revision, nil)
+}
+
+// SaveDraftWithBindings lets the tool domain update its attachments inside the
+// same transaction as the draft, without teaching agents the tool schema.
+func (repository *Repository) SaveDraftWithBindings(ctx context.Context, current Agent, changes Changes, revision int64, bindings func(pgx.Tx) error) error {
+	if revision <= 0 {
+		return ErrRevisionRequired
+	}
+	if revision != current.DraftRevision {
 		return ErrStaleDraft
 	}
-	if err := repository.Update(ctx, current, changes); err != nil {
+	tx, err := repository.db.Begin(ctx)
+	if err != nil {
 		return err
 	}
-	tag, err := repository.db.Exec(ctx, `
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `
 		UPDATE agents SET draft_revision = draft_revision + 1
-		WHERE id = $1 AND ($2 = 0 OR draft_revision = $2)`, current.ID, revision)
+		WHERE id = $1 AND draft_revision = $2`, current.ID, revision)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrStaleDraft
 	}
-	return nil
+	transactional := *repository
+	transactional.db = tx
+	if err := transactional.updateDraft(ctx, current, changes); err != nil {
+		return err
+	}
+	if bindings != nil {
+		if err := bindings(tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // RuntimeForVersion reads an immutable published snapshot. A conversation

@@ -304,8 +304,7 @@ export type AgentUpdate = Partial<{
   is_memory_enabled: boolean;
   knowledge_base_ids: string[];
   // Sent so the server can refuse a save that would overwrite another editor.
-  draft_revision: number;
-}>;
+}> & {draft_revision: number};
 export type DocumentEvent = {id: number; stage: string; message: string; done: number; total: number; created_at: string};
 export type ProcessedDocumentChunk = {chunk_index: number; section: string; page: string; text: string};
 export type KnowledgeDocumentDetail = {
@@ -654,10 +653,10 @@ export const api = {
     ),
   agentTools: (agentID: string, workspaceID?: string) =>
     request<{tool_ids: string[]}>(`/api/agents/${encodeURIComponent(agentID)}/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
-  setAgentTools: (agentID: string, toolIDs: string[], workspaceID?: string) =>
-    request<{tool_ids: string[]}>(
+  setAgentTools: (agentID: string, toolIDs: string[], draftRevision: number, workspaceID?: string) =>
+    request<{tool_ids: string[]; draft_revision: number}>(
       `/api/agents/${encodeURIComponent(agentID)}/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
-      {method: 'PUT', body: JSON.stringify({tool_ids: toolIDs})},
+      {method: 'PUT', body: JSON.stringify({tool_ids: toolIDs, draft_revision: draftRevision})},
     ),
   agents: (workspaceID?: string) =>
     request<{agents: Agent[]}>(`/api/agents${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),

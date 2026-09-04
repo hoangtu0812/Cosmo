@@ -37,6 +37,7 @@ var (
 	// ErrStaleDraft means another editor saved since this one loaded the
 	// draft. Refusing is the point: the alternative is losing their work.
 	ErrStaleDraft            = errors.New("Agent đã được người khác sửa. Hãy tải lại trước khi lưu.")
+	ErrRevisionRequired      = errors.New("Cần phiên bản draft hiện tại để lưu agent. Hãy tải lại trước khi lưu.")
 	ErrNothingToPublish      = errors.New("Không có thay đổi nào để xuất bản.")
 	ErrNameLength            = errors.New("Tên agent phải từ 1 đến 120 ký tự.")
 	ErrIntroLength           = errors.New("Giới thiệu tối đa 512 ký tự.")

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"cosmo/backend/internal/modelgateway"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // The name a model calls is "tool__action", because a model is given one flat
@@ -174,6 +176,14 @@ func (repository *Repository) SetAgentTools(ctx context.Context, agentID, userID
 	}
 	defer transaction.Rollback(ctx)
 
+	if err := repository.SetAgentToolsTx(ctx, transaction, agentID, userID, workspaceID, toolIDs); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
+}
+
+// SetAgentToolsTx participates in the caller's revision-checked draft save.
+func (repository *Repository) SetAgentToolsTx(ctx context.Context, transaction pgx.Tx, agentID, userID, workspaceID string, toolIDs []string) error {
 	if _, err := transaction.Exec(ctx, `DELETE FROM agent_tools WHERE agent_id = $1`, agentID); err != nil {
 		return err
 	}
@@ -193,7 +203,7 @@ func (repository *Repository) SetAgentTools(ctx context.Context, agentID, userID
 			return err
 		}
 	}
-	return transaction.Commit(ctx)
+	return nil
 }
 
 // AgentToolIDs is what the editor reads back to tick the right boxes.

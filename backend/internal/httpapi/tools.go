@@ -7,9 +7,11 @@ import (
 	"sort"
 	"strings"
 
+	"cosmo/backend/internal/agents"
 	"cosmo/backend/internal/tools"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 )
 
 // writeToolError maps a domain error onto a status. The wording lives with the
@@ -300,13 +302,21 @@ func (s *Server) setAgentTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ToolIDs []string `json:"tool_ids"`
+		ToolIDs       []string `json:"tool_ids"`
+		DraftRevision int64    `json:"draft_revision"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	if err := s.tools.SetAgentTools(r.Context(), item.ID, user.ID, workspaceID, input.ToolIDs); err != nil {
-		writeToolError(w, err)
+	err := s.agents.SaveDraftWithBindings(r.Context(), item, agents.Changes{}, input.DraftRevision, func(tx pgx.Tx) error {
+		return s.tools.SetAgentToolsTx(r.Context(), tx, item.ID, user.ID, workspaceID, input.ToolIDs)
+	})
+	if err != nil {
+		if errors.Is(err, agents.ErrStaleDraft) || errors.Is(err, agents.ErrRevisionRequired) {
+			writeAgentError(w, err)
+		} else {
+			writeToolError(w, err)
+		}
 		return
 	}
 	ids, err := s.tools.AgentToolIDs(r.Context(), item.ID)
@@ -318,7 +328,7 @@ func (s *Server) setAgentTools(w http.ResponseWriter, r *http.Request) {
 		Action: "agent.tools.updated", TargetType: "agent", TargetID: item.ID, TargetLabel: item.Name,
 		WorkspaceID: workspaceID, Metadata: map[string]any{"tool_ids": ids},
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"tool_ids": ids})
+	writeJSON(w, http.StatusOK, map[string]any{"tool_ids": ids, "draft_revision": input.DraftRevision + 1})
 }
 
 // generateToolActions drafts a tool's actions with the model rather than

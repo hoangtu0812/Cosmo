@@ -129,14 +129,6 @@ func (repository *Repository) authorise(ctx context.Context, tool Tool, request 
 			return err
 		}
 		request.Header.Set("Authorization", "Bearer "+token)
-	case AuthOBO:
-		// Same registration, different grant: the server is told who is
-		// asking rather than only that Cosmo asked.
-		token, err := repository.oboToken(ctx, tool.ID, secret)
-		if err != nil {
-			return err
-		}
-		request.Header.Set("Authorization", "Bearer "+token)
 	case AuthOAuthUser:
 		token, err := repository.oauthUserAccessToken(ctx, tool.ID, secret)
 		if err != nil {
@@ -227,7 +219,7 @@ func (repository *Repository) accessToken(ctx context.Context, toolID, stored st
 // configured. The client id is not a secret and is the thing that identifies
 // the registration, so that is what gets shown.
 func hintFor(authType, stored string) string {
-	if authType == AuthOAuth || authType == AuthOBO {
+	if authType == AuthOAuth {
 		var credential oauthCredential
 		if err := json.Unmarshal([]byte(stored), &credential); err == nil {
 			if id := strings.TrimSpace(credential.ClientID); id != "" {

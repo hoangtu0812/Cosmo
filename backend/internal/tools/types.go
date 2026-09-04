@@ -71,9 +71,6 @@ var (
 	ErrOAuthState          = errors.New("Phiên kết nối OAuth không hợp lệ hoặc đã hết hạn.")
 	ErrOAuthProvider       = errors.New("Hãy chọn authorization server trước khi kết nối.")
 	ErrOAuthRegistration   = errors.New("Cấu hình OAuth Authorization Code phải có Client ID.")
-	ErrOBOUnavailable      = errors.New("Hệ thống chưa bật đăng nhập Entra nên chưa dùng được kiểu on-behalf-of.")
-	ErrOBONoUser           = errors.New("Tool on-behalf-of chỉ gọi được trong hội thoại có người dùng đăng nhập.")
-	ErrOBONoAssertion      = errors.New("Chưa có token Entra của bạn. Hãy đăng xuất rồi đăng nhập lại.")
 	ErrActionName          = errors.New("Tên action phải từ 1 đến 120 ký tự và chỉ gồm chữ, số, gạch dưới.")
 	ErrMCPToolName         = errors.New("Tên MCP tool phải từ 1 đến 128 byte và chỉ gồm chữ, số, gạch dưới, gạch ngang hoặc dấu chấm.")
 	ErrMCPContract         = errors.New("MCP tool contract không hợp lệ hoặc không khớp với tên tool.")
@@ -287,7 +284,7 @@ func ValidateAuth(authType, headerName string) (string, string, error) {
 	if kind == "" {
 		kind = AuthNone
 	}
-	if kind != AuthNone && kind != AuthBearer && kind != AuthHeader && kind != AuthOAuth && kind != AuthOBO && kind != AuthOAuthUser {
+	if kind != AuthNone && kind != AuthBearer && kind != AuthHeader && kind != AuthOAuth && kind != AuthOAuthUser {
 		return "", "", ErrAuthType
 	}
 	name := strings.TrimSpace(headerName)

@@ -151,10 +151,6 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		secrets:   box,
 		logger:    logger,
 	}
-	// The tools package is handed a way to reach one user's own token without
-	// being told what a session is. It is set after construction because the
-	// function closes over the server it belongs to.
-	s.tools.UseAssertions(s.assertionFor)
 	if cfg.EntraEnabled() {
 		provider, err := oidc.NewProvider(ctx, fmt.Sprintf("https://login.microsoftonline.com/%s/v2.0", cfg.EntraTenantID))
 		if err != nil {
@@ -165,7 +161,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 			ClientSecret: cfg.EntraClientSecret,
 			RedirectURL:  cfg.EntraRedirectURL,
 			Endpoint:     provider.Endpoint(),
-			Scopes:       entraScopes(cfg.EntraAPIScope),
+			Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "User.Read"},
 		}
 		s.oidcVerifier = provider.Verifier(&oidc.Config{ClientID: cfg.EntraClientID})
 	}
@@ -562,12 +558,7 @@ func (s *Server) entraCallback(w http.ResponseWriter, r *http.Request) {
 		refuse("account_provision_failed", User{Email: email, Name: claims.Name})
 		return
 	}
-	// Kept for on-behalf-of: a tool acting as this person needs their token to
-	// present as an assertion, and this is the only moment it exists.
-	if err := s.storeIdentityToken(r.Context(), user.ID, token); err != nil {
-		s.logger.Warn("store identity token", "user_id", user.ID, "error", err)
-	}
-	if image, mime, err := fetchEntraAvatar(r.Context(), s.avatarToken(r.Context(), token)); err == nil && len(image) > 0 {
+	if image, mime, err := fetchEntraAvatar(r.Context(), token.AccessToken); err == nil && len(image) > 0 {
 		if _, err := s.db.Exec(r.Context(), `UPDATE users SET avatar_image = $2, avatar_mime = $3, updated_at = NOW() WHERE id = $1`, user.ID, image, mime); err != nil {
 			s.logger.Warn("store Entra profile photo", "user_id", user.ID, "error", err)
 		} else {
@@ -1545,22 +1536,4 @@ func (s *Server) agentRuntime(ctx context.Context, agentID, versionID string) (a
 		return s.agents.RuntimeForVersion(ctx, versionID)
 	}
 	return s.agents.Runtime(ctx, agentID)
-}
-
-// entraScopes decides what sign-in asks Entra for.
-//
-// A token request carries one audience. Asking for Graph and for this
-// application's own API in the same request is not a bigger ask, it is an
-// invalid one - Entra refuses scopes that span resources.
-//
-// So when an API scope is configured, sign-in asks for that, and the profile
-// photo is fetched with a Graph token minted separately from the refresh
-// token. offline_access is what makes that second token possible at all, and
-// it is also what lets an assertion be renewed the next day without sending
-// the reader back through a sign-in they did not ask for.
-func entraScopes(apiScope string) []string {
-	if strings.TrimSpace(apiScope) == "" {
-		return []string{oidc.ScopeOpenID, "profile", "email", "User.Read"}
-	}
-	return []string{oidc.ScopeOpenID, "profile", "email", "offline_access", strings.TrimSpace(apiScope)}
 }

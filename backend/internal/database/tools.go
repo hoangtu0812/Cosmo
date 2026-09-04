@@ -329,3 +329,21 @@ var toolOAuthAuthorizationCodeStatements = []string{
 var mcpToolContractStatements = []string{
 	`ALTER TABLE tool_actions ADD COLUMN IF NOT EXISTS mcp_tool JSONB NOT NULL DEFAULT '{}'::jsonb`,
 }
+
+// On-behalf-of is gone, and so are the two marks it left here.
+//
+// The auth_type constraint still admitted "oauth2_obo", a value nothing can
+// write any more - a constraint that permits what the application cannot
+// produce describes a system that no longer exists.
+//
+// user_identity_tokens is dropped rather than left empty. It held one row per
+// signed-in person, each carrying a refresh token: a standing right to act as
+// that person. Nothing reads the table now, and a store of standing grants that
+// nothing reads is the kind of thing found years later by someone who did not
+// know it was there.
+var toolOAuthOBORemovalStatements = []string{
+	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_auth_type_check`,
+	`ALTER TABLE tools ADD CONSTRAINT tools_auth_type_check
+	 CHECK (auth_type IN ('none', 'bearer', 'header', 'oauth2', 'oauth2_user'))`,
+	`DROP TABLE IF EXISTS user_identity_tokens`,
+}

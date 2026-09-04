@@ -25,9 +25,6 @@ type Repository struct {
 	// constructed here: a repository built by hand in a test has no need of it
 	// until something asks for a token.
 	tokens tokenCache
-	// Where a user's own Entra token comes from, for on-behalf-of. A function
-	// rather than a database, so this package never learns how sessions work.
-	assertions AssertionSource
 }
 
 func NewRepository(db *pgxpool.Pool, logger *slog.Logger, box *secrets.Box, egress EgressPolicy, search SearchBackend) *Repository {

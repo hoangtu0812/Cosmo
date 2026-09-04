@@ -493,7 +493,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
         }),
       };
     }
-    if (authType !== 'oauth2' && authType !== 'oauth2_obo') return secret ? {auth_secret: secret} : {};
+    if (authType !== 'oauth2') return secret ? {auth_secret: secret} : {};
     if (!tokenURL.trim() || !clientID.trim() || !clientSecret.trim()) return {};
     return {
       auth_secret: JSON.stringify({
@@ -592,7 +592,6 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             {value: 'header', label: t('tool.authHeader')},
             {value: 'oauth2', label: t('tool.authOAuth')},
             {value: 'oauth2_user', label: t('tool.authUser')},
-            {value: 'oauth2_obo', label: t('tool.authOBO')},
           ]}
           value={authType}
           width="100%"
@@ -607,7 +606,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             width="100%"
           />
         ) : null}
-        {authType === 'oauth2' || authType === 'oauth2_obo' ? (
+        {authType === 'oauth2' ? (
           <VStack gap={2} width="100%">
             <TextInput
               isDisabled={!tool.is_editable}
@@ -735,7 +734,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             </HStack>
           </VStack>
         ) : null}
-        {authType !== 'none' && authType !== 'oauth2' && authType !== 'oauth2_obo' && authType !== 'oauth2_user' ? (
+        {authType !== 'none' && authType !== 'oauth2' && authType !== 'oauth2_user' ? (
           <VStack gap={2} width="100%">
             <TextInput
               isDisabled={!tool.is_editable}

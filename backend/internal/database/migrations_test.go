@@ -38,7 +38,6 @@ func TestToolAuthConstraintAdmitsEveryRuntimeMode(t *testing.T) {
 		tools.AuthBearer,
 		tools.AuthHeader,
 		tools.AuthOAuth,
-		tools.AuthOBO,
 		tools.AuthOAuthUser,
 	} {
 		if !strings.Contains(constraint, "'"+authType+"'") {

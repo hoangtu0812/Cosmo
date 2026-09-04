@@ -153,7 +153,7 @@ export type Tool = {
   /** 'http' for an API described by hand, 'mcp' for a server that describes
       itself, 'builtin' for one that reaches nothing at all. */
   kind: 'http' | 'mcp' | 'builtin';
-  auth_type: 'none' | 'bearer' | 'header' | 'oauth2' | 'oauth2_obo' | 'oauth2_user';
+  auth_type: 'none' | 'bearer' | 'header' | 'oauth2' | 'oauth2_user';
   auth_header_name: string;
   auth_hint: string;
   has_secret: boolean;

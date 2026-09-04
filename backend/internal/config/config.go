@@ -25,16 +25,6 @@ type Config struct {
 	// Hosts a tool may reach even though they resolve privately. Empty keeps
 	// the default of public internet only.
 	ToolEgressAllowedHosts []string
-	// A scope on Cosmo's own exposed API, e.g. api://<cosmo-app-id>/user_impersonation.
-	//
-	// On-behalf-of exchanges the user's access token for one addressed to
-	// another API, and Entra only accepts an assertion whose audience is this
-	// application. Sign-in asks for Graph today, so the token it receives is
-	// addressed to Graph and cannot be exchanged for anything. Setting this
-	// changes what sign-in asks for; leaving it empty leaves OBO unavailable
-	// and the tool says so rather than failing at call time.
-	EntraAPIScope string
-
 	// Where web_search sends its queries. A self-hosted SearXNG by default:
 	// keyless, so it may be called automatically, and free, so a chat that
 	// searches costs nothing per question.
@@ -92,7 +82,6 @@ func Load() (Config, error) {
 		// on-premises deployment names its internal APIs here.
 		ToolEgressAllowedHosts: splitAndTrim(os.Getenv("TOOL_EGRESS_ALLOWED_HOSTS")),
 		SearchURL:              strings.TrimSpace(os.Getenv("SEARCH_URL")),
-		EntraAPIScope:          strings.TrimSpace(os.Getenv("AZURE_AD_API_SCOPE")),
 		AdminName:              env("ADMIN_NAME", "Cosmo Administrator"),
 		EntraTenantID:          strings.TrimSpace(os.Getenv("AZURE_AD_TENANT_ID")),
 		EntraClientID:          strings.TrimSpace(os.Getenv("AZURE_AD_CLIENT_ID")),

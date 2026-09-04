@@ -29,9 +29,7 @@ func writeToolError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadGateway, err.Error())
 	case errors.Is(err, tools.ErrOAuthConfig), errors.Is(err, tools.ErrOAuthToken),
 		errors.Is(err, tools.ErrOAuthDiscovery), errors.Is(err, tools.ErrOAuthConnection),
-		errors.Is(err, tools.ErrOAuthState), errors.Is(err, tools.ErrOAuthProvider), errors.Is(err, tools.ErrOAuthRegistration),
-		errors.Is(err, tools.ErrOBOUnavailable), errors.Is(err, tools.ErrOBONoUser),
-		errors.Is(err, tools.ErrOBONoAssertion):
+		errors.Is(err, tools.ErrOAuthState), errors.Is(err, tools.ErrOAuthProvider), errors.Is(err, tools.ErrOAuthRegistration):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, tools.ErrCallFailed):
 		// 502: we are reporting someone else's endpoint failing, not our own.

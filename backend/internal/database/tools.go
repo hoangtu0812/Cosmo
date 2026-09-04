@@ -264,3 +264,21 @@ var toolOAuthStatements = []string{
 	`ALTER TABLE tools ADD CONSTRAINT tools_auth_type_check
 	 CHECK (auth_type IN ('none', 'bearer', 'header', 'oauth2'))`,
 }
+
+// On-behalf-of needs the user's own access token to present as an assertion,
+// so Cosmo has to keep one - it previously read the id_token, fetched the
+// profile photo and dropped everything else.
+//
+// Both values are sealed with the same box as a tool credential: a refresh
+// token is a standing right to act as that person, which is the most dangerous
+// thing this database will hold. One row per user rather than per session, so
+// signing in on a second device does not create a second standing grant.
+var userIdentityTokenStatements = []string{
+	`CREATE TABLE IF NOT EXISTS user_identity_tokens (
+		user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+		access_token BYTEA NOT NULL,
+		refresh_token BYTEA,
+		expires_at TIMESTAMPTZ NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+}

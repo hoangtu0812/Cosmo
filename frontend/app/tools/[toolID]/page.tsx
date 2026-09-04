@@ -422,7 +422,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   // and are rotated together, so storing them apart would invite a tool
   // authenticating as the old client with the new secret.
   function credentialToSend(): Record<string, unknown> {
-    if (authType !== 'oauth2') return secret ? {auth_secret: secret} : {};
+    if (authType !== 'oauth2' && authType !== 'oauth2_obo') return secret ? {auth_secret: secret} : {};
     if (!tokenURL.trim() || !clientID.trim() || !clientSecret.trim()) return {};
     return {
       auth_secret: JSON.stringify({
@@ -517,6 +517,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             {value: 'bearer', label: t('tool.authBearer')},
             {value: 'header', label: t('tool.authHeader')},
             {value: 'oauth2', label: t('tool.authOAuth')},
+            {value: 'oauth2_obo', label: t('tool.authOBO')},
           ]}
           value={authType}
           width="100%"
@@ -531,7 +532,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             width="100%"
           />
         ) : null}
-        {authType === 'oauth2' ? (
+        {authType === 'oauth2' || authType === 'oauth2_obo' ? (
           <VStack gap={2} width="100%">
             <TextInput
               isDisabled={!tool.is_editable}
@@ -571,7 +572,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             </HStack>
           </VStack>
         ) : null}
-        {authType !== 'none' && authType !== 'oauth2' ? (
+        {authType !== 'none' && authType !== 'oauth2' && authType !== 'oauth2_obo' ? (
           <VStack gap={2} width="100%">
             <TextInput
               isDisabled={!tool.is_editable}

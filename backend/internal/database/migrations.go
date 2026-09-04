@@ -47,6 +47,7 @@ var migrations = []Migration{
 	{Version: 16, Name: "message_usage", Statements: messageUsageStatements},
 	{Version: 17, Name: "audit_context", Statements: auditContextStatements},
 	{Version: 18, Name: "tool_oauth", Statements: toolOAuthStatements},
+	{Version: 19, Name: "user_identity_tokens", Statements: userIdentityTokenStatements},
 }
 
 var runEngineStatements = []string{

@@ -65,6 +65,9 @@ var (
 	ErrAuthHeaderName      = errors.New("Cần tên header khi xác thực bằng header.")
 	ErrOAuthConfig         = errors.New("Thông tin OAuth phải gồm token_url, client_id và client_secret.")
 	ErrOAuthToken          = errors.New("Máy chủ xác thực không cấp được access token.")
+	ErrOBOUnavailable      = errors.New("Hệ thống chưa bật đăng nhập Entra nên chưa dùng được kiểu on-behalf-of.")
+	ErrOBONoUser           = errors.New("Tool on-behalf-of chỉ gọi được trong hội thoại có người dùng đăng nhập.")
+	ErrOBONoAssertion      = errors.New("Chưa có token Entra của bạn. Hãy đăng xuất rồi đăng nhập lại.")
 	ErrActionName          = errors.New("Tên action phải từ 1 đến 120 ký tự và chỉ gồm chữ, số, gạch dưới.")
 	ErrActionMethod        = errors.New("Phương thức HTTP không hợp lệ.")
 	ErrActionPath          = errors.New("Đường dẫn action phải bắt đầu bằng /.")
@@ -270,7 +273,7 @@ func ValidateAuth(authType, headerName string) (string, string, error) {
 	if kind == "" {
 		kind = AuthNone
 	}
-	if kind != AuthNone && kind != AuthBearer && kind != AuthHeader && kind != AuthOAuth {
+	if kind != AuthNone && kind != AuthBearer && kind != AuthHeader && kind != AuthOAuth && kind != AuthOBO {
 		return "", "", ErrAuthType
 	}
 	name := strings.TrimSpace(headerName)

@@ -565,4 +565,3 @@ func (s *Server) knowledgeIndexStatus(w http.ResponseWriter, r *http.Request) {
 	status.Running = status.Pending > 0
 	writeJSON(w, http.StatusOK, status)
 }
-

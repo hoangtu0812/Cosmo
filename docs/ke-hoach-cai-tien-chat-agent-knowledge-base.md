@@ -451,3 +451,14 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Loại passage rỗng và bản trùng hoàn toàn trong cùng document/section/page. So sánh toàn văn bằng hash, không cắt prefix làm mất đoạn có nội dung cuối khác nhau.
 - Tests xác minh score 900 không lấn score 0.02 chỉ vì thang đo, thứ tự response không đổi kết quả và đoạn khác nội dung/provenance được giữ. `go test ./...` với database integration đều qua.
 - Đây là fallback theo rank khi chưa có policy rerank chung, không phải reranker ngữ nghĩa. Còn dedup xuyên tài liệu/KB có giữ nhiều provenance, budget cấp lượt và evaluation chất lượng; chưa hoàn thành toàn bộ KB-01/04.
+
+### 2026-09-05 — KB-02a: Truy vấn đồng thời, deadline và kết quả một phần
+
+- Fan-out bằng worker pool, mặc định 4 request đồng thời mỗi lượt (trần 16), timeout tổng 30 giây và timeout riêng mỗi KB 10 giây. Hủy context không khởi chạy các request đang chờ.
+- Mỗi KB vẫn resolve gateway/embedding riêng của workspace sở hữu; không gửi nội dung sang một provider chung chưa được cho phép.
+- Giới hạn passage đầu ra cấp lượt mặc định 24 (trần 100), thay `max(perKBTopK)`; từng request vẫn tôn trọng TopK riêng và không vượt budget cấp lượt. Chưa có budget token hoặc giới hạn tải tổng xuyên nhiều lượt.
+- Giữ passage hợp lệ khi nguồn khác lỗi/timeout, ghi `ready/empty/failed/timed_out/canceled` cùng thời gian và số passage từng KB vào output retrieval step. Không lưu lỗi upstream thô có thể chứa dữ liệu nhạy cảm.
+- Chat phát trạng thái partial, thêm chỉ dẫn về phần chưa xác minh và lưu thông báo nguồn thiếu ngay trong câu trả lời. Không còn biến kết quả một phần thành thất bại toàn bộ.
+- Tests kiểm tra concurrency thực, cancellation, timeout riêng/tổng, nguồn rỗng/lỗi, budget, gateway riêng, quyền bị thu hồi và chặn passage ngoài quyền trước log. Integration qua endpoint chat xác minh câu trả lời/cảnh báo, citation và trạng thái nguồn được lưu.
+- Cấu hình mới được mô tả trong `.env.example`. `go test ./...` với database integration đều qua.
+- Còn gom request theo embedding profile, tái sử dụng query embedding và nối màn hình test/evaluation vào cùng contract; những phần đó chưa hoàn thành.

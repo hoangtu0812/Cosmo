@@ -522,9 +522,24 @@ func (s *Server) retrievalContext(ctx context.Context, workspaceID, query string
 // empty list therefore means "this agent reads no knowledge", which is
 // different from nil, meaning "everything the workspace installed".
 func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query string, only []string) ([]knowledgePassage, error) {
-	if s.knowledge == nil || strings.TrimSpace(query) == "" {
-		return nil, nil
+	report, err := s.retrieveKnowledge(ctx, workspaceID, query, only)
+	if err == nil && report.incomplete() {
+		err = errKnowledgeIncomplete
 	}
+	return report.Passages, err
+}
+
+func (s *Server) retrieveKnowledge(ctx context.Context, workspaceID, query string, only []string) (knowledgeRetrieval, error) {
+	var report knowledgeRetrieval
+	if strings.TrimSpace(query) == "" {
+		return report, nil
+	}
+	if s.knowledge == nil {
+		return report, fmt.Errorf("knowledge service is not configured")
+	}
+	policy := s.knowledgeRetrievalPolicy()
+	ctx, cancel := context.WithTimeout(ctx, policy.timeout)
+	defer cancel()
 
 	// Two workspace-level conditions are required: the base is installed here
 	// and this workspace is still within its reach. Both are workspace facts,
@@ -533,9 +548,9 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 	rows, err := s.db.Query(ctx, `
 		SELECT kb.id FROM knowledge_bases kb
 		JOIN knowledge_mounts m ON m.kb_id = kb.id AND m.target_type = 'workspace' AND m.target_id = $1
-		WHERE (`+workspaceRetrievableKnowledgeSQL+`)`, workspaceID)
+		WHERE (`+workspaceRetrievableKnowledgeSQL+`) ORDER BY kb.id`, workspaceID)
 	if err != nil {
-		return nil, err
+		return report, err
 	}
 	defer rows.Close()
 
@@ -543,12 +558,12 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return nil, err
+			return report, err
 		}
 		kbIDs = append(kbIDs, id)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return report, err
 	}
 	if only != nil {
 		chosen := make(map[string]bool, len(only))
@@ -564,40 +579,27 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 		kbIDs = narrowed
 	}
 	if len(kbIDs) == 0 {
-		return nil, nil
+		return report, nil
 	}
 
 	// A shared workspace may mount bases owned by different workspaces. Each
 	// base is queried with the gateway and model that produced its vectors;
 	// using the chat workspace's embedding model would make those vectors
 	// incomparable and could also send source content to the wrong provider.
-	lists := make([][]knowledge.Passage, 0, len(kbIDs))
-	globalLimit := 0
-	for _, kbID := range kbIDs {
+	lists, states := fanOutKnowledge(ctx, kbIDs, policy, func(ctx context.Context, kbID string) ([]knowledge.Passage, error) {
 		models, settingsErr := s.knowledgeModelSettingsForKB(ctx, kbID)
 		if settingsErr != nil {
 			return nil, settingsErr
 		}
-		found, searchErr := s.knowledge.Search(ctx, query, []string{kbID}, 0, models)
-		if searchErr != nil {
-			return nil, searchErr
+		limit := models.TopK
+		if limit <= 0 {
+			limit = 8
 		}
-		// Filter each response before fusion and logging, including passages
-		// from another selected corpus returned by the wrong request.
-		allowed := make([]knowledge.Passage, 0, len(found))
-		for _, passage := range found {
-			if passage.KBID != kbID {
-				slog.Error("knowledge service returned an unauthorised passage", "kb", passage.KBID)
-				continue
-			}
-			allowed = append(allowed, passage)
-		}
-		lists = append(lists, allowed)
-		if models.TopK > globalLimit {
-			globalLimit = models.TopK
-		}
-	}
-	passages := fuseKnowledgeRanks(lists, globalLimit)
+		limit = min(limit, policy.candidates)
+		return s.knowledge.Search(ctx, query, []string{kbID}, limit, models)
+	})
+	report.Sources = states
+	passages := fuseKnowledgeRanks(lists, policy.candidates)
 	s.logRetrieval(ctx, workspaceID, query, kbIDs, passages)
 
 	allowed := make(map[string]bool, len(kbIDs))
@@ -623,7 +625,8 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 			Text:       passage.Text,
 		})
 	}
-	return result, nil
+	report.Passages = result
+	return report, nil
 }
 
 // logRetrieval records what was asked and what came back.

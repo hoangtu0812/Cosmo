@@ -1,5 +1,7 @@
 package httpapi
 
+const partialKnowledgeNotice = "Lưu ý: một số nguồn Knowledge Base chưa truy cập được. Câu trả lời dưới đây chỉ dựa trên các nguồn đã tìm được, nên có thể chưa đủ để đối chiếu toàn bộ.\n\n"
+
 // A failed or empty required lookup cannot establish internal policy. Return
 // an explicit answer without asking a model to fill that evidentiary gap.
 func missingKnowledgeAnswer(required bool, passages int, failed bool) string {

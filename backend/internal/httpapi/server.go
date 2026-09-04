@@ -1107,6 +1107,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	contextParts := map[string]int{}
 	var passages []knowledgePassage
 	var evidenceAnswer string
+	var partialKnowledge bool
 
 	// Retrieval happens before model generation, but it must not look like the
 	// reply is stuck. Sources deliberately remain server-side until generation
@@ -1117,25 +1118,31 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		var retrievalStep runs.Step
 		if runErr == nil {
-			retrievalStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "retrieval", Type: "retrieval", Name: "Knowledge retrieval", TimeoutMS: 30000})
+			retrievalStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "retrieval", Type: "retrieval", Name: "Knowledge retrieval", TimeoutMS: s.knowledgeRetrievalPolicy().timeout.Milliseconds()})
 			if runErr == nil {
 				retrievalStep, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Running, nil, "", "", "")
 			}
 		}
 
-		retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
 		// The log records which answer this search fed, so a relevance floor
 		// can later be chosen from what the answers actually used.
-		found, retrievalErr := s.retrievalContextFor(withRetrievalTurn(retrievalCtx, assistantID), conversationWorkspaceID, input.Content, agentKnowledge)
-		cancelRetrieval()
-		passages = found
-		evidenceAnswer = missingKnowledgeAnswer(true, len(passages), retrievalErr != nil)
+		retrieval, retrievalErr := s.retrieveKnowledge(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, input.Content, agentKnowledge)
+		passages = retrieval.Passages
+		incomplete := retrievalErr != nil || retrieval.incomplete()
+		partialKnowledge = incomplete && len(passages) > 0
+		evidenceAnswer = missingKnowledgeAnswer(true, len(passages), incomplete)
 		if retrievalErr != nil {
 			s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
+		}
+		if incomplete && !partialKnowledge {
 			writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
 			flusher.Flush()
 		}
-		if retrievalErr == nil {
+		if partialKnowledge {
+			writeSSE(w, "status", map[string]string{"stage": "retrieval_partial", "message": "Chỉ truy cập được một phần nguồn Knowledge Base.", "detail": describePassages(passages)})
+			flusher.Flush()
+		}
+		if !incomplete {
 			writeSSE(w, "status", map[string]string{
 				"stage":   "retrieved",
 				"message": "Đã tra Knowledge Base",
@@ -1144,10 +1151,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 		if runErr == nil {
-			if retrievalErr != nil {
-				_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Failed, nil, "", "retrieval_failed", retrievalErr.Error())
+			output := map[string]any{"passage_count": len(passages), "sources": retrieval.Sources, "partial": partialKnowledge}
+			if incomplete && !partialKnowledge {
+				_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Failed, output, "", "retrieval_failed", "Knowledge retrieval incomplete")
 			} else {
-				_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Succeeded, map[string]any{"passage_count": len(passages)}, "", "", "")
+				_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Succeeded, output, "", "", "")
 			}
 		}
 	}
@@ -1155,6 +1163,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		// Grounding goes in front of the conversation so the passages frame
 		// the whole exchange rather than arriving as the latest turn.
 		grounding := buildGroundingPrompt(passages)
+		if partialKnowledge {
+			grounding = "Some knowledge sources could not be searched. Answer only the parts supported by the available passages; identify any unverified parts. Do not claim a complete cross-source comparison or treat an unavailable source as having no matching information.\n" + grounding
+		}
 		contextParts["knowledge"] = len([]rune(grounding))
 		history = append([]modelgateway.Message{{Role: "system", Content: grounding}}, history...)
 		for index, passage := range passages {
@@ -1188,6 +1199,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// The answer is accumulated across both phases: a tool round can narrate
 	// before it calls, and that narration is part of the same answer.
 	var assistant strings.Builder
+	if partialKnowledge {
+		assistant.WriteString(partialKnowledgeNotice)
+		writeSSE(w, "delta", map[string]string{"content": partialKnowledgeNotice})
+		flusher.Flush()
+	}
 	// What this turn may call. An agent brings what it was wired to; a plain
 	// chat brings what the workspace installed and switched on - nothing at
 	// all until somebody does both, so the ordinary chat pays for none of this.

@@ -48,7 +48,11 @@ type Config struct {
 	// RetrievalLog records the questions asked of the knowledge plane and what
 	// came back, which is where a curated evaluation set comes from. It stores
 	// what people typed, so it is off unless an operator turns it on.
-	RetrievalLog bool
+	RetrievalLog        bool
+	RetrievalWorkers    int
+	RetrievalTimeout    time.Duration
+	RetrievalKBTimeout  time.Duration
+	RetrievalCandidates int
 }
 
 func Load() (Config, error) {
@@ -64,6 +68,17 @@ func Load() (Config, error) {
 	ragTimeout, err := durationEnv("RAG_REQUEST_TIMEOUT", 5*time.Minute)
 	if err != nil {
 		return Config{}, err
+	}
+	retrievalTimeout, err := durationEnv("KNOWLEDGE_RETRIEVAL_TIMEOUT", 30*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	kbTimeout, err := durationEnv("KNOWLEDGE_RETRIEVAL_KB_TIMEOUT", 10*time.Second)
+	if err != nil {
+		return Config{}, err
+	}
+	if retrievalTimeout <= 0 || kbTimeout <= 0 {
+		return Config{}, fmt.Errorf("knowledge retrieval timeouts must be positive")
 	}
 
 	cfg := Config{
@@ -96,6 +111,10 @@ func Load() (Config, error) {
 		RAGTimeout:             ragTimeout,
 		ReindexWorkers:         intEnv("KNOWLEDGE_REINDEX_WORKERS", 4),
 		RetrievalLog:           boolEnv("KNOWLEDGE_RETRIEVAL_LOG", false),
+		RetrievalWorkers:       intEnv("KNOWLEDGE_RETRIEVAL_WORKERS", 4),
+		RetrievalTimeout:       retrievalTimeout,
+		RetrievalKBTimeout:     kbTimeout,
+		RetrievalCandidates:    intEnv("KNOWLEDGE_RETRIEVAL_CANDIDATES", 24),
 	}
 
 	if len(cfg.SessionSecret) < 32 {

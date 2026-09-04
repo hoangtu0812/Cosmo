@@ -282,3 +282,11 @@ var userIdentityTokenStatements = []string{
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 }
+
+// MCP tool definitions are JSON Schema contracts, not the flat parameter
+// hints used by hand-authored HTTP actions. Keeping the complete tools/list
+// entry lets Cosmo remain a general MCP client without changing the HTTP tool
+// editor or coupling its database to one server such as SAP-MCP.
+var mcpToolContractStatements = []string{
+	`ALTER TABLE tool_actions ADD COLUMN IF NOT EXISTS mcp_tool JSONB NOT NULL DEFAULT '{}'::jsonb`,
+}

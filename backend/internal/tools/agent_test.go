@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,45 @@ func TestCallPrefixesSeparateCollidingNames(t *testing.T) {
 	// way it always did.
 	if prefixes["tol_JokwqUIRe1xUS779"] != "calculator" {
 		t.Fatalf("uncontested name changed: %q", prefixes["tol_JokwqUIRe1xUS779"])
+	}
+}
+
+func TestMCPDefinitionUsesTheCompleteInputSchema(t *testing.T) {
+	contract := json.RawMessage(`{
+		"name":"customer.lookup-v2",
+		"inputSchema":{
+			"type":"object",
+			"properties":{
+				"filter":{
+					"type":"object",
+					"properties":{"status":{"type":"string","enum":["active","blocked"]}},
+					"additionalProperties":false
+				}
+			},
+			"required":["filter"]
+		},
+		"outputSchema":{"type":"object"},
+		"annotations":{"readOnlyHint":true},
+		"_meta":{"owner":"crm"}
+	}`)
+	action := Action{Name: "customer.lookup-v2", MCPTool: contract}
+	definitions := DescribeSet(
+		[]Tool{{ID: "tol_customer", Name: "Customer"}},
+		map[string][]Action{"tol_customer": {action}},
+	)
+	if len(definitions) != 1 {
+		t.Fatalf("expected one definition, got %#v", definitions)
+	}
+	filter := definitions[0].Parameters["properties"].(map[string]any)["filter"].(map[string]any)
+	status := filter["properties"].(map[string]any)["status"].(map[string]any)
+	if len(status["enum"].([]any)) != 2 || filter["additionalProperties"] != false {
+		t.Fatalf("nested MCP JSON Schema was flattened: %#v", definitions[0].Parameters)
+	}
+	if strings.Contains(definitions[0].Name, ".") || len(definitions[0].Name) > 64 {
+		t.Fatalf("MCP name was not mapped to a model-safe alias: %q", definitions[0].Name)
+	}
+	if mcpRemoteName(action) != "customer.lookup-v2" {
+		t.Fatalf("remote MCP name changed: %q", mcpRemoteName(action))
 	}
 }
 

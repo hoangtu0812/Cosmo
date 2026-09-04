@@ -77,6 +77,19 @@ func TestValidateActionName(t *testing.T) {
 	}
 }
 
+func TestValidateMCPToolName(t *testing.T) {
+	for _, valid := range []string{"lookup_customer", "customer.lookup-v2", "A-1"} {
+		if got, err := ValidateMCPToolName(valid); err != nil || got != valid {
+			t.Fatalf("valid MCP name %q was refused: %q %v", valid, got, err)
+		}
+	}
+	for _, invalid := range []string{"", "look up", "tra-cứu", strings.Repeat("a", 129)} {
+		if _, err := ValidateMCPToolName(invalid); !errors.Is(err, ErrMCPToolName) {
+			t.Fatalf("invalid MCP name %q was accepted: %v", invalid, err)
+		}
+	}
+}
+
 func TestValidatePathStaysRelative(t *testing.T) {
 	// An absolute URL here would reach a host the workspace never approved.
 	for _, raw := range []string{"customers", "https://evil.example.com/", "//evil.example.com"} {
@@ -102,10 +115,10 @@ func TestCleanParameters(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("blanks and duplicates should be dropped, got %#v", got)
 	}
-	// An unknown type is described as a string rather than refused: a wrong
-	// type is better than no description of the action at all.
-	if got[0].Name != "id" || got[0].Type != "string" || got[0].In != "query" {
-		t.Fatalf("unknown type and location should fall back, got %#v", got[0])
+	// JSON Schema's integer type is preserved for MCP and nested body schemas;
+	// an unknown location still falls back to query for an HTTP action.
+	if got[0].Name != "id" || got[0].Type != "integer" || got[0].In != "query" {
+		t.Fatalf("JSON type should survive and location should fall back, got %#v", got[0])
 	}
 	if got[1].In != "body" || got[1].Type != "boolean" {
 		t.Fatalf("known values should survive, got %#v", got[1])

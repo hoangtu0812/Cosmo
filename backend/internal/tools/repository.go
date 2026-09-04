@@ -347,7 +347,7 @@ func (repository *Repository) Delete(ctx context.Context, id, userID, workspaceI
 
 func (repository *Repository) Actions(ctx context.Context, toolID string) ([]Action, error) {
 	rows, err := repository.db.Query(ctx, `
-		SELECT id, tool_id, name, description, method, path, parameters,
+		SELECT id, tool_id, name, description, method, path, parameters, mcp_tool,
 		       result_type, result_description, position, created_at, updated_at
 		FROM tool_actions WHERE tool_id = $1 ORDER BY position, created_at`, toolID)
 	if err != nil {
@@ -358,9 +358,9 @@ func (repository *Repository) Actions(ctx context.Context, toolID string) ([]Act
 	list := []Action{}
 	for rows.Next() {
 		var action Action
-		var parameterRaw []byte
+		var parameterRaw, mcpToolRaw []byte
 		if err := rows.Scan(&action.ID, &action.ToolID, &action.Name, &action.Description,
-			&action.Method, &action.Path, &parameterRaw,
+			&action.Method, &action.Path, &parameterRaw, &mcpToolRaw,
 			&action.ResultType, &action.ResultDescription, &action.Position,
 			&action.CreatedAt, &action.UpdatedAt); err != nil {
 			return nil, err
@@ -372,6 +372,7 @@ func (repository *Repository) Actions(ctx context.Context, toolID string) ([]Act
 		if action.Parameters == nil {
 			action.Parameters = []Parameter{}
 		}
+		action.MCPTool = decodeMCPTool(mcpToolRaw)
 		list = append(list, action)
 	}
 	return list, rows.Err()
@@ -393,7 +394,28 @@ func (repository *Repository) Action(ctx context.Context, toolID, actionID strin
 // SaveAction creates or replaces one action. Both paths validate the same way,
 // so an action cannot be edited into a shape that creation would have refused.
 func (repository *Repository) SaveAction(ctx context.Context, toolID, actionID string, input Action) (Action, error) {
-	name, err := ValidateActionName(input.Name)
+	// Older UI clients do not know about mcp_tool. Preserve the server-owned
+	// contract on update instead of silently replacing it with an empty object.
+	if actionID != "" && len(input.MCPTool) == 0 {
+		current, err := repository.Action(ctx, toolID, actionID)
+		if err != nil {
+			return Action{}, err
+		}
+		input.MCPTool = current.MCPTool
+	}
+	mcpTool, remoteName, err := cleanMCPTool(input.MCPTool)
+	if err != nil {
+		return Action{}, err
+	}
+	var name string
+	if len(mcpTool) > 0 {
+		name, err = ValidateMCPToolName(input.Name)
+		if err == nil && name != remoteName {
+			err = ErrMCPContract
+		}
+	} else {
+		name, err = ValidateActionName(input.Name)
+	}
 	if err != nil {
 		return Action{}, err
 	}
@@ -414,6 +436,10 @@ func (repository *Repository) SaveAction(ctx context.Context, toolID, actionID s
 		return Action{}, err
 	}
 	parameterJSON, _ := json.Marshal(parameters)
+	mcpToolJSON := []byte("{}")
+	if len(mcpTool) > 0 {
+		mcpToolJSON = mcpTool
+	}
 	resultType := ValidateResultType(input.ResultType)
 	resultDescription, err := ValidateDescription(input.ResultDescription)
 	if err != nil {
@@ -430,17 +456,17 @@ func (repository *Repository) SaveAction(ctx context.Context, toolID, actionID s
 		}
 		actionID = newID("act_")
 		if _, err := repository.db.Exec(ctx, `
-			INSERT INTO tool_actions (id, tool_id, name, description, method, path, parameters, result_type, result_description, position)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			actionID, toolID, name, description, method, path, parameterJSON, resultType, resultDescription, count); err != nil {
+			INSERT INTO tool_actions (id, tool_id, name, description, method, path, parameters, mcp_tool, result_type, result_description, position)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			actionID, toolID, name, description, method, path, parameterJSON, mcpToolJSON, resultType, resultDescription, count); err != nil {
 			return Action{}, duplicateOr(err)
 		}
 	} else if _, err := repository.db.Exec(ctx, `
 		UPDATE tool_actions
 		SET name = $3, description = $4, method = $5, path = $6, parameters = $7,
-		    result_type = $8, result_description = $9, updated_at = NOW()
+		    mcp_tool = $8, result_type = $9, result_description = $10, updated_at = NOW()
 		WHERE id = $1 AND tool_id = $2`,
-		actionID, toolID, name, description, method, path, parameterJSON, resultType, resultDescription); err != nil {
+		actionID, toolID, name, description, method, path, parameterJSON, mcpToolJSON, resultType, resultDescription); err != nil {
 		return Action{}, duplicateOr(err)
 	}
 	return repository.Action(ctx, toolID, actionID)

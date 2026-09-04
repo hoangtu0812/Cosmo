@@ -39,7 +39,8 @@ func writeToolError(w http.ResponseWriter, err error) {
 		errors.Is(err, tools.ErrLoopbackAddress),
 		errors.Is(err, tools.ErrBuiltinHasNoBaseURL),
 		errors.Is(err, tools.ErrAuthType), errors.Is(err, tools.ErrAuthHeaderName),
-		errors.Is(err, tools.ErrActionName), errors.Is(err, tools.ErrActionMethod),
+		errors.Is(err, tools.ErrActionName), errors.Is(err, tools.ErrMCPToolName),
+		errors.Is(err, tools.ErrMCPContract), errors.Is(err, tools.ErrActionMethod),
 		errors.Is(err, tools.ErrActionPath), errors.Is(err, tools.ErrTooManyActions),
 		errors.Is(err, tools.ErrTooManyParams):
 		writeError(w, http.StatusBadRequest, err.Error())

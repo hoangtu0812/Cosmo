@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,30 @@ func TestVersionFreezesNoCredential(t *testing.T) {
 		if !strings.Contains(versionColumns, expected) {
 			t.Errorf("a version does not freeze %q, so a published agent would still drift with the draft", expected)
 		}
+	}
+}
+
+func TestVersionSnapshotKeepsMCPContract(t *testing.T) {
+	actions := []Action{{
+		Name: "inventory.lookup-v2",
+		MCPTool: json.RawMessage(`{
+			"name":"inventory.lookup-v2",
+			"inputSchema":{"type":"object","properties":{"ids":{"type":"array","items":{"type":"integer"}}}},
+			"outputSchema":{"type":"array"},
+			"_meta":{"owner":"warehouse"}
+		}`),
+	}}
+	frozen, err := json.Marshal(actions)
+	if err != nil {
+		t.Fatalf("freeze actions: %v", err)
+	}
+	restored := decodeActions(frozen)
+	if len(restored) != 1 || len(restored[0].MCPTool) == 0 {
+		t.Fatalf("MCP contract did not survive snapshot: %#v", restored)
+	}
+	var contract map[string]any
+	if err := json.Unmarshal(restored[0].MCPTool, &contract); err != nil || contract["outputSchema"] == nil || contract["_meta"] == nil {
+		t.Fatalf("MCP output schema or metadata was lost: %#v, %v", contract, err)
 	}
 }
 

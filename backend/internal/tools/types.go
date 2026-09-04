@@ -6,6 +6,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
@@ -33,7 +34,7 @@ const (
 
 	MaxNameRunes        = 120
 	MaxDescriptionRunes = 512
-	MaxActions          = 30
+	MaxActions          = 100
 	MaxParameters       = 20
 
 	// A tool call sits inside a turn the reader is waiting on, so it gets a
@@ -69,9 +70,11 @@ var (
 	ErrOBONoUser           = errors.New("Tool on-behalf-of chỉ gọi được trong hội thoại có người dùng đăng nhập.")
 	ErrOBONoAssertion      = errors.New("Chưa có token Entra của bạn. Hãy đăng xuất rồi đăng nhập lại.")
 	ErrActionName          = errors.New("Tên action phải từ 1 đến 120 ký tự và chỉ gồm chữ, số, gạch dưới.")
+	ErrMCPToolName         = errors.New("Tên MCP tool phải từ 1 đến 128 byte và chỉ gồm chữ, số, gạch dưới, gạch ngang hoặc dấu chấm.")
+	ErrMCPContract         = errors.New("MCP tool contract không hợp lệ hoặc không khớp với tên tool.")
 	ErrActionMethod        = errors.New("Phương thức HTTP không hợp lệ.")
 	ErrActionPath          = errors.New("Đường dẫn action phải bắt đầu bằng /.")
-	ErrTooManyActions      = errors.New("Mỗi tool tối đa 30 action.")
+	ErrTooManyActions      = errors.New("Mỗi tool tối đa 100 action.")
 	ErrTooManyParams       = errors.New("Mỗi action tối đa 20 tham số.")
 	ErrFixedNeedsValue     = errors.New("Tham số cố định phải có giá trị.")
 	ErrDuplicateAction     = errors.New("Đã có action trùng tên trong tool này.")
@@ -135,8 +138,9 @@ type Tool struct {
 type Parameter struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// "string", "number", "boolean". Anything else is treated as a string,
-	// since a wrong type is better than refusing to describe the action.
+	// A JSON Schema primitive or container type. HTTP actions normally use the
+	// scalar types; MCP's compatibility projection may also show arrays and
+	// objects while its complete schema lives in Action.MCPTool.
 	Type string `json:"type"`
 	// Where the value goes: "query", "path", or "body".
 	In         string `json:"in"`
@@ -167,6 +171,11 @@ type Action struct {
 	Method      string      `json:"method"`
 	Path        string      `json:"path"`
 	Parameters  []Parameter `json:"parameters"`
+	// MCPTool is the complete tool definition returned by tools/list. It is
+	// stored intact rather than reconstructed from Parameters, so nested JSON
+	// Schema, outputSchema, annotations, icons and _meta survive discovery,
+	// publishing and invocation. Empty for HTTP and built-in actions.
+	MCPTool json.RawMessage `json:"mcp_tool,omitempty"`
 	// What comes back. The type is a hint, not a promise the tool can keep -
 	// an API may answer with anything - so nothing is validated against it;
 	// both exist to be read by the model before it decides to call.
@@ -345,7 +354,7 @@ func ValidateActionName(raw string) (string, error) {
 // predates this, or one whose answer resists description.
 func ValidateResultType(raw string) string {
 	switch strings.TrimSpace(raw) {
-	case "string", "number", "boolean", "object", "array":
+	case "string", "number", "integer", "boolean", "object", "array", "null":
 		return strings.TrimSpace(raw)
 	}
 	return ""
@@ -361,7 +370,9 @@ func CleanParameters(raw []Parameter) ([]Parameter, error) {
 		}
 		seen[strings.ToLower(name)] = true
 		kind := strings.TrimSpace(item.Type)
-		if kind != "number" && kind != "boolean" {
+		switch kind {
+		case "string", "number", "integer", "boolean", "object", "array", "null":
+		default:
 			kind = "string"
 		}
 		where := strings.TrimSpace(item.In)

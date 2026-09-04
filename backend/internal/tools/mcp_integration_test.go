@@ -69,6 +69,14 @@ func TestLiveConfiguredMCP(t *testing.T) {
 	if len(actions) == 0 {
 		t.Fatal("live MCP server returned no callable tools")
 	}
+	for _, action := range actions {
+		if len(action.MCPTool) == 0 {
+			t.Fatalf("live MCP tool %q lost its contract", action.Name)
+		}
+		if _, ok := mcpInputSchema(action); !ok {
+			t.Fatalf("live MCP tool %q has no usable input schema", action.Name)
+		}
+	}
 
 	if actionName := os.Getenv("COSMO_MCP_LIVE_ACTION"); actionName != "" {
 		result, err := repository.Invoke(ctx, tool, Action{Name: actionName}, nil)

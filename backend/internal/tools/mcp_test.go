@@ -33,6 +33,7 @@ type mcpFixture struct {
 	server        *httptest.Server
 	asEventStream bool
 	modern        bool
+	structured    bool
 
 	mutex        sync.Mutex
 	isInitalized bool
@@ -154,6 +155,18 @@ func (fixture *mcpFixture) handle(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{"content": []any{
 			map[string]any{"type": "text", "text": "Customer 42 is active"},
 		}}
+		if fixture.structured {
+			result = map[string]any{
+				"content": []any{
+					map[string]any{"type": "text", "text": "Customer 42 is active"},
+					map[string]any{"type": "resource_link", "uri": "sap://customer/42", "name": "customer-42"},
+				},
+				"structuredContent": map[string]any{
+					"customer": map[string]any{"id": "42", "active": true},
+				},
+				"_meta": map[string]any{"source": "fixture"},
+			}
+		}
 	default:
 		http.Error(w, "unknown method", http.StatusNotFound)
 		return
@@ -225,14 +238,35 @@ func TestMCPUsesCurrentStatelessProtocol(t *testing.T) {
 func (fixture *mcpFixture) page(cursor string) map[string]any {
 	lookup := map[string]any{
 		"name":        "lookup_customer",
+		"title":       "Customer lookup",
 		"description": "Find a customer by id",
+		"annotations": map[string]any{"readOnlyHint": true},
+		"_meta":       map[string]any{"owner": "crm"},
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"customer_id": map[string]any{"type": "string", "description": "The id"},
-				"verbose":     map[string]any{"type": "boolean", "description": "More detail"},
+				"customer_id": map[string]any{
+					"type": "string", "description": "The id",
+					"pattern": "^[0-9]+$", "enum": []string{"42", "84"},
+				},
+				"verbose": map[string]any{"type": "boolean", "description": "More detail"},
+				"filters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"status": map[string]any{"type": "string", "enum": []string{"active", "blocked"}},
+					},
+				},
 			},
 			"required": []string{"customer_id"},
+		},
+		"outputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"customer": map[string]any{
+					"type":       "object",
+					"properties": map[string]any{"active": map[string]any{"type": "boolean"}},
+				},
+			},
 		},
 	}
 	// Refused later: a model could not call this name back.
@@ -284,7 +318,7 @@ func TestDiscoverMCPReadsWhatTheServerOffers(t *testing.T) {
 	if action.Name != "lookup_customer" || action.Method != "POST" {
 		t.Fatalf("unexpected action: %#v", action)
 	}
-	if len(action.Parameters) != 2 {
+	if len(action.Parameters) != 3 {
 		t.Fatalf("both schema properties should survive, got %#v", action.Parameters)
 	}
 	for _, parameter := range action.Parameters {
@@ -304,6 +338,35 @@ func TestDiscoverMCPReadsWhatTheServerOffers(t *testing.T) {
 	// that uses sessions rejects everything after initialize.
 	if fixture.sawSession != "session-1" {
 		t.Fatalf("session was not carried, server saw %q", fixture.sawSession)
+	}
+}
+
+func TestDiscoverMCPKeepsTheCompleteToolContract(t *testing.T) {
+	fixture := newMCPFixture(t, false)
+	fixture.modern = true
+	repository := repositoryFor(t, fixture.server)
+
+	discovered, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture))
+	if err != nil {
+		t.Fatalf("discovery failed: %v", err)
+	}
+	action := discovered[0]
+	if action.ResultType != "object" {
+		t.Fatalf("output schema type was lost: %#v", action)
+	}
+	var contract map[string]any
+	if err := json.Unmarshal(action.MCPTool, &contract); err != nil {
+		t.Fatalf("stored MCP contract is not JSON: %v", err)
+	}
+	input := contract["inputSchema"].(map[string]any)
+	properties := input["properties"].(map[string]any)
+	customerID := properties["customer_id"].(map[string]any)
+	if customerID["pattern"] != "^[0-9]+$" || len(customerID["enum"].([]any)) != 2 {
+		t.Fatalf("JSON Schema constraints were lost: %#v", customerID)
+	}
+	filters := properties["filters"].(map[string]any)
+	if filters["properties"] == nil || contract["outputSchema"] == nil || contract["annotations"] == nil || contract["_meta"] == nil {
+		t.Fatalf("nested schema or MCP metadata was lost: %#v", contract)
 	}
 }
 
@@ -425,6 +488,45 @@ func TestInvokeMCPReadsAnEventStreamReply(t *testing.T) {
 	}
 	if !strings.Contains(result.Body, "Customer 42 is active") {
 		t.Fatalf("an event-stream reply should read the same, got %q", result.Body)
+	}
+}
+
+func TestInvokeMCPKeepsStructuredAndNonTextContent(t *testing.T) {
+	fixture := newMCPFixture(t, false)
+	fixture.modern = true
+	fixture.structured = true
+	repository := repositoryFor(t, fixture.server)
+
+	result, err := repository.Invoke(context.Background(), mcpTool(fixture), Action{Name: "lookup_customer"}, nil)
+	if err != nil {
+		t.Fatalf("call failed: %v", err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(result.Body), &envelope); err != nil {
+		t.Fatalf("mixed MCP output should be returned as JSON: %v: %s", err, result.Body)
+	}
+	if envelope["structuredContent"] == nil || envelope["_meta"] == nil {
+		t.Fatalf("structured output or metadata was lost: %#v", envelope)
+	}
+	content := envelope["content"].([]any)
+	if len(content) != 2 || content[1].(map[string]any)["type"] != "resource_link" {
+		t.Fatalf("non-text content was lost: %#v", content)
+	}
+}
+
+func TestBoundedMCPJSONStaysValid(t *testing.T) {
+	body := `{"content":"` + strings.Repeat("ừ", MaxResponseBytes) + `"}`
+	bounded := boundedMCPBody(body, true)
+	if !json.Valid([]byte(bounded)) {
+		t.Fatalf("truncated MCP result is broken JSON")
+	}
+	if len(bounded) > MaxResponseBytes {
+		t.Fatalf("truncated MCP result still exceeds the limit: %d", len(bounded))
+	}
+	var envelope map[string]any
+	_ = json.Unmarshal([]byte(bounded), &envelope)
+	if envelope["isTruncated"] != true || envelope["originalBytes"] == nil {
+		t.Fatalf("truncation was not disclosed: %#v", envelope)
 	}
 }
 

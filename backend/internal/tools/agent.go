@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -52,7 +53,20 @@ func shortID(id string) string {
 }
 
 func callName(prefix string, action Action) string {
-	return prefix + nameSeparator + action.Name
+	part := action.Name
+	if len(action.MCPTool) > 0 && strings.Contains(part, ".") {
+		sum := sha256.Sum256([]byte(part))
+		part = strings.ReplaceAll(part, ".", "_") + fmt.Sprintf("_%x", sum[:4])
+	}
+	name := prefix + nameSeparator + part
+	// OpenAI-compatible gateways cap function names at 64 ASCII characters.
+	// MCP permits 128-byte names, so keep a stable hash when shortening rather
+	// than changing the remote name stored in the contract.
+	if len(name) > 64 {
+		sum := sha256.Sum256([]byte(name))
+		name = name[:55] + fmt.Sprintf("_%x", sum[:4])
+	}
+	return name
 }
 
 // SplitCallName turns the name a model called back into the tool and the
@@ -223,25 +237,28 @@ func DescribeSet(list []Tool, actions map[string][]Action) []modelgateway.ToolDe
 	definitions := []modelgateway.ToolDefinition{}
 	for _, tool := range list {
 		for _, action := range actions[tool.ID] {
-			properties := map[string]any{}
-			required := []string{}
-			for _, parameter := range action.Parameters {
-				// The model is not shown what it does not supply. Describing a
-				// fixed parameter would invite it to pass one.
-				if parameter.IsFixed() {
-					continue
+			schema, isMCP := mcpInputSchema(action)
+			if !isMCP {
+				properties := map[string]any{}
+				required := []string{}
+				for _, parameter := range action.Parameters {
+					// The model is not shown what it does not supply. Describing a
+					// fixed parameter would invite it to pass one.
+					if parameter.IsFixed() {
+						continue
+					}
+					properties[parameter.Name] = map[string]any{
+						"type":        parameter.Type,
+						"description": parameter.Description,
+					}
+					if parameter.IsRequired {
+						required = append(required, parameter.Name)
+					}
 				}
-				properties[parameter.Name] = map[string]any{
-					"type":        parameter.Type,
-					"description": parameter.Description,
+				schema = map[string]any{"type": "object", "properties": properties}
+				if len(required) > 0 {
+					schema["required"] = required
 				}
-				if parameter.IsRequired {
-					required = append(required, parameter.Name)
-				}
-			}
-			schema := map[string]any{"type": "object", "properties": properties}
-			if len(required) > 0 {
-				schema["required"] = required
 			}
 
 			description := action.Description

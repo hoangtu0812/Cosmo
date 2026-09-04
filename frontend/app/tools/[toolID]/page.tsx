@@ -701,6 +701,7 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
       const saved = await api.saveToolAction(toolID, action.id, {
         name, description, method, path, parameters,
         result_type: resultType, result_description: resultDescription,
+        mcp_tool: action.mcp_tool,
       }, workspaceID);
       onSaved(saved.action);
     } catch (caught) {
@@ -714,7 +715,32 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
     setIsTesting(true);
     setFailure('');
     try {
-      const response = await api.testToolAction(toolID, action.id, testValues, workspaceID);
+      const argumentsForCall: Record<string, unknown> = {};
+      for (const parameter of action.parameters) {
+        const raw = testValues[parameter.name] ?? '';
+        switch (parameter.type) {
+          case 'number':
+          case 'integer': {
+            const value = Number(raw);
+            if (!Number.isFinite(value)) throw new Error(`${parameter.name}: invalid number`);
+            argumentsForCall[parameter.name] = parameter.type === 'integer' ? Math.trunc(value) : value;
+            break;
+          }
+          case 'boolean':
+            argumentsForCall[parameter.name] = raw.toLowerCase() === 'true';
+            break;
+          case 'object':
+          case 'array':
+            argumentsForCall[parameter.name] = JSON.parse(raw);
+            break;
+          case 'null':
+            argumentsForCall[parameter.name] = null;
+            break;
+          default:
+            argumentsForCall[parameter.name] = raw;
+        }
+      }
+      const response = await api.testToolAction(toolID, action.id, argumentsForCall, workspaceID);
       setResult(response.result);
     } catch (caught) {
       setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
@@ -797,7 +823,11 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
                   options={[
                     {value: 'string', label: 'string'},
                     {value: 'number', label: 'number'},
+                    {value: 'integer', label: 'integer'},
                     {value: 'boolean', label: 'boolean'},
+                    {value: 'object', label: 'object'},
+                    {value: 'array', label: 'array'},
+                    {value: 'null', label: 'null'},
                   ]}
                   value={parameter.type}
                   width={140}
@@ -883,7 +913,9 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
               {value: 'array', label: 'array'},
               {value: 'string', label: 'string'},
               {value: 'number', label: 'number'},
+              {value: 'integer', label: 'integer'},
               {value: 'boolean', label: 'boolean'},
+              {value: 'null', label: 'null'},
             ]}
             value={resultType}
             width={170}

@@ -48,6 +48,7 @@ var migrations = []Migration{
 	{Version: 17, Name: "audit_context", Statements: auditContextStatements},
 	{Version: 18, Name: "tool_oauth", Statements: toolOAuthStatements},
 	{Version: 19, Name: "user_identity_tokens", Statements: userIdentityTokenStatements},
+	{Version: 20, Name: "mcp_tool_contract", Statements: mcpToolContractStatements},
 }
 
 var runEngineStatements = []string{

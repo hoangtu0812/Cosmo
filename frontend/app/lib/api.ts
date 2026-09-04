@@ -97,7 +97,7 @@ export type GatewayModel = {
 export type ToolParameter = {
   name: string;
   description: string;
-  type: 'string' | 'number' | 'boolean';
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array' | 'null';
   in: 'query' | 'path' | 'body';
   is_required: boolean;
   // Where the value comes from: the model fills it in, or the tool always
@@ -114,8 +114,20 @@ export type ToolAction = {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   parameters: ToolParameter[];
+  /** Complete tools/list entry for MCP actions. Cosmo keeps this object
+      losslessly; HTTP and built-in actions omit it. */
+  mcp_tool?: {
+    name: string;
+    description?: string;
+    title?: string;
+    inputSchema: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
+    annotations?: Record<string, unknown>;
+    icons?: Array<Record<string, unknown>>;
+    _meta?: Record<string, unknown>;
+  };
   // What the action gives back, read by the model before it decides to call.
-  result_type?: '' | 'string' | 'number' | 'boolean' | 'object' | 'array';
+  result_type?: '' | 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array' | 'null';
   result_description?: string;
   position: number;
   created_at: string;

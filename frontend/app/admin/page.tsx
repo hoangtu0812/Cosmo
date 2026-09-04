@@ -221,7 +221,7 @@ function SystemPanel({system, indexStatus, isReindexing, onReindex, t}: {system:
         <VStack gap={3}>
           <HStack hAlign="between" vAlign="center">
             <Text type="label">{t('admin.reindex')}</Text>
-            <Button isDisabled={isReindexing || indexStatus?.running || !system.system_gateway.configured} isLoading={isReindexing} label={t('admin.reindexAction')} onClick={() => setIsReindexDialogOpen(true)} variant="secondary" />
+            <Button isDisabled={isReindexing || indexStatus?.running || !system.knowledge_enabled} isLoading={isReindexing} label={t('admin.reindexAction')} onClick={() => setIsReindexDialogOpen(true)} variant="secondary" />
           </HStack>
           {indexStatus && indexStatus.total > 0 ? (
             <VStack gap={2}>

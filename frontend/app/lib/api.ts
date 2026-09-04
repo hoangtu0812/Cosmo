@@ -482,8 +482,7 @@ export type PlatformAnalytics = {
   document_status: CountedItem[];
   audit_domains: CountedItem[];
 };
-export type SystemGatewaySettings = {base_url: string; has_api_key: boolean; api_key_hint?: string; configured: boolean};
-export type SystemStatus = {entra_enabled: boolean; entra_tenant_id?: string; model_gateway_enabled: boolean; knowledge_enabled: boolean; cookie_secure: boolean; session_ttl: string; admin_email_count: number; configuration_source: string; embedding_model: string; reranker_model: string; system_gateway: SystemGatewaySettings};
+export type SystemStatus = {entra_enabled: boolean; entra_tenant_id?: string; model_gateway_enabled: boolean; knowledge_enabled: boolean; cookie_secure: boolean; session_ttl: string; admin_email_count: number; configuration_source: string};
 
 type APIErrorShape = {error?: {message?: string}};
 

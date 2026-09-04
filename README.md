@@ -48,6 +48,9 @@ Mỗi MCP server tự công bố tools và JSON Schema của nó; Cosmo lưu ngu
 Vì vậy thêm một MCP server mới không cần sửa Cosmo theo nghiệp vụ của server,
 và SAP-MCP không cần biết model, agent hoặc cấu trúc nội bộ của Cosmo.
 
+Checklist hợp đồng, cấu hình, conformance test trung lập và hướng dẫn kết nối
+SAP-MCP nằm tại [docs/mcp-integration.md](docs/mcp-integration.md).
+
 Ứng dụng được đóng gói bằng Docker Compose thành ba service: `frontend`, `backend` và `db`.
 
 ## Yêu cầu

@@ -15,10 +15,15 @@ services:
     entrypoint: ["cosmo-mcpdemo"]
     environment:
       MCPDEMO_ADDRESS: ":8090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8090/health/live"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
 
   backend:
     environment:
       TOOL_EGRESS_ALLOWED_HOSTS: "${TOOL_EGRESS_ALLOWED_HOSTS:-}${TOOL_EGRESS_ALLOWED_HOSTS:+,}mcpdemo"
     depends_on:
       mcpdemo:
-        condition: service_started
+        condition: service_healthy

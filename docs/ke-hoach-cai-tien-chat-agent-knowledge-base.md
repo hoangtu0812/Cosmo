@@ -417,3 +417,11 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Thêm integration tests cho hai writer cùng revision, rollback KB, rollback binding và từ chối revision thiếu/không hợp lệ.
 - Kiểm tra: `go test ./...` với database test riêng, frontend build và TypeScript đều qua. Đã xóa một file validator Next.js sinh cũ trong `.next` không tương thích với route types của Vinext để kiểm tra TypeScript đúng môi trường hiện tại.
 - Chưa thay đổi cơ chế pin dependency và quyền chạy draft; xử lý ở AGT-02/03.
+
+### 2026-09-05 — AGT-02: Quyền chạy draft và dùng release
+
+- Người chỉ có quyền dùng agent không được tạo hoặc tiếp tục conversation draft. Quyền sửa được kiểm tra lại mỗi lượt.
+- Target mặc định/published yêu cầu release tồn tại; target không hợp lệ bị từ chối, không fallback sang draft.
+- Chat kiểm tra lại membership và visibility trước khi đọc runtime; version phải thuộc đúng agent của conversation.
+- Integration tests qua HTTP tạo conversation và runtime trên PostgreSQL thật kiểm tra từ chối draft, agent chưa publish, target sai, quyền bị thu hồi và version thuộc agent khác.
+- Kiểm tra: `go test ./...` với database integration đều qua.

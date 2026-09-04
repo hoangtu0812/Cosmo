@@ -16,6 +16,10 @@ import (
 // the rule in the agents package, so it is never restated here.
 func writeAgentError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, agents.ErrDraftForbidden):
+		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, agents.ErrUnpublished):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, agents.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, agents.ErrStaleDraft):
@@ -249,20 +253,28 @@ func (s *Server) startAgentConversation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var input struct {
-		// "draft" follows the working copy; anything else pins to what is
-		// published. The default is deliberately the published version: a
-		// caller that forgets to choose gets the stable configuration rather
-		// than one that changes under its readers.
+		// Empty defaults to published. Draft is an editor-only target.
 		Target string `json:"target"`
 	}
 	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
 		return
 	}
 	versionID := ""
-	if input.Target != "draft" {
-		// Empty when the agent has never been published, which leaves the
-		// conversation on the draft because there is nothing else to run.
-		versionID = s.agents.PublishedVersionID(r.Context(), agentID)
+	switch input.Target {
+	case "draft":
+		if agent.OwnerUserID != user.ID && !s.isWorkspaceAdmin(r.Context(), user, workspaceID) {
+			writeAgentError(w, agents.ErrDraftForbidden)
+			return
+		}
+	case "", "published":
+		versionID = agent.PublishedVersionID
+		if versionID == "" {
+			writeAgentError(w, agents.ErrUnpublished)
+			return
+		}
+	default:
+		writeError(w, http.StatusBadRequest, "Target phải là draft hoặc published.")
+		return
 	}
 	conversation, err := s.agents.StartConversation(r.Context(), agentID, user.ID, workspaceID, agent.Name, versionID)
 	if err != nil {

@@ -161,13 +161,13 @@ func (repository *Repository) SaveDraftWithBindings(ctx context.Context, current
 // RuntimeForVersion reads an immutable published snapshot. A conversation
 // pinned to a version keeps answering from it even after the draft moves on -
 // including the versions of the tools it was published against.
-func (repository *Repository) RuntimeForVersion(ctx context.Context, versionID string) (Runtime, error) {
+func (repository *Repository) RuntimeForVersion(ctx context.Context, agentID, versionID string) (Runtime, error) {
 	var item Runtime
 	var knowledge, tools, toolVersions []byte
 	err := repository.db.QueryRow(ctx, `
 		SELECT model, system_prompt, is_memory_enabled, has_suggested_questions,
 		       knowledge_base_ids, tool_ids, tool_versions
-		FROM agent_versions WHERE id = $1`, versionID).Scan(
+		FROM agent_versions WHERE id = $1 AND agent_id = $2`, versionID, agentID).Scan(
 		&item.Model, &item.SystemPrompt, &item.IsMemoryEnabled,
 		&item.HasSuggestedQuestions, &knowledge, &tools, &toolVersions)
 	if err != nil {

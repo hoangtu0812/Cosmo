@@ -887,10 +887,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		// snapshot; one with no pin is a draft conversation, which is what the
 		// editor's own debug panel wants so a change can be tried before it is
 		// published.
-		agent, err := s.agentRuntime(r.Context(), conversationAgentID, conversationVersionID)
+		agent, err := s.agentRuntime(r.Context(), user, conversationWorkspaceID, conversationAgentID, conversationVersionID)
 		if err != nil {
 			s.logger.Error("load agent for conversation", "conversation_id", conversationID, "agent_id", conversationAgentID, "error", err)
-			writeError(w, http.StatusConflict, "Agent không còn khả dụng trong workspace này.")
+			if errors.Is(err, agents.ErrDraftForbidden) || errors.Is(err, agents.ErrNotFound) {
+				writeAgentError(w, err)
+			} else {
+				writeError(w, http.StatusConflict, "Agent không còn khả dụng trong workspace này.")
+			}
 			return
 		}
 		if strings.TrimSpace(agent.Model) == "" {
@@ -1517,11 +1521,21 @@ func writeSSE(w http.ResponseWriter, event string, value any) {
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 }
 
-// agentRuntime resolves what a conversation runs on. An empty version means
-// the draft, which is the live configuration rather than a snapshot.
-func (s *Server) agentRuntime(ctx context.Context, agentID, versionID string) (agents.Runtime, error) {
+// Recheck access on every turn, including conversations created before a
+// visibility change or an editor's workspace role being revoked.
+func (s *Server) agentRuntime(ctx context.Context, user User, workspaceID, agentID, versionID string) (agents.Runtime, error) {
+	if !s.hasWorkspace(ctx, user.ID, workspaceID) {
+		return agents.Runtime{}, agents.ErrNotFound
+	}
+	agent, err := s.agents.Get(ctx, agentID, user.ID, workspaceID)
+	if err != nil {
+		return agents.Runtime{}, err
+	}
 	if versionID != "" {
-		return s.agents.RuntimeForVersion(ctx, versionID)
+		return s.agents.RuntimeForVersion(ctx, agentID, versionID)
+	}
+	if agent.OwnerUserID != user.ID && !s.isWorkspaceAdmin(ctx, user, workspaceID) {
+		return agents.Runtime{}, agents.ErrDraftForbidden
 	}
 	return s.agents.Runtime(ctx, agentID)
 }

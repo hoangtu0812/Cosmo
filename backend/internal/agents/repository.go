@@ -332,10 +332,8 @@ func (repository *Repository) setKnowledgeBases(ctx context.Context, agentID, wo
 	return nil
 }
 
-// Runtime reads the configuration a conversation runs on. It asks no
-// visibility question on purpose: the right to use an agent was settled when
-// the conversation was created, and a later change to who may see the agent
-// must not silently strip an ongoing conversation of its instructions.
+// Runtime reads the draft after the caller has checked current visibility,
+// workspace membership and editor permission for this turn.
 func (repository *Repository) Runtime(ctx context.Context, agentID string) (Runtime, error) {
 	var item Runtime
 	err := repository.db.QueryRow(ctx, `

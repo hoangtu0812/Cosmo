@@ -169,8 +169,8 @@
     --color-background-card: light-dark(#ffffff, #1b1b1b);
     --color-background-popover: light-dark(#ffffff, #1b1b1b);
     --color-background-muted: light-dark(#f1f1f1, #1b1b1b);
-    --color-accent: light-dark(#262626, #ebebeb);
-    --color-accent-muted: light-dark(#f1f1f1, #262626);
+    --color-accent: light-dark(#0074e2, #6d9cfe);
+    --color-accent-muted: light-dark(#eaf2fd, #6d9cfe26);
     --color-neutral: light-dark(#0000000F, #FFFFFF1A);
     --color-overlay: light-dark(#00000080, #000000CC);
     --color-overlay-hover: light-dark(#0000000D, #FFFFFF0D);
@@ -178,14 +178,14 @@
     --color-text-primary: light-dark(#171717, #fafafa);
     --color-text-secondary: light-dark(#525252, #a3a3a3);
     --color-text-disabled: light-dark(#a3a3a3, #525252);
-    --color-text-accent: light-dark(#262626, #ebebeb);
+    --color-text-accent: light-dark(#00458c, #c7d3ff);
     --color-on-dark: #ffffff;
     --color-on-light: #171717;
     --color-on-accent: light-dark(#ffffff, #171717);
     --color-on-success: light-dark(#ffffff, #171717);
     --color-on-error: light-dark(#ffffff, #171717);
     --color-on-warning: #171717;
-    --color-icon-accent: light-dark(#262626, #ebebeb);
+    --color-icon-accent: light-dark(#00458c, #c7d3ff);
     --color-icon-primary: light-dark(#171717, #fafafa);
     --color-icon-secondary: light-dark(#737373, #a3a3a3);
     --color-icon-disabled: light-dark(#a3a3a3, #525252);

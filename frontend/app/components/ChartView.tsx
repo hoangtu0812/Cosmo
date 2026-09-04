@@ -45,7 +45,10 @@ const SERIES_COLORS = [
   'var(--color-accent)',
   'var(--color-success)',
   'var(--color-warning)',
-  'var(--color-info, var(--color-accent))',
+  // Not a semantic token: --color-info does not exist in the theme, so this
+  // fell through to the accent and drew series 4 in series 1's colour. It was
+  // invisible while both were near-black.
+  'var(--color-icon-purple)',
   'var(--color-error)',
   'var(--color-text-secondary)',
 ];

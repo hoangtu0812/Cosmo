@@ -136,8 +136,18 @@ export const cosmoTheme = defineTheme({
     '--color-background-muted': ['#f1f1f1', '#1b1b1b'],
 
     // Accent + neutral surface tints (sit alongside backgrounds)
-    '--color-accent': ['#262626', '#ebebeb'],
-    '--color-accent-muted': ['#f1f1f1', '#262626'],
+    //
+    // The accent is the Blue ramp's saturated stop, not a neutral. It was
+    // near-black, which meant a primary button, a selected tab and the text
+    // beside them were all one value: nothing on the screen could say "this is
+    // the thing to press" except by position. Light T50 #0074e2 is the ramp's
+    // source stop; dark T60 #6d9cfe is its dark-mode counterpart, the same pair
+    // StatusDot.accent already used.
+    '--color-accent': ['#0074e2', '#6d9cfe'],
+    // Selected rows and hover surfaces. Deliberately far paler than
+    // --color-background-blue (#c4ddfb), which is sized for a Banner that wants
+    // to be noticed - a selected row wants to be found, not announced.
+    '--color-accent-muted': ['#eaf2fd', '#6d9cfe26'],
     '--color-neutral': ['#0000000F', '#FFFFFF1A'],
 
     // Overlays (modal scrims, hover/pressed tints)
@@ -152,17 +162,24 @@ export const cosmoTheme = defineTheme({
     // 600 clears it (6.9:1 on body, 7.8:1 on card). Dark stays neutral-400.
     '--color-text-secondary': ['#525252', '#a3a3a3'],
     '--color-text-disabled': ['#a3a3a3', '#525252'],
-    '--color-text-accent': ['#262626', '#ebebeb'],
+    // Text is not a fill and cannot borrow the fill's value: #0074e2 on the T98
+    // body reaches 4.4:1, just under AA - the same trap --color-text-secondary
+    // documents two lines above. The ramp's text stop is the same hue darker
+    // and clears 9:1, so accent text and accent buttons are two values of one
+    // colour rather than one value used for two jobs.
+    '--color-text-accent': ['#00458c', '#c7d3ff'],
     '--color-on-dark': '#ffffff',
     '--color-on-light': '#171717',
-    // Contrast: neutral accent is near-black (L) / near-white (D)
+    // Contrast on the accent fill: white on Blue T50 is 4.6:1, near-black on
+    // Blue T60 is 6.8:1. Unchanged by the accent moving off neutral, but no
+    // longer for the reason it was written.
     '--color-on-accent': ['#ffffff', '#171717'],
     '--color-on-success': ['#ffffff', '#171717'],
     '--color-on-error': ['#ffffff', '#171717'],
     '--color-on-warning': '#171717',
 
     // Icon
-    '--color-icon-accent': ['#262626', '#ebebeb'],
+    '--color-icon-accent': ['#00458c', '#c7d3ff'],
     '--color-icon-primary': ['#171717', '#fafafa'],
     '--color-icon-secondary': ['#737373', '#a3a3a3'],
     '--color-icon-disabled': ['#a3a3a3', '#525252'],
@@ -293,7 +310,8 @@ export const cosmoTheme = defineTheme({
     '--color-text-cyan': ['#00505f', '#9edef0'],
 
     // Blue  H=255 — source #0074e2
-    //   T50 #0074e2 reserved for filled Info badge / progressbar / inset hover.
+    //   T50 #0074e2 is --color-accent, and the filled Info badge, ProgressBar
+    //   and inset hover all take the same stop.
     '--color-background-blue': ['#c4ddfb', '#9eb7ff3D'],
     '--color-border-blue': ['#b1c9e7', '#6d9cfe'],
     '--color-icon-blue': ['#00458c', '#9eb7ff'],

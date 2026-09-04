@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -293,7 +294,14 @@ func (repository *Repository) Update(ctx context.Context, id, userID, workspaceI
 		}
 	}
 	if changes.AuthSecret != nil {
-		if err := repository.setSecret(ctx, id, *changes.AuthSecret); err != nil {
+		// The kind the credential is being stored *as*, which is the one
+		// arriving in this request when it carries one - a registration and the
+		// switch to OAuth are saved together.
+		storedAs := existing.AuthType
+		if changes.AuthType != nil {
+			storedAs = strings.TrimSpace(*changes.AuthType)
+		}
+		if err := repository.setSecret(ctx, id, storedAs, *changes.AuthSecret); err != nil {
 			return Tool{}, err
 		}
 	}
@@ -303,7 +311,7 @@ func (repository *Repository) Update(ctx context.Context, id, userID, workspaceI
 // setSecret seals the credential before it touches the database. An empty
 // value clears it, which is how a reader removes a key they no longer want
 // stored.
-func (repository *Repository) setSecret(ctx context.Context, id, secret string) error {
+func (repository *Repository) setSecret(ctx context.Context, id, authType, secret string) error {
 	if secret == "" {
 		_, err := repository.db.Exec(ctx, `UPDATE tools SET auth_secret = NULL, auth_hint = '', updated_at = NOW() WHERE id = $1`, id)
 		return err
@@ -317,7 +325,7 @@ func (repository *Repository) setSecret(ctx context.Context, id, secret string) 
 	}
 	_, err = repository.db.Exec(ctx,
 		`UPDATE tools SET auth_secret = $2, auth_hint = $3, updated_at = NOW() WHERE id = $1`,
-		id, sealed, secrets.Hint(secret))
+		id, sealed, hintFor(authType, secret))
 	return err
 }
 

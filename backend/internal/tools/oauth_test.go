@@ -221,3 +221,26 @@ func TestAuthoriseHandlesEveryKind(t *testing.T) {
 		t.Fatalf("the refusal should name the missing fields: %v", ErrOAuthConfig)
 	}
 }
+
+// The hint exists so a reader can tell one stored credential from another. The
+// generic tail of a JSON registration told them the storage format instead.
+func TestHintForNamesTheClientNotTheJSON(t *testing.T) {
+	registration := `{"token_url":"https://issuer.example.com/token","client_id":"96434647-9f89-40fb-9ceb-751877784e67","client_secret":"s3cr3t","scope":"api://x/.default"}`
+
+	hint := hintFor(AuthOAuth, registration)
+	if strings.Contains(hint, "\"") || strings.Contains(hint, "}") {
+		t.Fatalf("the hint leaks the storage format: %q", hint)
+	}
+	// The client id is not a secret and is what identifies the registration.
+	if !strings.HasSuffix(hint, "4e67") {
+		t.Fatalf("the hint should name the client: %q", hint)
+	}
+	if strings.Contains(hint, "s3cr3t") {
+		t.Fatalf("the hint revealed the secret: %q", hint)
+	}
+
+	// A plain key is unchanged: its own tail is exactly the right hint.
+	if got := hintFor(AuthBearer, "sk-abcd1234"); got != "••••1234" {
+		t.Fatalf("a plain key should keep its tail: %q", got)
+	}
+}

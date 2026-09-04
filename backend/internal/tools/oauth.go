@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"cosmo/backend/internal/secrets"
 )
 
 // A static key is a credential that never changes. An OAuth server issues one
@@ -195,4 +197,24 @@ func (repository *Repository) accessToken(ctx context.Context, toolID, stored st
 	}
 	repository.tokens.write(toolID, fingerprint, issued.AccessToken, lifetime)
 	return issued.AccessToken, nil
+}
+
+// hintFor describes a stored credential well enough to tell one from another
+// without revealing it.
+//
+// The generic hint is the last four characters, which for a key is exactly
+// right and for an OAuth registration is the tail of its JSON - a reader saw
+// «lt"} » and learned the storage format rather than which client is
+// configured. The client id is not a secret and is the thing that identifies
+// the registration, so that is what gets shown.
+func hintFor(authType, stored string) string {
+	if authType == AuthOAuth {
+		var credential oauthCredential
+		if err := json.Unmarshal([]byte(stored), &credential); err == nil {
+			if id := strings.TrimSpace(credential.ClientID); id != "" {
+				return secrets.Hint(id)
+			}
+		}
+	}
+	return secrets.Hint(stored)
 }

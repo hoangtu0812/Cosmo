@@ -234,6 +234,13 @@ function ToolDetailScreen() {
                       label={t('tool.publish')}
                       onClick={() => setIsPublishOpen(true)}
                       size="sm"
+                      /* A version with no actions publishes nothing an agent
+                         could call, so the button is refused - and a refusal
+                         with no reason is the one thing the reader cannot work
+                         out from the screen. */
+                      tooltip={actions.length === 0
+                        ? t('tool.publishNeedsActions')
+                        : (!tool.has_unpublished_changes ? t('tool.publishNothingNew') : undefined)}
                       variant="primary"
                     />
                   </HStack>

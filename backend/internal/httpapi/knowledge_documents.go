@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -548,6 +547,9 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 		}
 		kbIDs = append(kbIDs, id)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	if only != nil {
 		chosen := make(map[string]bool, len(only))
 		for _, id := range only {
@@ -569,7 +571,7 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 	// base is queried with the gateway and model that produced its vectors;
 	// using the chat workspace's embedding model would make those vectors
 	// incomparable and could also send source content to the wrong provider.
-	passages := make([]knowledge.Passage, 0)
+	lists := make([][]knowledge.Passage, 0, len(kbIDs))
 	globalLimit := 0
 	for _, kbID := range kbIDs {
 		models, settingsErr := s.knowledgeModelSettingsForKB(ctx, kbID)
@@ -580,15 +582,22 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 		if searchErr != nil {
 			return nil, searchErr
 		}
-		passages = append(passages, found...)
+		// Filter each response before fusion and logging, including passages
+		// from another selected corpus returned by the wrong request.
+		allowed := make([]knowledge.Passage, 0, len(found))
+		for _, passage := range found {
+			if passage.KBID != kbID {
+				slog.Error("knowledge service returned an unauthorised passage", "kb", passage.KBID)
+				continue
+			}
+			allowed = append(allowed, passage)
+		}
+		lists = append(lists, allowed)
 		if models.TopK > globalLimit {
 			globalLimit = models.TopK
 		}
 	}
-	sort.SliceStable(passages, func(i, j int) bool { return passages[i].Score > passages[j].Score })
-	if globalLimit > 0 && len(passages) > globalLimit {
-		passages = passages[:globalLimit]
-	}
+	passages := fuseKnowledgeRanks(lists, globalLimit)
 	s.logRetrieval(ctx, workspaceID, query, kbIDs, passages)
 
 	allowed := make(map[string]bool, len(kbIDs))
@@ -648,18 +657,24 @@ func (s *Server) logRetrieval(ctx context.Context, workspaceID, query string, kb
 		return
 	}
 	type found struct {
-		DocumentID string   `json:"document_id"`
-		KBID       string   `json:"kb_id"`
-		Score      float64  `json:"score"`
-		Matched    []string `json:"matched"`
+		DocumentID  string   `json:"document_id"`
+		KBID        string   `json:"kb_id"`
+		Score       float64  `json:"score"`
+		LocalRank   int      `json:"local_rank"`
+		FusionScore float64  `json:"fusion_score"`
+		ScoreScope  string   `json:"score_scope"`
+		Matched     []string `json:"matched"`
 	}
 	rows := make([]found, 0, len(passages))
 	for _, passage := range passages {
 		rows = append(rows, found{
-			DocumentID: passage.DocumentID,
-			KBID:       passage.KBID,
-			Score:      passage.Score,
-			Matched:    passage.Matched,
+			DocumentID:  passage.DocumentID,
+			KBID:        passage.KBID,
+			Score:       passage.Score,
+			LocalRank:   passage.LocalRank,
+			FusionScore: passage.FusionScore,
+			ScoreScope:  "per_kb",
+			Matched:     passage.Matched,
 		})
 	}
 	encoded, err := json.Marshal(rows)

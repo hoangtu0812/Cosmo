@@ -443,3 +443,11 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Integration test gọi endpoint chat thật với PostgreSQL và gateway/RAG giả lập, xác minh chỉ có model call của planner và nội dung lưu đúng khi KB rỗng hoặc trả lỗi.
 - Kiểm tra: `go test ./...` với database integration đều qua.
 - Còn xử lý bằng chứng mâu thuẫn, chất lượng quyết định của planner và cảnh báo khi chỉ truy cập được một phần nguồn; không coi toàn bộ KB-03 đã hoàn thành.
+
+### 2026-09-05 — KB-01a: Gộp theo thứ hạng thay vì điểm khác thang đo
+
+- Gộp các danh sách theo reciprocal rank cục bộ; thứ hạng bằng nhau dùng KB ID để kết quả không phụ thuộc thứ tự response. Giữ nguyên score gốc và ghi rõ `score_scope=per_kb`, `local_rank`, `fusion_score` trong retrieval log.
+- Kiểm tra KB của mỗi passage trước fusion và logging; kiểm tra lỗi đọc danh sách quyền từ database.
+- Loại passage rỗng và bản trùng hoàn toàn trong cùng document/section/page. So sánh toàn văn bằng hash, không cắt prefix làm mất đoạn có nội dung cuối khác nhau.
+- Tests xác minh score 900 không lấn score 0.02 chỉ vì thang đo, thứ tự response không đổi kết quả và đoạn khác nội dung/provenance được giữ. `go test ./...` với database integration đều qua.
+- Đây là fallback theo rank khi chưa có policy rerank chung, không phải reranker ngữ nghĩa. Còn dedup xuyên tài liệu/KB có giữ nhiều provenance, budget cấp lượt và evaluation chất lượng; chưa hoàn thành toàn bộ KB-01/04.

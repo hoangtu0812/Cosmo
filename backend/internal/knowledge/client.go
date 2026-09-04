@@ -129,6 +129,9 @@ type Passage struct {
 	Page          string  `json:"page"`
 	Text          string  `json:"text"`
 	Score         float64 `json:"score"`
+	// Populated by the control plane after merging independent corpus rankings.
+	LocalRank   int     `json:"local_rank,omitempty"`
+	FusionScore float64 `json:"fusion_score,omitempty"`
 	// Matched names the retrievers that found this passage — dense, lexical or
 	// both. It is what makes a hybrid index's second half auditable instead of
 	// assumed.

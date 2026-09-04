@@ -67,6 +67,11 @@ function colorAt(index: number) {
   return SERIES_COLORS[index % SERIES_COLORS.length];
 }
 
+/** The longest label in a set, in characters. */
+function longest(labels: string[]): number {
+  return labels.reduce((widest, label) => Math.max(widest, label.length), 0);
+}
+
 /** Trims a number to something readable on an axis. */
 function tick(value: number): string {
   const size = Math.abs(value);
@@ -226,10 +231,18 @@ function AxisChart({chart, series, isInteractive, onRead}: {
   const low = niceFloor(Math.min(0, ...(stacked ? totals : flat)));
   const span = high - low || 1;
 
-  const plotWidth = WIDTH - PAD.left - PAD.right;
+  // A horizontal bar wears its category name on the left axis, so the axis has
+  // to be wide enough to hold it. A fixed 48px cut every label to seven
+  // characters, which turned a ranked list of tools into a ranked list of
+  // stems. Capped, because a long name must not eat the bars it labels.
+  const pad = horizontal
+    ? {...PAD, left: Math.min(200, Math.max(PAD.left, 12 + longest(labels) * 5.6))}
+    : PAD;
+
+  const plotWidth = WIDTH - pad.left - PAD.right;
   const plotHeight = HEIGHT - PAD.top - PAD.bottom;
   const zero = horizontal
-    ? PAD.left + ((0 - low) / span) * plotWidth
+    ? pad.left + ((0 - low) / span) * plotWidth
     : PAD.top + ((high - 0) / span) * plotHeight;
 
   const step = (horizontal ? plotHeight : plotWidth) / Math.max(1, labels.length);
@@ -261,7 +274,7 @@ function AxisChart({chart, series, isInteractive, onRead}: {
       {[0, 0.25, 0.5, 0.75, 1].map((fraction) => {
         const value = high - fraction * span;
         const y = PAD.top + fraction * plotHeight;
-        const x = PAD.left + fraction * plotWidth;
+        const x = pad.left + fraction * plotWidth;
         return horizontal ? (
           <g key={fraction}>
             <line stroke="var(--color-border)" strokeWidth={1} x1={x} x2={x} y1={PAD.top} y2={PAD.top + plotHeight} />
@@ -271,8 +284,8 @@ function AxisChart({chart, series, isInteractive, onRead}: {
           </g>
         ) : (
           <g key={fraction}>
-            <line stroke="var(--color-border)" strokeWidth={1} x1={PAD.left} x2={WIDTH - PAD.right} y1={y} y2={y} />
-            <text dominantBaseline="middle" fill="var(--color-text-secondary)" fontSize={10} textAnchor="end" x={PAD.left - 6} y={y}>
+            <line stroke="var(--color-border)" strokeWidth={1} x1={pad.left} x2={WIDTH - PAD.right} y1={y} y2={y} />
+            <text dominantBaseline="middle" fill="var(--color-text-secondary)" fontSize={10} textAnchor="end" x={pad.left - 6} y={y}>
               {tick(value)}
             </text>
           </g>
@@ -288,28 +301,28 @@ function AxisChart({chart, series, isInteractive, onRead}: {
                 : 0;
               const offset = stacked ? 0 : position * groupWidth;
               if (horizontal) {
-                const x = PAD.left + ((below + Math.min(0, value) - low) / span) * plotWidth;
+                const x = pad.left + ((below + Math.min(0, value) - low) / span) * plotWidth;
                 const length = (Math.abs(value) / span) * plotWidth;
                 const y = PAD.top + index * step + bandInset + offset;
                 return <rect fill={colorAt(item.colorIndex)} fillOpacity={BAR_OPACITY} height={Math.max(1, groupWidth)} key={index} rx={3} width={Math.max(1, length)} x={x} y={y} />;
               }
               const top = PAD.top + ((high - below - Math.max(value, 0)) / span) * plotHeight;
               const length = (Math.abs(value) / span) * plotHeight;
-              const x = PAD.left + index * step + bandInset + offset;
+              const x = pad.left + index * step + bandInset + offset;
               return <rect fill={colorAt(item.colorIndex)} fillOpacity={BAR_OPACITY} height={Math.max(1, length)} key={index} rx={3} width={Math.max(1, groupWidth)} x={x} y={top} />;
             })}
           </g>
         ))
         : series.map((item, position) => {
           const points = item.values.map((value, index) => {
-            const x = PAD.left + (index + 0.5) * (plotWidth / Math.max(1, labels.length));
+            const x = pad.left + (index + 0.5) * (plotWidth / Math.max(1, labels.length));
             const below = stacked
               ? series.slice(0, position).reduce((sum, other) => sum + (other.values[index] ?? 0), 0)
               : 0;
             const y = PAD.top + ((high - below - value) / span) * plotHeight;
             return `${x},${y}`;
           });
-          const first = points[0]?.split(',')[0] ?? String(PAD.left);
+          const first = points[0]?.split(',')[0] ?? String(pad.left);
           const last = points[points.length - 1]?.split(',')[0] ?? String(WIDTH - PAD.right);
           return (
             <g key={item.colorIndex}>
@@ -347,7 +360,7 @@ function AxisChart({chart, series, isInteractive, onRead}: {
           key={`band-${index}`}
           onMouseEnter={() => onRead(readingAt(index))}
           width={horizontal ? plotWidth : step}
-          x={horizontal ? PAD.left : PAD.left + index * step}
+          x={horizontal ? pad.left : pad.left + index * step}
           y={horizontal ? PAD.top + index * step : PAD.top}
         />
       )) : null}
@@ -360,7 +373,7 @@ function AxisChart({chart, series, isInteractive, onRead}: {
         if (index % density !== 0) return null;
         // Roughly five pixels a character, and never fewer than six: two
         // labels have room for a phrase, forty have room for a year.
-        const room = Math.max(6, Math.floor((horizontal ? PAD.left - 10 : step * density) / 5));
+        const room = Math.max(6, Math.floor((horizontal ? pad.left - 10 : step * density) / 5));
         const shown = label.length > room ? `${label.slice(0, room - 1)}…` : label;
         return horizontal ? (
           <text
@@ -370,7 +383,7 @@ function AxisChart({chart, series, isInteractive, onRead}: {
             key={index}
             pointerEvents="none"
             textAnchor="end"
-            x={PAD.left - 6}
+            x={pad.left - 6}
             y={PAD.top + (index + 0.5) * step}
           >
             {shown}
@@ -382,7 +395,7 @@ function AxisChart({chart, series, isInteractive, onRead}: {
             key={index}
             pointerEvents="none"
             textAnchor="middle"
-            x={PAD.left + (index + 0.5) * (plotWidth / Math.max(1, labels.length))}
+            x={pad.left + (index + 0.5) * (plotWidth / Math.max(1, labels.length))}
             y={HEIGHT - 12}
           >
             {shown}

@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useState} from 'react';
 import {useRouter} from 'next/navigation';
-import {ArrowLeft, ClipboardList, ServerCog, ShieldCheck, Users} from 'lucide-react';
+import {ArrowLeft, ClipboardList, LayoutDashboard, ServerCog, ShieldCheck, Users} from 'lucide-react';
 import {AppShell} from '@astryxdesign/core/AppShell';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Avatar} from '@astryxdesign/core/Avatar';
@@ -11,7 +11,6 @@ import {Token} from '@astryxdesign/core/Token';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
 import {Card} from '@astryxdesign/core/Card';
-import {EmptyState} from '@astryxdesign/core/EmptyState';
 import {Heading} from '@astryxdesign/core/Heading';
 import {Icon} from '@astryxdesign/core/Icon';
 import {Item} from '@astryxdesign/core/Item';
@@ -22,22 +21,25 @@ import {Selector} from '@astryxdesign/core/Selector';
 import {SideNav, SideNavHeading, SideNavItem, SideNavSection} from '@astryxdesign/core/SideNav';
 import {Text} from '@astryxdesign/core/Text';
 import {TextInput} from '@astryxdesign/core/TextInput';
-import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {StatusLabel} from '../components/StatusLabel';
-import {AdminUser, api, APIError, AuditEvent, GatewayModel, KnowledgeIndexStatus, SystemStatus, User} from '../lib/api';
+import {AdminUser, api, APIError, GatewayModel, KnowledgeIndexStatus, SystemStatus, User} from '../lib/api';
 import {useTranslation} from '../lib/i18n';
 import {UserProfileCard} from '../components/UserProfileCard';
+import {AuditPanel} from './AuditPanel';
+import {DashboardPanel} from './DashboardPanel';
 
-type AdminSection = 'users' | 'audit' | 'system';
+type AdminSection = 'dashboard' | 'users' | 'audit' | 'system';
 
 export default function AdminPage() {
   const t = useTranslation();
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
-  const [section, setSection] = useState<AdminSection>('users');
+  // The dashboard first: what the platform is doing is the question an
+  // administrator opens this console with, and the lists answer the ones that
+  // follow from it.
+  const [section, setSection] = useState<AdminSection>('dashboard');
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [events, setEvents] = useState<AuditEvent[]>([]);
   const [system, setSystem] = useState<SystemStatus | null>(null);
   const [error, setError] = useState('');
   const [pendingUserID, setPendingUserID] = useState('');
@@ -53,10 +55,12 @@ export default function AdminPage() {
         return;
       }
       setUser(result.user);
-      return Promise.all([api.adminUsers(), api.auditEvents(), api.systemStatus(), api.knowledgeIndexStatus()])
-        .then(([userResult, auditResult, systemResult, indexResult]) => {
+      // The dashboard and the audit log load their own data when they are
+      // opened: both are large, both take a range or a filter, and neither is
+      // wanted by an administrator who came here to change one role.
+      return Promise.all([api.adminUsers(), api.systemStatus(), api.knowledgeIndexStatus()])
+        .then(([userResult, systemResult, indexResult]) => {
           setUsers(userResult.users);
-          setEvents(auditResult.events);
           setSystem(systemResult);
           setIndexStatus(indexResult);
         });
@@ -85,8 +89,6 @@ export default function AdminPage() {
     try {
       await api.updateAdminUser(target.id, role);
       setUsers((current) => current.map((item) => item.id === target.id ? {...item, role} : item));
-      const audit = await api.auditEvents();
-      setEvents(audit.events);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('admin.loadFailed'));
     } finally {
@@ -104,8 +106,6 @@ export default function AdminPage() {
         gateway_base_url: settings.gatewayBaseURL,
         ...(settings.gatewayAPIKey ? {gateway_api_key: settings.gatewayAPIKey} : {}),
       }));
-      const audit = await api.auditEvents();
-      setEvents(audit.events);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('admin.loadFailed'));
     } finally {
@@ -121,8 +121,6 @@ export default function AdminPage() {
       const result = await api.reindexKnowledge();
       setNotice(t('admin.reindexQueued', {count: result.queued}));
       setIndexStatus(await api.knowledgeIndexStatus());
-      const audit = await api.auditEvents();
-      setEvents(audit.events);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('admin.loadFailed'));
     } finally {
@@ -144,6 +142,7 @@ export default function AdminPage() {
           header={<SideNavHeading heading={t('admin.title')} icon={<Icon icon={ShieldCheck} size="sm" />} onClick={() => router.push('/chat')} subheading={user?.email} />}
         >
           <SideNavSection title={t('admin.title')}>
+            <SideNavItem icon={<Icon icon={LayoutDashboard} size="sm" />} isSelected={section === 'dashboard'} label={t('admin.dashboard')} onClick={() => selectSection('dashboard')} />
             <SideNavItem icon={<Icon icon={Users} size="sm" />} isSelected={section === 'users'} label={t('admin.users')} onClick={() => selectSection('users')} />
             <SideNavItem icon={<Icon icon={ClipboardList} size="sm" />} isSelected={section === 'audit'} label={t('admin.audit')} onClick={() => selectSection('audit')} />
             <SideNavItem icon={<Icon icon={ServerCog} size="sm" />} isSelected={section === 'system'} label={t('admin.system')} onClick={() => selectSection('system')} />
@@ -152,7 +151,9 @@ export default function AdminPage() {
       }
     >
       <Layout
-        contentWidth={960}
+        // Wide enough for a dashboard row of tiles and a table of workspaces
+        // side by side; the settings forms inside it keep their own width.
+        contentWidth={1200}
         height="fill"
         header={
           <LayoutHeader hasDivider>
@@ -164,8 +165,9 @@ export default function AdminPage() {
             <VStack gap={5}>
               {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
               {notice && <Banner isDismissable onDismiss={() => setNotice('')} status="success" title={notice} />}
+              {section === 'dashboard' && <DashboardPanel onError={setError} />}
               {section === 'users' && <UsersPanel pendingUserID={pendingUserID} t={t} users={users} onUpdateRole={updateRole} />}
-              {section === 'audit' && <AuditPanel events={events} t={t} />}
+              {section === 'audit' && <AuditPanel onError={setError} />}
               {section === 'system' && <SystemPanel indexStatus={indexStatus} isReindexing={isReindexing} isSaving={isSavingSystem} system={system} t={t} onReindex={reindexKnowledge} onSave={updateSystemModels} />}
             </VStack>
           </LayoutContent>
@@ -208,29 +210,6 @@ function UsersPanel({users, pendingUserID, onUpdateRole, t}: {users: AdminUser[]
           ))}
         </List>
       </Card>
-    </VStack>
-  );
-}
-
-function AuditPanel({events, t}: {events: AuditEvent[]; t: ReturnType<typeof useTranslation>}) {
-  return (
-    <VStack gap={4}>
-      <Heading level={1} type="display-3">{t('admin.audit')}</Heading>
-      {events.length === 0 ? <EmptyState description={t('admin.auditEmpty')} title="—" /> : (
-        <Card padding={0} width="100%">
-          <List>
-            {events.map((event) => (
-              <Item
-                as="li"
-                description={`${event.actor_name || event.actor_email || 'System'} · ${event.target_type || 'system'}${event.target_id ? ` · ${event.target_id}` : ''}`}
-                endContent={<Timestamp format="date_time" value={event.created_at} />}
-                key={event.id}
-                label={event.action}
-              />
-            ))}
-          </List>
-        </Card>
-      )}
     </VStack>
   );
 }

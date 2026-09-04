@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -190,6 +191,20 @@ func (s *Server) putLLMSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := currentUser(r.Context())
+	previousURL, previousModel, _, _, _, _ := s.workspaceLLM(r.Context(), workspaceID)
+	// The gateway address is where this workspace's conversations are sent, so
+	// changing it is recorded with the address it was changed from. The key
+	// never appears - only whether one was replaced or cleared.
+	record := func(credential string) {
+		s.audit(r, auditEvent{
+			Action: "workspace.gateway.updated", TargetType: "workspace", TargetID: workspaceID,
+			WorkspaceID: workspaceID,
+			Metadata: map[string]string{
+				"base_url": input.BaseURL, "model": input.Model, "api_key": credential,
+				"previous_base_url": previousURL, "previous_model": previousModel,
+			},
+		})
+	}
 	// A nil api_key means "leave the stored key alone"; an empty string clears it.
 	if input.APIKey == nil {
 		_, err := s.db.Exec(r.Context(), `
@@ -201,6 +216,7 @@ func (s *Server) putLLMSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình model.")
 			return
 		}
+		record("unchanged")
 		s.getLLMSettings(w, r)
 		return
 	}
@@ -229,6 +245,11 @@ func (s *Server) putLLMSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình model.")
 		return
+	}
+	if key == "" {
+		record("cleared")
+	} else {
+		record("replaced")
 	}
 	s.getLLMSettings(w, r)
 }
@@ -624,6 +645,10 @@ func (s *Server) createWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể tạo workspace.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workspace.created", TargetType: "workspace", TargetID: workspaceID, TargetLabel: input.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"slug": slug, "type": "team"},
+	})
 	writeJSON(w, http.StatusCreated, map[string]any{"workspace": Workspace{ID: workspaceID, Name: input.Name, Slug: slug, Type: "team", Description: input.Description, Role: "owner"}})
 }
 
@@ -730,6 +755,15 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể tạo lời mời.")
 		return
 	}
+	// The invite email is recorded because inviting someone into a workspace is
+	// granting them access to everything in it. The token is not: the row would
+	// then be a working invitation link.
+	s.audit(r, auditEvent{
+		Action: "workspace.invitation.created", TargetType: "invitation", TargetID: invitation.ID,
+		TargetLabel: invitation.Email, WorkspaceID: workspaceID,
+		Metadata: map[string]string{"email": invitation.Email, "role": invitation.Role,
+			"expires_at": invitation.ExpiresAt.UTC().Format(time.RFC3339)},
+	})
 	invitation.InviteURL = strings.TrimRight(s.cfg.FrontendURL, "/") + "/invite?token=" + token
 	writeJSON(w, http.StatusCreated, map[string]any{"invitation": invitation})
 }
@@ -740,9 +774,22 @@ func (s *Server) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	invitationID := chi.URLParam(r, "invitationID")
-	if _, err := s.db.Exec(r.Context(), `DELETE FROM workspace_invitations WHERE id = $1 AND workspace_id = $2 AND accepted_at IS NULL`, invitationID, workspaceID); err != nil {
+	// RETURNING rather than a separate read: the row is gone by the time the
+	// audit is written, and an id with no email says nothing a year later.
+	var email, role string
+	err := s.db.QueryRow(r.Context(), `
+		DELETE FROM workspace_invitations WHERE id = $1 AND workspace_id = $2 AND accepted_at IS NULL
+		RETURNING email, role`, invitationID, workspaceID).Scan(&email, &role)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusInternalServerError, "Không thể thu hồi lời mời.")
 		return
+	}
+	if err == nil {
+		s.audit(r, auditEvent{
+			Action: "workspace.invitation.revoked", TargetType: "invitation", TargetID: invitationID,
+			TargetLabel: email, WorkspaceID: workspaceID,
+			Metadata: map[string]string{"email": email, "role": role},
+		})
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -800,6 +847,11 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRow(r.Context(), `SELECT id, name, slug, type FROM workspaces WHERE id = $1`, workspaceID).
 		Scan(&workspace.ID, &workspace.Name, &workspace.Slug, &workspace.Type)
 	workspace.Role = role
+	s.audit(r, auditEvent{
+		Action: "workspace.member.joined", TargetType: "user", TargetID: user.ID, TargetLabel: user.Email,
+		WorkspaceID: workspaceID,
+		Metadata:    map[string]string{"role": role, "invitation_id": invitationID},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"workspace": workspace})
 }
 
@@ -864,10 +916,21 @@ func (s *Server) deleteConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// messages.conversation_id cascades, so the transcript goes with it.
+	// Deleting is the one thing a transcript cannot be asked about afterwards,
+	// which is why it is recorded and creating one is not.
+	var title, conversationWorkspaceID string
+	var messageCount int
+	_ = s.db.QueryRow(r.Context(), `
+		SELECT c.title, c.workspace_id, (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id)
+		FROM conversations c WHERE c.id = $1`, conversationID).Scan(&title, &conversationWorkspaceID, &messageCount)
 	if _, err := s.db.Exec(r.Context(), `DELETE FROM conversations WHERE id = $1`, conversationID); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể xoá hội thoại.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "conversation.deleted", TargetType: "conversation", TargetID: conversationID, TargetLabel: title,
+		WorkspaceID: conversationWorkspaceID, Metadata: map[string]int{"messages": messageCount},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -920,7 +983,20 @@ func (s *Server) deleteMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể xoá tin nhắn.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "conversation.message.deleted", TargetType: "conversation", TargetID: conversationID,
+		WorkspaceID: s.conversationWorkspace(r.Context(), conversationID),
+		Metadata:    map[string]any{"role": role, "deleted": removedIDs(messageID, partnerID)},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": removedIDs(messageID, partnerID)})
+}
+
+// conversationWorkspace is where a conversation lives, for the audit rows that
+// are about a conversation but have to be filed under a workspace.
+func (s *Server) conversationWorkspace(ctx context.Context, conversationID string) string {
+	var workspaceID string
+	_ = s.db.QueryRow(ctx, `SELECT workspace_id FROM conversations WHERE id = $1`, conversationID).Scan(&workspaceID)
+	return workspaceID
 }
 
 func removedIDs(messageID, partnerID string) []string {
@@ -1012,6 +1088,26 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể đọc lại workspace.")
 		return
+	}
+	// Which fields the request actually carried, not which fields the workspace
+	// has: every field is optional here, and a row saying "everything changed"
+	// on a rename would be a lie.
+	changed := []string{}
+	for field, sent := range map[string]bool{
+		"name": input.Name != nil, "description": input.Description != nil,
+		"icon": input.Icon != nil, "context": input.Context != nil,
+	} {
+		if sent {
+			changed = append(changed, field)
+		}
+	}
+	sort.Strings(changed)
+	if len(changed) > 0 {
+		s.audit(r, auditEvent{
+			Action: "workspace.updated", TargetType: "workspace", TargetID: workspaceID,
+			TargetLabel: workspace.Name, WorkspaceID: workspaceID,
+			Metadata: map[string]any{"fields": changed},
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"workspace": workspace})
 }
@@ -1106,6 +1202,10 @@ func (s *Server) uploadWorkspaceIcon(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể lưu ảnh biểu tượng.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workspace.icon.updated", TargetType: "workspace", TargetID: workspaceID, WorkspaceID: workspaceID,
+		Metadata: map[string]any{"mime": input.MIME, "bytes": len(image)},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1122,6 +1222,9 @@ func (s *Server) deleteWorkspaceIcon(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể xoá ảnh biểu tượng.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workspace.icon.removed", TargetType: "workspace", TargetID: workspaceID, WorkspaceID: workspaceID,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1154,6 +1257,17 @@ func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Không gian cá nhân không xoá được.")
 		return
 	}
+	// Read the size of what is about to disappear while it still exists. This
+	// is the one audit row that can never be reconstructed from the database
+	// afterwards, because the database is what is being removed.
+	var name string
+	var members, conversations, knowledgeBases int
+	_ = s.db.QueryRow(r.Context(), `
+		SELECT w.name,
+		       (SELECT COUNT(*) FROM workspace_memberships m WHERE m.workspace_id = w.id),
+		       (SELECT COUNT(*) FROM conversations c WHERE c.workspace_id = w.id),
+		       (SELECT COUNT(*) FROM knowledge_bases kb WHERE kb.owner_workspace_id = w.id)
+		FROM workspaces w WHERE w.id = $1`, workspaceID).Scan(&name, &members, &conversations, &knowledgeBases)
 
 	tx, err := s.db.Begin(r.Context())
 	if err != nil {
@@ -1177,5 +1291,12 @@ func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể xoá workspace.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workspace.deleted", TargetType: "workspace", TargetID: workspaceID, TargetLabel: name,
+		WorkspaceID: workspaceID,
+		Metadata: map[string]int{
+			"members": members, "conversations": conversations, "knowledge_bases": knowledgeBases,
+		},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }

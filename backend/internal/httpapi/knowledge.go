@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -328,6 +329,10 @@ func (s *Server) createKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể tạo knowledge base.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "knowledge.base.created", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: input.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"visibility": visibilityWorkspace},
+	})
 	s.writeKnowledgeBase(w, r, kbID, http.StatusCreated)
 }
 
@@ -503,6 +508,44 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Reach is recorded on its own line rather than as one more changed field:
+	// widening a corpus to every workspace is a different kind of act from
+	// renaming it, and a reviewer scanning the log should not have to open the
+	// metadata to tell them apart.
+	changed := []string{}
+	for field, sent := range map[string]bool{
+		"name": input.Name != nil, "description": input.Description != nil, "icon": input.Icon != nil,
+		"tags": input.Tags != nil, "layout_mode": input.LayoutMode != nil,
+		"retrieval_mode": input.RetrievalMode != nil, "embedding_model": input.EmbeddingModel != nil,
+		"reranker_model": input.RerankerModel != nil, "rerank_enabled": input.RerankEnabled != nil,
+		"score_threshold": input.ScoreThreshold != nil, "retrieval_top_k": input.RetrievalTopK != nil,
+		"chunk_size": input.ChunkSize != nil, "chunk_overlap": input.ChunkOverlap != nil,
+	} {
+		if sent {
+			changed = append(changed, field)
+		}
+	}
+	sort.Strings(changed)
+	workspaceID, name := s.knowledgeOwner(r.Context(), kbID)
+	if input.Visibility != nil || input.Workspaces != nil {
+		metadata := map[string]any{}
+		if input.Visibility != nil {
+			metadata["visibility"] = *input.Visibility
+		}
+		if input.Workspaces != nil {
+			metadata["workspaces"] = *input.Workspaces
+		}
+		s.audit(r, auditEvent{
+			Action: "knowledge.base.sharing_updated", TargetType: "knowledge_base", TargetID: kbID,
+			TargetLabel: name, WorkspaceID: workspaceID, Metadata: metadata,
+		})
+	}
+	if len(changed) > 0 {
+		s.audit(r, auditEvent{
+			Action: "knowledge.base.updated", TargetType: "knowledge_base", TargetID: kbID,
+			TargetLabel: name, WorkspaceID: workspaceID, Metadata: map[string]any{"fields": changed},
+		})
+	}
 	s.writeKnowledgeBase(w, r, kbID, http.StatusOK)
 }
 
@@ -587,6 +630,9 @@ func (s *Server) deleteKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Chỉ quản trị viên của workspace sở hữu mới xoá được knowledge base này.")
 		return
 	}
+	workspaceID, name := s.knowledgeOwner(r.Context(), kbID)
+	var documents int
+	_ = s.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM knowledge_documents WHERE kb_id = $1`, kbID).Scan(&documents)
 	// Shares and mounts cascade, so removing the base also detaches it
 	// everywhere it was installed.
 	if _, err := s.db.Exec(r.Context(), `DELETE FROM knowledge_bases WHERE id = $1`, kbID); err != nil {
@@ -598,6 +644,10 @@ func (s *Server) deleteKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("could not clear knowledge base from the index", "kb", kbID, "error", err)
 		}
 	}
+	s.audit(r, auditEvent{
+		Action: "knowledge.base.deleted", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: name,
+		WorkspaceID: workspaceID, Metadata: map[string]int{"documents": documents},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -626,13 +676,29 @@ func (s *Server) publishKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.db.Exec(r.Context(), `
+	var version int
+	if err := s.db.QueryRow(r.Context(), `
 		UPDATE knowledge_bases SET version = version + 1, published_at = NOW(), updated_at = NOW()
-		WHERE id = $1`, kbID); err != nil {
+		WHERE id = $1 RETURNING version`, kbID).Scan(&version); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể publish knowledge base.")
 		return
 	}
+	workspaceID, name := s.knowledgeOwner(r.Context(), kbID)
+	s.audit(r, auditEvent{
+		Action: "knowledge.base.published", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: name,
+		WorkspaceID: workspaceID, Metadata: map[string]int{"version": version, "documents": ready},
+	})
 	s.writeKnowledgeBase(w, r, kbID, http.StatusOK)
+}
+
+// knowledgeOwner is the workspace a corpus belongs to and what it is called.
+// Both are wanted by every audit row about a knowledge base, and neither is
+// readable once the row has been deleted - so they are read before the change,
+// not after it.
+func (s *Server) knowledgeOwner(ctx context.Context, kbID string) (workspaceID, name string) {
+	_ = s.db.QueryRow(ctx, `SELECT COALESCE(owner_workspace_id, ''), name FROM knowledge_bases WHERE id = $1`, kbID).
+		Scan(&workspaceID, &name)
+	return workspaceID, name
 }
 
 func (s *Server) writeKnowledgeBase(w http.ResponseWriter, r *http.Request, kbID string, status int) {
@@ -760,6 +826,13 @@ func (s *Server) mountKnowledge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể cài knowledge base.")
 		return
 	}
+	// Filed against the installing workspace rather than the owning one: this
+	// is a change to what that workspace's members can retrieve.
+	_, name := s.knowledgeOwner(r.Context(), kbID)
+	s.audit(r, auditEvent{
+		Action: "knowledge.base.installed", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: name,
+		WorkspaceID: workspaceID, Metadata: map[string]int{"version": version},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -775,6 +848,11 @@ func (s *Server) unmountKnowledge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể gỡ knowledge base.")
 		return
 	}
+	_, name := s.knowledgeOwner(r.Context(), kbID)
+	s.audit(r, auditEvent{
+		Action: "knowledge.base.uninstalled", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: name,
+		WorkspaceID: workspaceID,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 

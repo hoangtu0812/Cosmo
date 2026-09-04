@@ -2,11 +2,9 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,17 +31,6 @@ type AdminUser struct {
 	WorkspaceCount int       `json:"workspace_count"`
 	CreatedAt      time.Time `json:"created_at"`
 	HasAvatar      bool      `json:"has_avatar"`
-}
-
-type AuditLog struct {
-	ID         int64          `json:"id"`
-	ActorName  string         `json:"actor_name"`
-	ActorEmail string         `json:"actor_email"`
-	Action     string         `json:"action"`
-	TargetType string         `json:"target_type"`
-	TargetID   string         `json:"target_id"`
-	Metadata   map[string]any `json:"metadata"`
-	CreatedAt  time.Time      `json:"created_at"`
 }
 
 type SystemStatus struct {
@@ -142,46 +129,17 @@ func (s *Server) updateAdminUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Email này được khai báo trong ADMIN_EMAILS và phải giữ quyền quản trị.")
 		return
 	}
+	var previousRole string
+	_ = s.db.QueryRow(r.Context(), `SELECT role FROM users WHERE id = $1`, userID).Scan(&previousRole)
 	if _, err := s.db.Exec(r.Context(), `UPDATE users SET role = $2, updated_at = NOW() WHERE id = $1`, userID, input.Role); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể cập nhật quyền người dùng.")
 		return
 	}
-	s.writeAudit(r.Context(), actor.ID, "admin.user.role_updated", "user", userID, map[string]string{"role": input.Role})
+	s.audit(r, auditEvent{
+		Action: "admin.user.role_updated", TargetType: "user", TargetID: userID, TargetLabel: targetEmail,
+		Metadata: map[string]string{"role": input.Role, "previous_role": previousRole},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"id": userID, "role": input.Role})
-}
-
-func (s *Server) listAuditLogs(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requirePlatformAdmin(w, r); !ok {
-		return
-	}
-	limit := 100
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 200 {
-			limit = parsed
-		}
-	}
-	rows, err := s.db.Query(r.Context(), `
-		SELECT a.id, COALESCE(u.name, ''), COALESCE(u.email, ''), a.action, a.target_type, a.target_id, a.metadata, a.created_at
-		FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id
-		ORDER BY a.created_at DESC LIMIT $1`, limit)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể tải nhật ký audit.")
-		return
-	}
-	defer rows.Close()
-	items := []AuditLog{}
-	for rows.Next() {
-		var item AuditLog
-		var metadata []byte
-		if rows.Scan(&item.ID, &item.ActorName, &item.ActorEmail, &item.Action, &item.TargetType, &item.TargetID, &metadata, &item.CreatedAt) == nil {
-			_ = json.Unmarshal(metadata, &item.Metadata)
-			if item.Metadata == nil {
-				item.Metadata = map[string]any{}
-			}
-			items = append(items, item)
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": items})
 }
 
 func (s *Server) systemStatus(w http.ResponseWriter, r *http.Request) {
@@ -331,6 +289,10 @@ func (s *Server) updateSystemSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Read before writing: an audit row that says only what a setting became
+	// leaves the reader to guess whether anything actually changed.
+	previous, _ := s.knowledgeModelSettings(r.Context())
+
 	tx, err := s.db.Begin(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình hệ thống.")
@@ -366,9 +328,25 @@ func (s *Server) updateSystemSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình hệ thống.")
 		return
 	}
-	s.writeAudit(r.Context(), actor.ID, "admin.system.knowledge_models_updated", "system", "knowledge_models", map[string]string{
-		"embedding_model": input.EmbeddingModel,
-		"reranker_model":  input.RerankerModel,
+	// The key itself is never recorded; whether one was set or cleared is.
+	credential := "unchanged"
+	if input.GatewayAPIKey != nil {
+		credential = "cleared"
+		if len(sealed) > 0 {
+			credential = "replaced"
+		}
+	}
+	s.audit(r, auditEvent{
+		Action: "admin.system.settings_updated", TargetType: "system", TargetID: "platform",
+		Metadata: map[string]string{
+			"embedding_model":    input.EmbeddingModel,
+			"reranker_model":     input.RerankerModel,
+			"gateway_base_url":   input.GatewayBaseURL,
+			"gateway_api_key":    credential,
+			"gateway_key_hint":   hint,
+			"previous_embedding": previous.EmbeddingModel,
+			"previous_reranker":  previous.RerankerModel,
+		},
 	})
 	gateway, err := s.systemGatewaySettings(r.Context())
 	if err != nil {
@@ -440,8 +418,7 @@ type reindexDocument struct {
 // platform-admin operation because the collection is shared across every
 // workspace. The original document objects and database metadata are kept.
 func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Request) {
-	actor, ok := s.requirePlatformAdmin(w, r)
-	if !ok {
+	if _, ok := s.requirePlatformAdmin(w, r); !ok {
 		return
 	}
 	if s.knowledge == nil {
@@ -505,7 +482,10 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 			s.logger.Warn("could not record re-index event", "document", document.ID, "error", err)
 		}
 	}
-	s.writeAudit(r.Context(), actor.ID, "admin.system.knowledge_reindex_started", "system", "knowledge_index", map[string]int{"documents": len(documents)})
+	s.audit(r, auditEvent{
+		Action: "admin.system.knowledge_reindex_started", TargetType: "system", TargetID: "knowledge_index",
+		Metadata: map[string]int{"documents": len(documents)},
+	})
 	go s.runKnowledgeReindex(documents)
 	writeJSON(w, http.StatusAccepted, map[string]int{"queued": len(documents)})
 }
@@ -586,12 +566,3 @@ func (s *Server) knowledgeIndexStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
-func (s *Server) writeAudit(ctx context.Context, actorID, action, targetType, targetID string, metadata any) {
-	payload, err := json.Marshal(metadata)
-	if err != nil {
-		payload = []byte(`{}`)
-	}
-	if _, err := s.db.Exec(ctx, `INSERT INTO audit_logs(actor_user_id, action, target_type, target_id, metadata) VALUES($1, $2, $3, $4, $5::jsonb)`, actorID, action, targetType, targetID, string(payload)); err != nil {
-		s.logger.Warn("write audit log", "action", action, "error", err)
-	}
-}

@@ -226,6 +226,16 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	kbWorkspaceID, kbName := s.knowledgeOwner(r.Context(), kbID)
+	s.audit(r, auditEvent{
+		Action: "knowledge.document.uploaded", TargetType: "document", TargetID: documentID, TargetLabel: title,
+		WorkspaceID: kbWorkspaceID,
+		Metadata: map[string]any{
+			"knowledge_base": kbName, "kb_id": kbID,
+			"filename": header.Filename, "bytes": len(content), "content_type": header.Header.Get("Content-Type"),
+		},
+	})
+
 	// Parsing and embedding a large manual takes minutes, far longer than a
 	// browser will wait. The row is returned immediately as "processing" and
 	// the ingestion runs on its own context so it survives the response.
@@ -463,9 +473,10 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var storageKey string
+	var storageKey, title, filename string
 	err := s.db.QueryRow(r.Context(), `
-		SELECT storage_key FROM knowledge_documents WHERE id = $1 AND kb_id = $2`, documentID, kbID).Scan(&storageKey)
+		SELECT storage_key, title, filename FROM knowledge_documents WHERE id = $1 AND kb_id = $2`,
+		documentID, kbID).Scan(&storageKey, &title, &filename)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "Không tìm thấy tài liệu.")
 		return
@@ -486,6 +497,12 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "Không thể xoá tài liệu.")
 		return
 	}
+	kbWorkspaceID, kbName := s.knowledgeOwner(r.Context(), kbID)
+	s.audit(r, auditEvent{
+		Action: "knowledge.document.deleted", TargetType: "document", TargetID: documentID, TargetLabel: title,
+		WorkspaceID: kbWorkspaceID,
+		Metadata:    map[string]string{"knowledge_base": kbName, "kb_id": kbID, "filename": filename},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 

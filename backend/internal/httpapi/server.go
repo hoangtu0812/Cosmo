@@ -196,6 +196,9 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/admin/users", s.listAdminUsers)
 		protected.Patch("/api/admin/users/{userID}", s.updateAdminUser)
 		protected.Get("/api/admin/audit-logs", s.listAuditLogs)
+		protected.Get("/api/admin/audit-logs/filters", s.auditLogFilters)
+		protected.Get("/api/admin/audit-logs/export", s.exportAuditLogs)
+		protected.Get("/api/admin/analytics", s.platformAnalytics)
 		protected.Get("/api/admin/system", s.systemStatus)
 		protected.Put("/api/admin/system", s.updateSystemSettings)
 		protected.Post("/api/admin/system/models", s.listSystemGatewayModels)
@@ -421,7 +424,10 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := User{ID: userID, Email: input.Email, Name: input.Name, Role: "user"}
-	s.writeAudit(r.Context(), user.ID, "auth.local.signed_up", "user", user.ID, map[string]string{"provider": "local"})
+	s.auditAs(r, user, auditEvent{
+		Action: "auth.account.signed_up", TargetType: "user", TargetID: user.ID, TargetLabel: user.Email,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"provider": "local"},
+	})
 	s.setSession(w, user, true)
 	writeJSON(w, http.StatusCreated, map[string]any{"user": user})
 }
@@ -444,15 +450,36 @@ func (s *Server) signin(w http.ResponseWriter, r *http.Request) {
 	var hash *string
 	err := s.db.QueryRow(r.Context(), `SELECT id, email, name, role, password_hash, (avatar_image IS NOT NULL) FROM users WHERE email = $1`, input.Email).Scan(&user.ID, &user.Email, &user.Name, &user.Role, &hash, &user.HasAvatar)
 	if err != nil || hash == nil || bcrypt.CompareHashAndPassword([]byte(*hash), []byte(input.Password)) != nil {
+		// Recorded against the email that was typed, which is all a failed
+		// attempt leaves behind and the only way repeated guessing at one
+		// account is visible at all.
+		reason := "bad_password"
+		if err != nil {
+			reason = "unknown_account"
+		} else if hash == nil {
+			reason = "no_local_password"
+		}
+		s.auditAs(r, User{ID: user.ID, Email: input.Email, Name: user.Name}, auditEvent{
+			Action: "auth.session.sign_in_failed", TargetType: "user", TargetID: user.ID, TargetLabel: input.Email,
+			Outcome: auditFailure, Metadata: map[string]string{"provider": "local", "reason": reason},
+		})
 		writeError(w, http.StatusUnauthorized, "Email hoặc mật khẩu không đúng.")
 		return
 	}
-	s.writeAudit(r.Context(), user.ID, "auth.local.signed_in", "user", user.ID, map[string]string{"provider": "local"})
+	s.auditAs(r, user, auditEvent{
+		Action: "auth.session.signed_in", TargetType: "user", TargetID: user.ID, TargetLabel: user.Email,
+		Metadata: map[string]string{"provider": "local", "remember": strconv.FormatBool(input.Remember)},
+	})
 	s.setSession(w, user, input.Remember)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 
-func (s *Server) signout(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) signout(w http.ResponseWriter, r *http.Request) {
+	if user := s.sessionActor(r); user.ID != "" {
+		s.auditAs(r, user, auditEvent{
+			Action: "auth.session.signed_out", TargetType: "user", TargetID: user.ID, TargetLabel: user.Email,
+		})
+	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: s.cfg.CookieSecure, SameSite: http.SameSiteLaxMode, MaxAge: -1})
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -472,24 +499,35 @@ func (s *Server) entraCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=entra_not_configured", http.StatusFound)
 		return
 	}
+	// Every way this can fail is a sign-in that did not happen, and each is
+	// recorded under the same action with the reason attached: a burst of
+	// invalid_oauth_state is a different problem from a burst of bad tokens,
+	// and neither is visible if the redirect is the only trace.
+	refuse := func(reason string, actor User) {
+		s.auditAs(r, actor, auditEvent{
+			Action: "auth.session.sign_in_failed", TargetType: "user", TargetID: actor.ID, TargetLabel: actor.Email,
+			Outcome: auditFailure, Metadata: map[string]string{"provider": "entra", "reason": reason},
+		})
+		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error="+reason, http.StatusFound)
+	}
 	stateCookie, err := r.Cookie(oauthStateCookie)
 	if err != nil || stateCookie.Value == "" || stateCookie.Value != r.URL.Query().Get("state") {
-		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=invalid_oauth_state", http.StatusFound)
+		refuse("invalid_oauth_state", User{})
 		return
 	}
 	token, err := s.oauthConfig.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
-		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=token_exchange_failed", http.StatusFound)
+		refuse("token_exchange_failed", User{})
 		return
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=missing_id_token", http.StatusFound)
+		refuse("missing_id_token", User{})
 		return
 	}
 	idToken, err := s.oidcVerifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
-		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=invalid_id_token", http.StatusFound)
+		refuse("invalid_id_token", User{})
 		return
 	}
 	var claims struct {
@@ -499,7 +537,7 @@ func (s *Server) entraCallback(w http.ResponseWriter, r *http.Request) {
 		PreferredUsername string `json:"preferred_username"`
 	}
 	if idToken.Claims(&claims) != nil {
-		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=invalid_claims", http.StatusFound)
+		refuse("invalid_claims", User{})
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(claims.Email))
@@ -507,13 +545,13 @@ func (s *Server) entraCallback(w http.ResponseWriter, r *http.Request) {
 		email = strings.ToLower(strings.TrimSpace(claims.PreferredUsername))
 	}
 	if !validEmail(email) || claims.Subject == "" {
-		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=email_required", http.StatusFound)
+		refuse("email_required", User{Email: email})
 		return
 	}
 	user, err := s.upsertEntraUser(r.Context(), claims.Subject, email, claims.Name)
 	if err != nil {
 		s.logger.Error("upsert Entra user", "error", err)
-		http.Redirect(w, r, s.cfg.FrontendURL+"/?auth_error=account_provision_failed", http.StatusFound)
+		refuse("account_provision_failed", User{Email: email, Name: claims.Name})
 		return
 	}
 	if image, mime, err := fetchEntraAvatar(r.Context(), token.AccessToken); err == nil && len(image) > 0 {
@@ -523,7 +561,10 @@ func (s *Server) entraCallback(w http.ResponseWriter, r *http.Request) {
 			user.HasAvatar = true
 		}
 	}
-	s.writeAudit(r.Context(), user.ID, "auth.entra.signed_in", "user", user.ID, map[string]string{"provider": "entra"})
+	s.auditAs(r, user, auditEvent{
+		Action: "auth.session.signed_in", TargetType: "user", TargetID: user.ID, TargetLabel: user.Email,
+		Metadata: map[string]string{"provider": "entra"},
+	})
 	s.setSession(w, user, true)
 	http.Redirect(w, r, s.cfg.FrontendURL+"/chat", http.StatusFound)
 }
@@ -1354,6 +1395,33 @@ func (s *Server) requireUser(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey, user)))
 	})
+}
+
+// sessionActor reads who a request claims to be, without refusing it when the
+// answer is nobody. Signing out is not behind requireUser - a cookie that has
+// already expired still has to be cleared - so this is how the sign-out record
+// gets a name rather than being written against an empty actor.
+func (s *Server) sessionActor(r *http.Request) User {
+	cookie, err := r.Cookie(sessionCookie)
+	if err != nil || cookie.Value == "" {
+		return User{}
+	}
+	token, err := jwt.Parse(cookie.Value, func(token *jwt.Token) (any, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, fmt.Errorf("unexpected signing method")
+		}
+		return []byte(s.cfg.SessionSecret), nil
+	}, jwt.WithIssuer("cosmo"))
+	if err != nil || !token.Valid {
+		return User{}
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return User{}
+	}
+	userID, _ := claims.GetSubject()
+	email, _ := claims["email"].(string)
+	return User{ID: userID, Email: email}
 }
 
 func (s *Server) setSession(w http.ResponseWriter, user User, persistent bool) {

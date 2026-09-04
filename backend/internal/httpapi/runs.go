@@ -146,5 +146,9 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể hủy run.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "run.cancelled", TargetType: "run", TargetID: item.ID, WorkspaceID: item.WorkspaceID,
+		Metadata: map[string]string{"resource_type": item.ResourceType, "resource_id": item.ResourceID},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"run": cancelled})
 }

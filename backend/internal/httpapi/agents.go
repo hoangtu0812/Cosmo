@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 
 	"cosmo/backend/internal/agents"
@@ -106,6 +107,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		writeAgentError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "agent.created", TargetType: "agent", TargetID: agentID, TargetLabel: input.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"visibility": input.Visibility},
+	})
 	s.writeAgent(w, r, agentID, user, workspaceID, http.StatusCreated)
 }
 
@@ -153,11 +158,41 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 		writeAgentError(w, err)
 		return
 	}
+	// The system prompt and the knowledge attached to it are what an agent
+	// actually does, so a change to either is named rather than counted. The
+	// prompt's text is not stored here: it is in the agent, and copying it into
+	// every audit row would make the log a second, stale copy of the agent.
+	changed := []string{}
+	for field, sent := range map[string]bool{
+		"name": input.Name != nil, "introduction": input.Introduction != nil, "avatar": input.Avatar != nil,
+		"tags": input.Tags != nil, "visibility": input.Visibility != nil, "model": input.Model != nil,
+		"system_prompt": input.SystemPrompt != nil, "opening_line": input.OpeningLine != nil,
+		"preset_questions": input.PresetQuestions != nil, "suggested_questions": input.HasSuggestedQuestions != nil,
+		"memory": input.IsMemoryEnabled != nil, "knowledge_bases": input.KnowledgeBaseIDs != nil,
+	} {
+		if sent {
+			changed = append(changed, field)
+		}
+	}
+	sort.Strings(changed)
+	if len(changed) > 0 {
+		metadata := map[string]any{"fields": changed}
+		if input.Visibility != nil {
+			metadata["visibility"] = *input.Visibility
+		}
+		if input.KnowledgeBaseIDs != nil {
+			metadata["knowledge_base_ids"] = *input.KnowledgeBaseIDs
+		}
+		s.audit(r, auditEvent{
+			Action: "agent.updated", TargetType: "agent", TargetID: current.ID, TargetLabel: current.Name,
+			WorkspaceID: workspaceID, Metadata: metadata,
+		})
+	}
 	s.writeAgent(w, r, current.ID, user, workspaceID, http.StatusOK)
 }
 
 func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
-	current, _, _, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
+	current, _, workspaceID, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
 	if !ok {
 		return
 	}
@@ -165,6 +200,10 @@ func (s *Server) deleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể xoá agent.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "agent.deleted", TargetType: "agent", TargetID: current.ID, TargetLabel: current.Name,
+		WorkspaceID: workspaceID,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -256,7 +295,7 @@ func (s *Server) agentAvatar(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) uploadAgentAvatar(w http.ResponseWriter, r *http.Request) {
-	current, _, _, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
+	current, _, workspaceID, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
 	if !ok {
 		return
 	}
@@ -290,11 +329,15 @@ func (s *Server) uploadAgentAvatar(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể lưu ảnh đại diện.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "agent.avatar.updated", TargetType: "agent", TargetID: current.ID, TargetLabel: current.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]any{"mime": input.MIME, "bytes": len(image)},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) deleteAgentAvatar(w http.ResponseWriter, r *http.Request) {
-	current, _, _, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
+	current, _, workspaceID, ok := s.agentForWrite(w, r, chi.URLParam(r, "agentID"))
 	if !ok {
 		return
 	}
@@ -302,6 +345,10 @@ func (s *Server) deleteAgentAvatar(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể xoá ảnh đại diện.")
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "agent.avatar.removed", TargetType: "agent", TargetID: current.ID, TargetLabel: current.Name,
+		WorkspaceID: workspaceID,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -316,10 +363,19 @@ func (s *Server) publishAgent(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
 		return
 	}
-	if _, err := s.agents.Publish(r.Context(), current.ID, user.ID, strings.TrimSpace(input.Changelog)); err != nil {
+	version, err := s.agents.Publish(r.Context(), current.ID, user.ID, strings.TrimSpace(input.Changelog))
+	if err != nil {
 		writeAgentError(w, err)
 		return
 	}
+	// Publishing is what makes an agent answer other people, so it is recorded
+	// with the version it froze - which is the identifier a later complaint
+	// about a published answer will arrive quoting.
+	s.audit(r, auditEvent{
+		Action: "agent.published", TargetType: "agent", TargetID: current.ID, TargetLabel: current.Name,
+		WorkspaceID: workspaceID,
+		Metadata:    map[string]any{"version": version.VersionNumber, "changelog": strings.TrimSpace(input.Changelog)},
+	})
 	s.writeAgent(w, r, current.ID, user, workspaceID, http.StatusOK)
 }
 

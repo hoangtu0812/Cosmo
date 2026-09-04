@@ -61,6 +61,10 @@ func (s *Server) createWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeWorkflowError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workflow.created", TargetType: "workflow", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"visibility": item.Visibility},
+	})
 	writeJSON(w, http.StatusCreated, map[string]any{"workflow": item})
 }
 
@@ -97,6 +101,10 @@ func (s *Server) updateWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeWorkflowError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workflow.updated", TargetType: "workflow", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"visibility": item.Visibility},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"workflow": item})
 }
 
@@ -116,6 +124,14 @@ func (s *Server) saveWorkflowGraph(w http.ResponseWriter, r *http.Request) {
 		writeWorkflowError(w, err)
 		return
 	}
+	// The shape of the graph, not the graph: a workflow is edited many times a
+	// sitting, and storing each version here would make the audit log a second
+	// and worse copy of the workflow table.
+	s.audit(r, auditEvent{
+		Action: "workflow.graph.saved", TargetType: "workflow", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID,
+		Metadata:    map[string]int{"nodes": len(input.Graph.Nodes), "edges": len(input.Graph.Edges)},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"workflow": item})
 }
 
@@ -124,10 +140,16 @@ func (s *Server) deleteWorkflow(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.workflows.Delete(r.Context(), chi.URLParam(r, "workflowID"), user.ID, workspaceID); err != nil {
+	workflowID := chi.URLParam(r, "workflowID")
+	removed, _ := s.workflows.Get(r.Context(), workflowID, user.ID, workspaceID)
+	if err := s.workflows.Delete(r.Context(), workflowID, user.ID, workspaceID); err != nil {
 		writeWorkflowError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workflow.deleted", TargetType: "workflow", TargetID: workflowID, TargetLabel: removed.Name,
+		WorkspaceID: workspaceID,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -181,6 +203,15 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Trình duyệt không nhận được dữ liệu streaming.")
 		return
 	}
+	// Recorded before the stream opens rather than after it closes: a workflow
+	// calls tools, and the record that one was set running has to survive the
+	// reader closing the tab halfway through.
+	s.audit(r, auditEvent{
+		Action: "workflow.run.started", TargetType: "workflow", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID,
+		Metadata:    map[string]any{"model": models.ResolveModel(options), "nodes": len(item.Graph.Nodes)},
+	})
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")

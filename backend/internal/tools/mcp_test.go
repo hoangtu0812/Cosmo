@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -16,81 +17,171 @@ import (
 // server is allowed to - a session header, an event-stream body - which is
 // exactly where a client breaks.
 //
-// The fixture listens on loopback, which the egress guard exists to refuse, so
-// the policy under test names the host explicitly. That is the same mechanism
-// an on-premises deployment uses for its internal APIs, so the test exercises
-// the allowlist rather than working around it.
+// The fixture enforces the lifecycle rather than merely tolerating it: it
+// refuses tools/list and tools/call until the initialized notification has
+// arrived, the way a server built on the official SDKs does. The previous
+// fixture did not, which is how this client shipped for months unable to talk
+// to a real server without anyone noticing.
+//
+// It listens on loopback, which the egress guard exists to refuse, so the
+// policy under test names the host explicitly. That is the same mechanism an
+// on-premises deployment uses for its internal APIs, so the test exercises the
+// allowlist rather than working around it.
 type mcpFixture struct {
 	server        *httptest.Server
-	sawSession    string
-	sawArguments  map[string]any
 	asEventStream bool
+
+	mutex        sync.Mutex
+	isInitalized bool
+	sawSession   string
+	sawVersions  []string
+	sawArguments map[string]any
+	sawDelete    bool
+	// Set to answer tools/list in two pages, so a client that reads only the
+	// first one loses the tool on the second.
+	paginates bool
+	// The version the server claims to speak. Empty means "echo the client".
+	speaks string
 }
 
 func newMCPFixture(t *testing.T, asEventStream bool) *mcpFixture {
 	t.Helper()
 	fixture := &mcpFixture{asEventStream: asEventStream}
-	fixture.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var request struct {
-			Method string          `json:"method"`
-			Params json.RawMessage `json:"params"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-
-		var result any
-		switch request.Method {
-		case "initialize":
-			// A real server hands back a session and expects to see it again.
-			w.Header().Set("Mcp-Session-Id", "session-1")
-			result = map[string]any{"protocolVersion": mcpProtocolVersion}
-		case "tools/list":
-			fixture.sawSession = r.Header.Get("Mcp-Session-Id")
-			result = map[string]any{"tools": []any{
-				map[string]any{
-					"name":        "lookup_customer",
-					"description": "Find a customer by id",
-					"inputSchema": map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"customer_id": map[string]any{"type": "string", "description": "The id"},
-							"verbose":     map[string]any{"type": "boolean", "description": "More detail"},
-						},
-						"required": []string{"customer_id"},
-					},
-				},
-				// Refused later: a model could not call this name back.
-				map[string]any{"name": "not a valid name", "description": "skipped"},
-			}}
-		case "tools/call":
-			fixture.sawSession = r.Header.Get("Mcp-Session-Id")
-			var params struct {
-				Name      string         `json:"name"`
-				Arguments map[string]any `json:"arguments"`
-			}
-			_ = json.Unmarshal(request.Params, &params)
-			fixture.sawArguments = params.Arguments
-			result = map[string]any{"content": []any{
-				map[string]any{"type": "text", "text": "Customer 42 is active"},
-			}}
-		default:
-			http.Error(w, "unknown method", http.StatusNotFound)
-			return
-		}
-
-		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "result": result})
-		if fixture.asEventStream {
-			w.Header().Set("Content-Type", "text/event-stream")
-			_, _ = w.Write([]byte("event: message\ndata: " + string(body) + "\n\n"))
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(body)
-	}))
+	fixture.server = httptest.NewServer(http.HandlerFunc(fixture.handle))
 	t.Cleanup(fixture.server.Close)
 	return fixture
+}
+
+func (fixture *mcpFixture) handle(w http.ResponseWriter, r *http.Request) {
+	fixture.mutex.Lock()
+	defer fixture.mutex.Unlock()
+
+	if version := r.Header.Get("MCP-Protocol-Version"); version != "" {
+		fixture.sawVersions = append(fixture.sawVersions, version)
+	}
+	if r.Method == http.MethodDelete {
+		fixture.sawDelete = true
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	var request struct {
+		ID     *int            `json:"id"`
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	// A notification carries no id and must not be answered with a result.
+	if request.ID == nil {
+		if request.Method == "notifications/initialized" {
+			fixture.isInatializedSet()
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	var result any
+	switch request.Method {
+	case "initialize":
+		// A real server hands back a session and expects to see it again.
+		w.Header().Set("Mcp-Session-Id", "session-1")
+		version := fixture.speaks
+		if version == "" {
+			version = mcpProtocolVersion
+		}
+		result = map[string]any{
+			"protocolVersion": version,
+			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"serverInfo":      map[string]any{"name": "fixture", "version": "1"},
+		}
+	case "tools/list":
+		if !fixture.isInitalized {
+			fixture.writeRPCError(w, request.ID, "Received request before initialization was complete")
+			return
+		}
+		fixture.sawSession = r.Header.Get("Mcp-Session-Id")
+		var params struct {
+			Cursor string `json:"cursor"`
+		}
+		_ = json.Unmarshal(request.Params, &params)
+		result = fixture.page(params.Cursor)
+	case "tools/call":
+		if !fixture.isInitalized {
+			fixture.writeRPCError(w, request.ID, "Received request before initialization was complete")
+			return
+		}
+		fixture.sawSession = r.Header.Get("Mcp-Session-Id")
+		var params struct {
+			Name      string         `json:"name"`
+			Arguments map[string]any `json:"arguments"`
+		}
+		_ = json.Unmarshal(request.Params, &params)
+		fixture.sawArguments = params.Arguments
+		result = map[string]any{"content": []any{
+			map[string]any{"type": "text", "text": "Customer 42 is active"},
+		}}
+	default:
+		http.Error(w, "unknown method", http.StatusNotFound)
+		return
+	}
+
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": result})
+	if fixture.asEventStream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: message\ndata: " + string(body) + "\n\n"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+func (fixture *mcpFixture) isInatializedSet() { fixture.isInitalized = true }
+
+func (fixture *mcpFixture) writeRPCError(w http.ResponseWriter, id *int, message string) {
+	body, _ := json.Marshal(map[string]any{
+		"jsonrpc": "2.0", "id": id,
+		"error": map[string]any{"code": -32602, "message": message},
+	})
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+// page answers tools/list. With paginates set it hands back one tool and a
+// cursor, then the second tool on the next request.
+func (fixture *mcpFixture) page(cursor string) map[string]any {
+	lookup := map[string]any{
+		"name":        "lookup_customer",
+		"description": "Find a customer by id",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"customer_id": map[string]any{"type": "string", "description": "The id"},
+				"verbose":     map[string]any{"type": "boolean", "description": "More detail"},
+			},
+			"required": []string{"customer_id"},
+		},
+	}
+	// Refused later: a model could not call this name back.
+	unusable := map[string]any{"name": "not a valid name", "description": "skipped"}
+	onSecondPage := map[string]any{
+		"name":        "close_ticket",
+		"description": "Only reachable by following the cursor",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
+	}
+
+	if !fixture.paginates {
+		return map[string]any{"tools": []any{lookup, unusable}}
+	}
+	if cursor == "" {
+		return map[string]any{"tools": []any{lookup, unusable}, "nextCursor": "page-2"}
+	}
+	return map[string]any{"tools": []any{onSecondPage}}
 }
 
 // repositoryFor builds a repository that may reach the fixture. No database is
@@ -105,12 +196,15 @@ func repositoryFor(t *testing.T, server *httptest.Server) *Repository {
 	return &Repository{egress: EgressPolicy{AllowedHosts: []string{parsed.Hostname()}}}
 }
 
+func mcpTool(fixture *mcpFixture) Tool {
+	return Tool{ID: "tol_test", BaseURL: fixture.server.URL, Kind: KindMCP, AuthType: AuthNone}
+}
+
 func TestDiscoverMCPReadsWhatTheServerOffers(t *testing.T) {
 	fixture := newMCPFixture(t, false)
 	repository := repositoryFor(t, fixture.server)
-	tool := Tool{ID: "tol_test", BaseURL: fixture.server.URL, Kind: KindMCP, AuthType: AuthNone}
 
-	discovered, err := repository.DiscoverMCP(context.Background(), tool)
+	discovered, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture))
 	if err != nil {
 		t.Fatalf("discovery failed: %v", err)
 	}
@@ -145,13 +239,97 @@ func TestDiscoverMCPReadsWhatTheServerOffers(t *testing.T) {
 	}
 }
 
+// The lifecycle bug, stated as a test: the spec requires the client to say it
+// is initialized before it asks for anything, and the fixture refuses to answer
+// until it does. Without the notification this fails with the server's own
+// words rather than with something vague.
+func TestMCPSaysItIsInitializedBeforeAsking(t *testing.T) {
+	fixture := newMCPFixture(t, false)
+	repository := repositoryFor(t, fixture.server)
+
+	if _, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture)); err != nil {
+		t.Fatalf("discovery failed: %v", err)
+	}
+	if !fixture.isInitalized {
+		t.Fatal("the server never received notifications/initialized")
+	}
+}
+
+// A session the client opens is a session the server has to hold. Ending it is
+// the client's job, and nothing else tells the server we are done.
+func TestMCPEndsTheSessionItOpened(t *testing.T) {
+	fixture := newMCPFixture(t, false)
+	repository := repositoryFor(t, fixture.server)
+
+	if _, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture)); err != nil {
+		t.Fatalf("discovery failed: %v", err)
+	}
+	if !fixture.sawDelete {
+		t.Fatal("the session was left open on the server")
+	}
+}
+
+func TestDiscoverMCPFollowsTheCursor(t *testing.T) {
+	fixture := newMCPFixture(t, false)
+	fixture.paginates = true
+	repository := repositoryFor(t, fixture.server)
+
+	discovered, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture))
+	if err != nil {
+		t.Fatalf("discovery failed: %v", err)
+	}
+	names := []string{}
+	for _, action := range discovered {
+		names = append(names, action.Name)
+	}
+	// Reading one page and stopping loses whatever the server put on the next,
+	// and says nothing about having done so.
+	if len(discovered) != 2 || names[1] != "close_ticket" {
+		t.Fatalf("the second page was never asked for, got %v", names)
+	}
+}
+
+// The version to speak is the server's answer, not the client's opening bid.
+func TestMCPSpeaksTheVersionTheServerAgreedTo(t *testing.T) {
+	fixture := newMCPFixture(t, false)
+	fixture.speaks = "2025-03-26"
+	repository := repositoryFor(t, fixture.server)
+
+	if _, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture)); err != nil {
+		t.Fatalf("an older server should still be usable: %v", err)
+	}
+	// The opening request carries our version; everything after it carries the
+	// one that came back.
+	if len(fixture.sawVersions) < 2 {
+		t.Fatalf("too few requests to judge: %v", fixture.sawVersions)
+	}
+	for _, seen := range fixture.sawVersions[1:] {
+		if seen != "2025-03-26" {
+			t.Fatalf("a later request still claimed %q: %v", seen, fixture.sawVersions)
+		}
+	}
+}
+
+func TestMCPRefusesAVersionItCannotSpeak(t *testing.T) {
+	fixture := newMCPFixture(t, false)
+	fixture.speaks = "2099-01-01"
+	repository := repositoryFor(t, fixture.server)
+
+	_, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture))
+	if err == nil {
+		t.Fatal("a protocol this client cannot speak was attempted anyway")
+	}
+	if !strings.Contains(err.Error(), "2099-01-01") {
+		t.Fatalf("the refusal should name the version: %v", err)
+	}
+}
+
 func TestInvokeMCPReturnsTextContent(t *testing.T) {
 	fixture := newMCPFixture(t, false)
 	repository := repositoryFor(t, fixture.server)
-	tool := Tool{ID: "tol_test", BaseURL: fixture.server.URL, Kind: KindMCP, AuthType: AuthNone}
 	action := Action{Name: "lookup_customer", Parameters: []Parameter{{Name: "customer_id", In: "body"}}}
 
-	result, err := repository.Invoke(context.Background(), tool, action, map[string]any{"customer_id": "42"})
+	result, err := repository.Invoke(context.Background(), mcpTool(fixture), action, map[string]any{"customer_id": "42"})
 	if err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
@@ -171,10 +349,9 @@ func TestInvokeMCPReadsAnEventStreamReply(t *testing.T) {
 	// is not something the client chooses.
 	fixture := newMCPFixture(t, true)
 	repository := repositoryFor(t, fixture.server)
-	tool := Tool{ID: "tol_test", BaseURL: fixture.server.URL, Kind: KindMCP, AuthType: AuthNone}
 	action := Action{Name: "lookup_customer"}
 
-	result, err := repository.Invoke(context.Background(), tool, action, nil)
+	result, err := repository.Invoke(context.Background(), mcpTool(fixture), action, nil)
 	if err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
@@ -188,9 +365,8 @@ func TestMCPRefusesAServerTheEgressPolicyDoesNotAllow(t *testing.T) {
 	// URL a user chose, so it goes through the same guard as any other tool.
 	fixture := newMCPFixture(t, false)
 	repository := &Repository{egress: EgressPolicy{}}
-	tool := Tool{ID: "tol_test", BaseURL: fixture.server.URL, Kind: KindMCP, AuthType: AuthNone}
 
-	if _, err := repository.DiscoverMCP(context.Background(), tool); err == nil {
+	if _, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture)); err == nil {
 		t.Fatal("discovery against a private address should have been refused")
 	}
 }

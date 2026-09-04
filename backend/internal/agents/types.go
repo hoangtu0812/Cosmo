@@ -40,6 +40,7 @@ var (
 	ErrRevisionRequired      = errors.New("Cần phiên bản draft hiện tại để lưu agent. Hãy tải lại trước khi lưu.")
 	ErrDraftForbidden        = errors.New("Chỉ người có quyền sửa agent mới được chạy draft.")
 	ErrUnpublished           = errors.New("Agent chưa có phiên bản phát hành. Hãy publish trước khi sử dụng.")
+	ErrToolReleaseRequired   = errors.New("Mọi tool gắn vào agent phải có phiên bản phát hành hợp lệ trước khi publish agent.")
 	ErrNothingToPublish      = errors.New("Không có thay đổi nào để xuất bản.")
 	ErrNameLength            = errors.New("Tên agent phải từ 1 đến 120 ký tự.")
 	ErrIntroLength           = errors.New("Giới thiệu tối đa 512 ký tự.")
@@ -150,8 +151,8 @@ type Runtime struct {
 	// version; the caller then reads the live attachment instead.
 	ToolIDs []string
 	// Which version of each of those tools the agent was published against,
-	// keyed by tool id. A tool that had never been published is absent, and
-	// the caller reads its draft.
+	// keyed by tool id. Legacy releases with missing pins fail execution and
+	// require review and publication of a new agent version.
 	ToolVersions          map[string]string
 	IsMemoryEnabled       bool
 	HasSuggestedQuestions bool

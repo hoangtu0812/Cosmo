@@ -425,3 +425,13 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Chat kiểm tra lại membership và visibility trước khi đọc runtime; version phải thuộc đúng agent của conversation.
 - Integration tests qua HTTP tạo conversation và runtime trên PostgreSQL thật kiểm tra từ chối draft, agent chưa publish, target sai, quyền bị thu hồi và version thuộc agent khác.
 - Kiểm tra: `go test ./...` với database integration đều qua.
+
+### 2026-09-05 — AGT-03a: Dependency bắt buộc có phiên bản
+
+- Publish agent kiểm tra tool release và giữ khóa agent/dependency trong transaction; không phát hành agent có tool chưa publish.
+- Published runtime từ chối thiếu tool, thiếu pin hoặc không tìm thấy version, thay vì đọc draft. Draft test và release không có tool vẫn được hỗ trợ.
+- Chuẩn bị tool set trước khi chấp nhận câu hỏi; lỗi dependency trả về trước message/run/model call.
+- Run lưu `resource_version` và map tool versions; seed publish tool trước agent.
+- Integration test xác minh sửa action draft không đổi action của release, legacy thiếu pin bị từ chối và tool bị xóa không bị bỏ qua.
+- Tương thích: agent release cũ có tool chưa pin sẽ cần quản trị kiểm tra, publish tool và publish lại agent. Không tự gán version cho lịch sử cũ.
+- Kiểm tra: `go test ./...` với database integration. Còn mở rộng snapshot metadata mô tả/model và policy thu hồi capability tại từng invocation trong TOOL-01/RUN-01.

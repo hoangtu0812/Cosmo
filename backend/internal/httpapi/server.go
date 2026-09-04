@@ -952,6 +952,19 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Hãy chọn model cho hội thoại hoặc đặt model mặc định trong Cài đặt workspace.")
 		return
 	}
+	// Missing pinned capabilities must fail before the question is accepted.
+	caller := s.callerFor(r.Context(), user, conversationWorkspaceID)
+	toolCtx := tools.WithCaller(r.Context(), caller)
+	set, setErr := s.toolSetFor(toolCtx, conversationAgentID, conversationWorkspaceID, agentTools, agentToolVersions)
+	if setErr != nil {
+		s.logger.Error("tool set failed", "conversation_id", conversationID, "error", setErr)
+		if errors.Is(setErr, tools.ErrPinnedVersionMissing) {
+			writeError(w, http.StatusConflict, setErr.Error())
+		} else {
+			writeError(w, http.StatusServiceUnavailable, "Không thể chuẩn bị tool cho hội thoại.")
+		}
+		return
+	}
 	// Whether this is the opening turn decides whether the conversation gets
 	// named from it. Asked before the message is written, because after it the
 	// count is one either way. An agent conversation starts under the agent's
@@ -993,8 +1006,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// The resource of a run is what was executed. A plain conversation runs on
 	// the workspace defaults, so the conversation is the resource; one backed
 	// by an agent runs that agent, so the agent is. Either way the other id is
-	// kept in the input, so a run traces both ways. ResourceVersion stays empty
-	// until agents carry versions, and is the field that will hold it.
+	// kept in the input, together with the exact published dependencies.
 	runResourceType, runResourceID := "conversation", conversationID
 	if len(attached) > 0 {
 		ids := make([]string, 0, len(attached))
@@ -1014,15 +1026,17 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if conversationAgentID != "" {
 		runResourceType, runResourceID = "agent", conversationAgentID
 		runInput["agent_id"] = conversationAgentID
+		runInput["tool_versions"] = agentToolVersions
 	}
 	chatRun, _, runErr := s.runs.Create(r.Context(), runs.NewRun{
-		WorkspaceID:  conversationWorkspaceID,
-		ActorUserID:  user.ID,
-		TriggerType:  "manual",
-		ResourceType: runResourceType,
-		ResourceID:   runResourceID,
-		Input:        runInput,
-		TraceID:      middleware.GetReqID(r.Context()),
+		WorkspaceID:     conversationWorkspaceID,
+		ActorUserID:     user.ID,
+		TriggerType:     "manual",
+		ResourceType:    runResourceType,
+		ResourceID:      runResourceID,
+		ResourceVersion: conversationVersionID,
+		Input:           runInput,
+		TraceID:         middleware.GetReqID(r.Context()),
 	})
 	if runErr == nil {
 		chatRun, runErr = s.runs.Transition(r.Context(), chatRun.ID, runs.Running, nil, "", "")
@@ -1164,12 +1178,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// Who is asking and where. The prompt gets it as a block below; the tools
 	// get it on the context, where the Profile built-in reads it - a model
 	// that could name whose profile it wanted would be reading other people's.
-	caller := s.callerFor(r.Context(), user, conversationWorkspaceID)
 	if block := conversationContext(caller, s.workspaceContext(r.Context(), conversationWorkspaceID)); block != "" {
 		contextParts["context"] = len([]rune(block))
 		history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
 	}
-	toolCtx := tools.WithCaller(r.Context(), caller)
 
 	// The answer is accumulated across both phases: a tool round can narrate
 	// before it calls, and that narration is part of the same answer.
@@ -1177,10 +1189,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// What this turn may call. An agent brings what it was wired to; a plain
 	// chat brings what the workspace installed and switched on - nothing at
 	// all until somebody does both, so the ordinary chat pays for none of this.
-	set, setErr := s.toolSetFor(toolCtx, conversationAgentID, conversationWorkspaceID, agentTools, agentToolVersions)
-	if setErr != nil {
-		s.logger.Error("tool set failed", "conversation_id", conversationID, "error", setErr)
-	} else if !set.isEmpty() {
+	if !set.isEmpty() {
 		writeSSE(w, "status", map[string]string{
 			"stage":   "tools_ready",
 			"message": "Đang tìm tool",

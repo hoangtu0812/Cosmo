@@ -118,6 +118,11 @@ func main() {
 	if err := toolRepository.SetAgentTools(ctx, agentID, userID, *workspaceID, []string{tool.ID}); err != nil {
 		fatal(err)
 	}
+	if tool.PublishedVersionID == "" {
+		if _, err := toolRepository.Publish(ctx, tool.ID, userID, "Initial seeded tool release"); err != nil {
+			fatal(err)
+		}
+	}
 
 	version, err := agentRepository.Publish(ctx, agentID, userID, "Phiên bản đầu tiên")
 	if err != nil {

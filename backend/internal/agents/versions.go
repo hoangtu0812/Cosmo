@@ -26,6 +26,34 @@ func (repository *Repository) Publish(ctx context.Context, agentID, publishedBy,
 		return Version{}, err
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
+	// Serialize publication with revision-checked binding changes.
+	var lockedID string
+	if err := transaction.QueryRow(ctx, `SELECT id FROM agents WHERE id=$1 FOR UPDATE`, agentID).Scan(&lockedID); err != nil {
+		return Version{}, err
+	}
+	toolRows, err := transaction.Query(ctx, `SELECT t.id FROM tools t
+		JOIN agent_tools at ON at.tool_id=t.id WHERE at.agent_id=$1
+		ORDER BY t.id FOR SHARE OF t`, agentID)
+	if err != nil {
+		return Version{}, err
+	}
+	for toolRows.Next() { /* hold dependency pointers stable until commit */
+	}
+	toolRows.Close()
+	if err := toolRows.Err(); err != nil {
+		return Version{}, err
+	}
+	var incomplete bool
+	if err := transaction.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM agent_tools at JOIN tools t ON t.id=at.tool_id
+		LEFT JOIN tool_versions v ON v.id=t.published_version_id AND v.tool_id=t.id
+		WHERE at.agent_id=$1 AND v.id IS NULL
+	)`, agentID).Scan(&incomplete); err != nil {
+		return Version{}, err
+	}
+	if incomplete {
+		return Version{}, ErrToolReleaseRequired
+	}
 
 	var version Version
 	var presets, knowledge, toolIDs []byte
@@ -49,9 +77,7 @@ func (repository *Repository) Publish(ctx context.Context, agentID, publishedBy,
 				SELECT jsonb_agg(at.tool_id ORDER BY at.created_at)
 				FROM agent_tools at WHERE at.agent_id = a.id
 			), '[]'::jsonb),
-			-- Which version of each tool this agent was built against. A tool
-			-- never published is absent, and the agent keeps reading its draft,
-			-- which is how every tool behaved before versions existed.
+			-- Every attachment has a published version, validated above.
 			COALESCE((
 				SELECT jsonb_object_agg(at.tool_id, t.published_version_id)
 				FROM agent_tools at

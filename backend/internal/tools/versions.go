@@ -165,16 +165,25 @@ func (repository *Repository) Versions(ctx context.Context, toolID string) ([]Ve
 // the name and icon, which are how a person recognises the tool rather than
 // how a model calls it.
 //
-// A tool whose version has since been deleted, or which was never published,
-// falls back to the draft. That is how every tool behaved before versions
-// existed, so an agent published earlier keeps working.
+// Published agents fail closed when any tool or version is missing. Legacy
+// releases without pins must be reviewed and republished rather than silently
+// executing whatever happens to be in today's draft.
 func (repository *Repository) PinnedTools(ctx context.Context, agentID string, pinned []string, versions map[string]string) ([]Tool, map[string][]Action, error) {
 	list, actions, err := repository.AttachedTools(ctx, agentID, pinned)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(versions) == 0 {
+	if pinned == nil {
 		return list, actions, nil
+	}
+	present := make(map[string]bool, len(list))
+	for _, tool := range list {
+		present[tool.ID] = true
+	}
+	for _, id := range pinned {
+		if !present[id] || versions[id] == "" {
+			return nil, nil, ErrPinnedVersionMissing
+		}
 	}
 
 	ids := make([]string, 0, len(versions))
@@ -189,7 +198,7 @@ func (repository *Repository) PinnedTools(ctx context.Context, agentID string, p
 	for index, tool := range list {
 		version, ok := frozen[tool.ID]
 		if !ok || versions[tool.ID] != version.ID {
-			continue
+			return nil, nil, ErrPinnedVersionMissing
 		}
 		tool.BaseURL = version.BaseURL
 		tool.Kind = version.Kind

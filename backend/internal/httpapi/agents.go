@@ -18,7 +18,7 @@ func writeAgentError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, agents.ErrDraftForbidden):
 		writeError(w, http.StatusForbidden, err.Error())
-	case errors.Is(err, agents.ErrUnpublished):
+	case errors.Is(err, agents.ErrUnpublished), errors.Is(err, agents.ErrToolReleaseRequired):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, agents.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())

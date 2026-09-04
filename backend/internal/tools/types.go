@@ -49,11 +49,12 @@ const (
 // The errors carry the message the reader sees, so the transport layer maps
 // them to a status without restating them and the wording stays in one place.
 var (
-	ErrNotFound       = errors.New("Không tìm thấy tool.")
-	ErrNameLength     = errors.New("Tên tool phải từ 1 đến 120 ký tự.")
-	ErrDescription    = errors.New("Mô tả tối đa 512 ký tự.")
-	ErrBaseURL        = errors.New("API base URL phải là http hoặc https.")
-	ErrPrivateAddress = errors.New("Tool chỉ được gọi ra Internet, không gọi vào địa chỉ nội bộ.")
+	ErrNotFound             = errors.New("Không tìm thấy tool.")
+	ErrPinnedVersionMissing = errors.New("Phiên bản tool đã ghim không còn khả dụng. Hãy kiểm tra dependency và publish lại agent.")
+	ErrNameLength           = errors.New("Tên tool phải từ 1 đến 120 ký tự.")
+	ErrDescription          = errors.New("Mô tả tối đa 512 ký tự.")
+	ErrBaseURL              = errors.New("API base URL phải là http hoặc https.")
+	ErrPrivateAddress       = errors.New("Tool chỉ được gọi ra Internet, không gọi vào địa chỉ nội bộ.")
 	// Loopback gets its own wording because it is both the commonest mistake
 	// and the one where naming the rule helps least: the reader is looking at a
 	// server they can open in a browser, so being told it is unreachable is

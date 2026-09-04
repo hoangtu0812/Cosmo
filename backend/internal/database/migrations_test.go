@@ -1,6 +1,11 @@
 package database
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"cosmo/backend/internal/tools"
+)
 
 func TestMigrationsAreOrderedAndNamed(t *testing.T) {
 	if err := validateMigrations(migrations); err != nil {
@@ -23,5 +28,20 @@ func TestMigrationValidationRejectsDuplicateVersion(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected duplicate migration version to fail")
+	}
+}
+
+func TestToolAuthConstraintAdmitsEveryRuntimeMode(t *testing.T) {
+	constraint := strings.Join(toolOAuthOBOStatements, "\n")
+	for _, authType := range []string{
+		tools.AuthNone,
+		tools.AuthBearer,
+		tools.AuthHeader,
+		tools.AuthOAuth,
+		tools.AuthOBO,
+	} {
+		if !strings.Contains(constraint, "'"+authType+"'") {
+			t.Errorf("database constraint omits runtime auth type %q", authType)
+		}
 	}
 }

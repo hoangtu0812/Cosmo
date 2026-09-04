@@ -13,9 +13,9 @@ import (
 
 // Client credentials makes Cosmo call as Cosmo. Every request arrives as one
 // service principal, carrying no user and no groups, so a resource server that
-// scopes data per person - which is what an SAP policy table does - is handed
-// nothing to decide with. Its per-user rules collapse into one rule for the
-// platform, and its audit log records "Cosmo" for work somebody did.
+// scopes data per person is handed nothing to decide with. Its per-user rules
+// collapse into one rule for the platform, and its audit log records "Cosmo"
+// for work somebody did.
 //
 // On-behalf-of exchanges the user's own access token for one addressed to that
 // server. The resource server then sees the person: their object id, their

@@ -36,6 +36,18 @@ Go API (Chi) -------- Microsoft Entra ID
 PostgreSQL 17
 ```
 
+Các tích hợp MCP đi qua một lớp client giao thức chung, không chứa logic SAP.
+Mỗi MCP server tự công bố tools và JSON Schema của nó; Cosmo lưu nguyên contract
+đó và chọn một profile xác thực độc lập cho từng kết nối:
+
+- `none`, bearer token hoặc custom header cho các server tương ứng;
+- OAuth client credentials cho mọi authorization server hỗ trợ grant này;
+- Microsoft Entra on-behalf-of là profile tùy chọn khi server cần danh tính
+  người dùng cuối. Profile này không làm thay đổi MCP transport hay tool schema.
+
+Vì vậy thêm một MCP server mới không cần sửa Cosmo theo nghiệp vụ của server,
+và SAP-MCP không cần biết model, agent hoặc cấu trúc nội bộ của Cosmo.
+
 Ứng dụng được đóng gói bằng Docker Compose thành ba service: `frontend`, `backend` và `db`.
 
 ## Yêu cầu

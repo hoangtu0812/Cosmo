@@ -19,10 +19,10 @@ import (
 // who asked rather than as Cosmo itself.
 //
 // Client credentials makes every request look the same: one service principal,
-// no groups, no user. A resource server that scopes data per person - which is
-// what an SAP policy table does - cannot do its job with that. On-behalf-of
-// exchanges the user's own token for one addressed to that server, and this is
-// where the token being exchanged comes from.
+// no groups, no user. Any resource server that scopes data per person cannot
+// make that decision from an application token. On-behalf-of exchanges the
+// user's own token for one addressed to that server, and this is where the
+// token being exchanged comes from.
 //
 // Both values are sealed. A refresh token is a standing right to act as that
 // person; it is the most dangerous thing in this database and it is never

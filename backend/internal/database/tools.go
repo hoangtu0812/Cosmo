@@ -283,6 +283,16 @@ var userIdentityTokenStatements = []string{
 	)`,
 }
 
+// The delegated profile was added after the client-credentials migration had
+// already fixed the original constraint. Keep that migration immutable and
+// widen the constraint in a new one so every auth mode accepted by the tools
+// domain can also be persisted.
+var toolOAuthOBOStatements = []string{
+	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_auth_type_check`,
+	`ALTER TABLE tools ADD CONSTRAINT tools_auth_type_check
+	 CHECK (auth_type IN ('none', 'bearer', 'header', 'oauth2', 'oauth2_obo'))`,
+}
+
 // MCP tool definitions are JSON Schema contracts, not the flat parameter
 // hints used by hand-authored HTTP actions. Keeping the complete tools/list
 // entry lets Cosmo remain a general MCP client without changing the HTTP tool

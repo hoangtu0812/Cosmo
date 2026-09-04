@@ -11,6 +11,8 @@ import (
 	"testing"
 )
 
+const legacyMCPProtocolVersion = "2025-06-18"
+
 // The MCP client is verified against a server written here rather than against
 // somebody else's, for two reasons: the test then passes on a machine with no
 // network, and the fixture can be made to answer in the awkward ways a real
@@ -30,11 +32,14 @@ import (
 type mcpFixture struct {
 	server        *httptest.Server
 	asEventStream bool
+	modern        bool
 
 	mutex        sync.Mutex
 	isInitalized bool
 	sawSession   string
 	sawVersions  []string
+	sawMethods   []string
+	sawNames     []string
 	sawArguments map[string]any
 	sawDelete    bool
 	// Set to answer tools/list in two pages, so a client that reads only the
@@ -58,6 +63,12 @@ func (fixture *mcpFixture) handle(w http.ResponseWriter, r *http.Request) {
 
 	if version := r.Header.Get("MCP-Protocol-Version"); version != "" {
 		fixture.sawVersions = append(fixture.sawVersions, version)
+	}
+	if method := r.Header.Get("Mcp-Method"); method != "" {
+		fixture.sawMethods = append(fixture.sawMethods, method)
+	}
+	if name := r.Header.Get("Mcp-Name"); name != "" {
+		fixture.sawNames = append(fixture.sawNames, name)
 	}
 	if r.Method == http.MethodDelete {
 		fixture.sawDelete = true
@@ -88,12 +99,29 @@ func (fixture *mcpFixture) handle(w http.ResponseWriter, r *http.Request) {
 
 	var result any
 	switch request.Method {
+	case "server/discover":
+		if !fixture.modern {
+			fixture.writeRPCErrorCode(w, request.ID, -32601, "Method not found")
+			return
+		}
+		result = map[string]any{
+			"resultType":        "complete",
+			"supportedVersions": []string{"2026-07-28"},
+			"capabilities":      map[string]any{"tools": map[string]any{}},
+			"cacheScope":        "private",
+			"ttlMs":             0,
+			"_meta": map[string]any{
+				"io.modelcontextprotocol/serverInfo": map[string]any{
+					"name": "fixture", "version": "1",
+				},
+			},
+		}
 	case "initialize":
 		// A real server hands back a session and expects to see it again.
 		w.Header().Set("Mcp-Session-Id", "session-1")
 		version := fixture.speaks
 		if version == "" {
-			version = mcpProtocolVersion
+			version = legacyMCPProtocolVersion
 		}
 		result = map[string]any{
 			"protocolVersion": version,
@@ -101,7 +129,7 @@ func (fixture *mcpFixture) handle(w http.ResponseWriter, r *http.Request) {
 			"serverInfo":      map[string]any{"name": "fixture", "version": "1"},
 		}
 	case "tools/list":
-		if !fixture.isInitalized {
+		if !fixture.modern && !fixture.isInitalized {
 			fixture.writeRPCError(w, request.ID, "Received request before initialization was complete")
 			return
 		}
@@ -112,7 +140,7 @@ func (fixture *mcpFixture) handle(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(request.Params, &params)
 		result = fixture.page(params.Cursor)
 	case "tools/call":
-		if !fixture.isInitalized {
+		if !fixture.modern && !fixture.isInitalized {
 			fixture.writeRPCError(w, request.ID, "Received request before initialization was complete")
 			return
 		}
@@ -144,12 +172,52 @@ func (fixture *mcpFixture) handle(w http.ResponseWriter, r *http.Request) {
 func (fixture *mcpFixture) isInatializedSet() { fixture.isInitalized = true }
 
 func (fixture *mcpFixture) writeRPCError(w http.ResponseWriter, id *int, message string) {
+	fixture.writeRPCErrorCode(w, id, -32602, message)
+}
+
+func (fixture *mcpFixture) writeRPCErrorCode(w http.ResponseWriter, id *int, code int, message string) {
 	body, _ := json.Marshal(map[string]any{
 		"jsonrpc": "2.0", "id": id,
-		"error": map[string]any{"code": -32602, "message": message},
+		"error": map[string]any{"code": code, "message": message},
 	})
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
+}
+
+func TestMCPUsesCurrentStatelessProtocol(t *testing.T) {
+	fixture := newMCPFixture(t, false)
+	fixture.modern = true
+	repository := repositoryFor(t, fixture.server)
+
+	discovered, err := repository.DiscoverMCP(context.Background(), mcpTool(fixture))
+	if err != nil {
+		t.Fatalf("current-protocol discovery failed: %v", err)
+	}
+	if len(discovered) != 1 || discovered[0].Name != "lookup_customer" {
+		t.Fatalf("unexpected tools: %#v", discovered)
+	}
+	if fixture.isInitalized {
+		t.Fatal("2026-07-28 must not use the legacy initialized notification")
+	}
+	if len(fixture.sawVersions) < 2 {
+		t.Fatalf("expected version headers on current requests, got %v", fixture.sawVersions)
+	}
+	for _, version := range fixture.sawVersions {
+		if version != "2026-07-28" {
+			t.Fatalf("current request used protocol %q: %v", version, fixture.sawVersions)
+		}
+	}
+	if len(fixture.sawMethods) < 2 || fixture.sawMethods[0] != "server/discover" || fixture.sawMethods[1] != "tools/list" {
+		t.Fatalf("missing current MCP method headers: %v", fixture.sawMethods)
+	}
+
+	_, err = repository.Invoke(context.Background(), mcpTool(fixture), Action{Name: "lookup_customer"}, nil)
+	if err != nil {
+		t.Fatalf("current-protocol tool call failed: %v", err)
+	}
+	if len(fixture.sawNames) == 0 || fixture.sawNames[len(fixture.sawNames)-1] != "lookup_customer" {
+		t.Fatalf("tools/call did not carry the MCP tool name header: %v", fixture.sawNames)
+	}
 }
 
 // page answers tools/list. With paginates set it hands back one tool and a

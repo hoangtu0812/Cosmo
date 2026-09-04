@@ -347,3 +347,16 @@ var toolOAuthOBORemovalStatements = []string{
 	 CHECK (auth_type IN ('none', 'bearer', 'header', 'oauth2', 'oauth2_user'))`,
 	`DROP TABLE IF EXISTS user_identity_tokens`,
 }
+
+// A retrieval and the answer it fed were two rows nobody could join, so the
+// log could say what a search returned and never whether any of it was used.
+//
+// That join is the whole measurement: a passage the answer cited was worth
+// retrieving, one it ignored was not, and a relevance floor can only be chosen
+// from the difference between the two. Nullable, because a search run from the
+// knowledge screen belongs to no turn.
+var retrievalLogMessageStatements = []string{
+	`ALTER TABLE knowledge_retrieval_log ADD COLUMN IF NOT EXISTS message_id TEXT`,
+	`CREATE INDEX IF NOT EXISTS idx_knowledge_retrieval_log_message
+	 ON knowledge_retrieval_log(message_id) WHERE message_id IS NOT NULL`,
+}

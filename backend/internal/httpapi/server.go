@@ -1120,7 +1120,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 
 		retrievalCtx, cancelRetrieval := context.WithTimeout(r.Context(), 30*time.Second)
-		found, retrievalErr := s.retrievalContextFor(retrievalCtx, conversationWorkspaceID, input.Content, agentKnowledge)
+		// The log records which answer this search fed, so a relevance floor
+		// can later be chosen from what the answers actually used.
+		found, retrievalErr := s.retrievalContextFor(withRetrievalTurn(retrievalCtx, assistantID), conversationWorkspaceID, input.Content, agentKnowledge)
 		cancelRetrieval()
 		passages = found
 		if retrievalErr != nil {

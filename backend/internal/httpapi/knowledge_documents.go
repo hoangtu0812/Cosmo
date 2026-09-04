@@ -624,6 +624,25 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 // It is off unless an operator turns it on, because it stores what someone
 // typed, and it is deliberately best-effort — a chat answer must not fail
 // because a measurement row could not be written.
+// retrievalTurnKey carries the id of the answer a search is feeding, so the
+// log can be joined to what the answer did with it. On the context rather than
+// in the signature because retrievalContextFor is also reached from the
+// knowledge screen, where there is no answer and nothing to join to.
+type retrievalTurnKey struct{}
+
+// WithRetrievalTurn names the assistant message this search belongs to.
+func withRetrievalTurn(ctx context.Context, messageID string) context.Context {
+	return context.WithValue(ctx, retrievalTurnKey{}, messageID)
+}
+
+func retrievalTurnFrom(ctx context.Context) *string {
+	id, ok := ctx.Value(retrievalTurnKey{}).(string)
+	if !ok || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	return &id
+}
+
 func (s *Server) logRetrieval(ctx context.Context, workspaceID, query string, kbIDs []string, passages []knowledge.Passage) {
 	if !s.cfg.RetrievalLog {
 		return
@@ -648,8 +667,9 @@ func (s *Server) logRetrieval(ctx context.Context, workspaceID, query string, kb
 		return
 	}
 	if _, err := s.db.Exec(ctx, `
-		INSERT INTO knowledge_retrieval_log(workspace_id, query, kb_ids, passages)
-		VALUES($1, $2, $3, $4::jsonb)`, workspaceID, query, kbIDs, string(encoded)); err != nil {
+		INSERT INTO knowledge_retrieval_log(workspace_id, query, kb_ids, passages, message_id)
+		VALUES($1, $2, $3, $4::jsonb, $5)`,
+		workspaceID, query, kbIDs, string(encoded), retrievalTurnFrom(ctx)); err != nil {
 		slog.Warn("could not record retrieval", "workspace", workspaceID, "error", err)
 	}
 }

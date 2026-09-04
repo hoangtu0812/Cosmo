@@ -52,6 +52,7 @@ var migrations = []Migration{
 	{Version: 21, Name: "tool_oauth_obo", Statements: toolOAuthOBOStatements},
 	{Version: 22, Name: "tool_oauth_authorization_code", Statements: toolOAuthAuthorizationCodeStatements},
 	{Version: 23, Name: "tool_oauth_obo_removal", Statements: toolOAuthOBORemovalStatements},
+	{Version: 24, Name: "retrieval_log_message", Statements: retrievalLogMessageStatements},
 }
 
 var runEngineStatements = []string{

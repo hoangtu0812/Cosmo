@@ -1106,6 +1106,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// which were the file somebody attached.
 	contextParts := map[string]int{}
 	var passages []knowledgePassage
+	var evidenceAnswer string
 
 	// Retrieval happens before model generation, but it must not look like the
 	// reply is stuck. Sources deliberately remain server-side until generation
@@ -1128,6 +1129,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		found, retrievalErr := s.retrievalContextFor(withRetrievalTurn(retrievalCtx, assistantID), conversationWorkspaceID, input.Content, agentKnowledge)
 		cancelRetrieval()
 		passages = found
+		evidenceAnswer = missingKnowledgeAnswer(true, len(passages), retrievalErr != nil)
 		if retrievalErr != nil {
 			s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
 			writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
@@ -1189,7 +1191,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// What this turn may call. An agent brings what it was wired to; a plain
 	// chat brings what the workspace installed and switched on - nothing at
 	// all until somebody does both, so the ordinary chat pays for none of this.
-	if !set.isEmpty() {
+	if !set.isEmpty() && evidenceAnswer == "" {
 		writeSSE(w, "status", map[string]string{
 			"stage":   "tools_ready",
 			"message": "Đang tìm tool",
@@ -1208,7 +1210,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 	var generationStep runs.Step
 	if runErr == nil {
-		generationStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "generation", Type: "model", Name: "Answer generation", TimeoutMS: s.cfg.LLMRequestTimeout.Milliseconds()})
+		stepType, stepName := "model", "Answer generation"
+		if evidenceAnswer != "" {
+			stepType, stepName = "policy", "Insufficient knowledge evidence"
+		}
+		generationStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "generation", Type: stepType, Name: stepName, TimeoutMS: s.cfg.LLMRequestTimeout.Milliseconds()})
 		if runErr == nil {
 			generationStep, runErr = s.runs.TransitionStep(r.Context(), generationStep.ID, runs.Running, nil, "", "", "")
 		}
@@ -1216,12 +1222,18 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 	// The counts come back with the stream, so the reader can be told what the
 	// turn cost rather than shown an estimate of it.
-	usage, err := models.StreamWithUsage(r.Context(), history, options, func(delta string) error {
+	onDelta := func(delta string) error {
 		assistant.WriteString(delta)
 		writeSSE(w, "delta", map[string]string{"content": delta})
 		flusher.Flush()
 		return nil
-	})
+	}
+	var usage modelgateway.Usage
+	if evidenceAnswer != "" {
+		err = onDelta(evidenceAnswer)
+	} else {
+		usage, err = models.StreamWithUsage(r.Context(), history, options, onDelta)
+	}
 	if err != nil {
 		s.logger.Error("model stream failed", "conversation_id", conversationID, "error", err)
 		writeSSE(w, "error", map[string]string{"message": "Model Gateway hiện không phản hồi. Vui lòng thử lại."})
@@ -1293,7 +1305,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// A conversation is named once, from its first exchange, for the same
 	// reason and with the same tolerance for failure as the suggestions below:
 	// it happens after the answer is saved, so losing it costs nothing.
-	if isFirstTurn {
+	if isFirstTurn && evidenceAnswer == "" {
 		if title := s.agents.SuggestTitle(r.Context(), input.Content, assistantMessage.Content, models, options); title != "" {
 			if _, titleErr := s.db.Exec(r.Context(), `UPDATE conversations SET title = $2 WHERE id = $1`, conversationID, title); titleErr == nil {
 				writeSSE(w, "title", map[string]string{"title": title})
@@ -1308,7 +1320,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// always does. Without them the model writes its offers into the prose -
 	// "tôi có thể vẽ tiếp: biểu đồ theo ban, biểu đồ theo tư vấn viên" - and a
 	// reader has to retype the one they want.
-	if agentSuggests || conversationAgentID == "" {
+	if evidenceAnswer == "" && (agentSuggests || conversationAgentID == "") {
 		if followUps := s.agents.SuggestFollowUps(r.Context(), input.Content, assistantMessage.Content, models, options); len(followUps) > 0 {
 			writeSSE(w, "suggestions", map[string]any{"questions": followUps})
 			flusher.Flush()
@@ -1317,7 +1329,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	writeSSE(w, "done", map[string]any{"message": assistantMessage})
 	flusher.Flush()
 
-	if agentRemembers {
+	if agentRemembers && evidenceAnswer == "" {
 		go s.agents.RememberExchange(conversationAgentID, user.ID, input.Content, assistantMessage.Content, models, options)
 	}
 }

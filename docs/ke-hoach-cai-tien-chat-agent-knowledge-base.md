@@ -435,3 +435,11 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Integration test xác minh sửa action draft không đổi action của release, legacy thiếu pin bị từ chối và tool bị xóa không bị bỏ qua.
 - Tương thích: agent release cũ có tool chưa pin sẽ cần quản trị kiểm tra, publish tool và publish lại agent. Không tự gán version cho lịch sử cũ.
 - Kiểm tra: `go test ./...` với database integration. Còn mở rộng snapshot metadata mô tả/model và policy thu hồi capability tại từng invocation trong TOOL-01/RUN-01.
+
+### 2026-09-05 — KB-03a: Không suy đoán khi retrieval không có bằng chứng
+
+- Khi planner yêu cầu tra KB mà không nhận được passage, trả lời cố định nêu thiếu bằng chứng; phân biệt không có kết quả với lỗi truy cập nguồn.
+- Không chạy tool hoặc model sinh câu trả lời, tạo tiêu đề, gợi ý và memory trong nhánh này. Vẫn lưu câu trả lời và kết thúc SSE bình thường.
+- Integration test gọi endpoint chat thật với PostgreSQL và gateway/RAG giả lập, xác minh chỉ có model call của planner và nội dung lưu đúng khi KB rỗng hoặc trả lỗi.
+- Kiểm tra: `go test ./...` với database integration đều qua.
+- Còn xử lý bằng chứng mâu thuẫn, chất lượng quyết định của planner và cảnh báo khi chỉ truy cập được một phần nguồn; không coi toàn bộ KB-03 đã hoàn thành.

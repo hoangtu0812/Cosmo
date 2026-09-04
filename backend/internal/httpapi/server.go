@@ -970,7 +970,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userMessage := Message{ID: "msg_" + randomID(18), ConversationID: conversationID, Role: "user", Content: input.Content, CreatedAt: time.Now()}
-	_, err := s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, created_at) VALUES($1, $2, $3, $4, $5)`, userMessage.ID, conversationID, userMessage.Role, userMessage.Content, userMessage.CreatedAt)
+	history, err := s.recordChatQuestion(r.Context(), userMessage)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể lưu câu hỏi.")
 		return
@@ -1027,19 +1027,6 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		s.logger.Warn("chat run telemetry unavailable", "conversation_id", conversationID, "error", runErr)
 	}
 
-	historyRows, err := s.db.Query(r.Context(), `SELECT role, content FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC LIMIT 40`, conversationID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể chuẩn bị ngữ cảnh trò chuyện.")
-		return
-	}
-	history := []modelgateway.Message{}
-	for historyRows.Next() {
-		var item modelgateway.Message
-		if historyRows.Scan(&item.Role, &item.Content) == nil {
-			history = append(history, item)
-		}
-	}
-	historyRows.Close()
 	history = withResponsePresentation(history)
 
 	// What the agent remembers about this person joins the conversation before

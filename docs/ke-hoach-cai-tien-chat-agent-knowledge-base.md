@@ -1,7 +1,7 @@
 # Kế hoạch cải tiến Chat, Agent và Knowledge Base
 
 Ngày lập: 2026-09-05  
-Trạng thái: Kế hoạch đề xuất, chưa triển khai  
+Trạng thái: Đang triển khai tuần tự; tiến độ chi tiết tại mục 13
 Phạm vi: Các vấn đề đã xác định trong đợt rà soát kiến trúc chat, agent và tìm kiếm nhiều Knowledge Base của Cosmo.
 
 ## 1. Mục tiêu và kết luận hiện trạng
@@ -397,3 +397,14 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - [ ] Evaluation chạy qua cùng orchestration với chat.
 - [ ] Có baseline, báo cáo candidate, migration và rollback đã kiểm thử.
 - [ ] Tài liệu hiện trạng được cập nhật theo hành vi đã xác minh, không theo thành phần mới chỉ có scaffolding.
+
+## 13. Nhật ký triển khai
+
+### 2026-09-05 — CHAT-01a: History gần nhất và snapshot câu hỏi
+
+- Hoàn thành phần sửa lỗi lấy 40 tin đầu: lấy tối đa 39 tin gần nhất và luôn thêm câu hỏi hiện tại ở cuối.
+- Lưu câu hỏi và đọc history trong cùng một PostgreSQL statement snapshot, trước planning/retrieval; lượt đến sau không được đọc lại vào context của lượt hiện tại.
+- Thứ tự khi timestamp trùng ổn định theo ID; câu hỏi hiện tại không phụ thuộc thứ tự ID này.
+- Thêm integration tests trên PostgreSQL thật cho 0/40/100 tin cũ, timestamp trùng, cách ly conversation và lưu câu hỏi đúng một lần.
+- Kiểm tra: integration tests mới và `go test ./...` đều qua trên database test riêng đã migrate; các integration database hiện có cũng được chạy.
+- CHAT-01 còn phần ngân sách context và quản lý lịch sử tool; CHAT-02 còn idempotency và thứ tự các lượt đồng thời. Thay đổi này chưa giải quyết những phần đó.

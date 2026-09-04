@@ -72,9 +72,10 @@ func (s *Server) startToolOAuth(w http.ResponseWriter, r *http.Request) {
 func (s *Server) completeToolOAuth(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	state := r.URL.Query().Get("state")
+	providerError := r.URL.Query().Get("error")
 	result, err := s.tools.CompleteOAuthAuthorization(
 		r.Context(), user.ID, state, r.URL.Query().Get("code"), r.URL.Query().Get("iss"),
-		r.URL.Query().Get("error"), s.toolOAuthCallbackURL(),
+		providerError, s.toolOAuthCallbackURL(),
 	)
 	if result.ToolID == "" {
 		http.Redirect(w, r, s.cfg.FrontendURL+"/tools?oauth_error=invalid_state", http.StatusFound)
@@ -82,7 +83,7 @@ func (s *Server) completeToolOAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	target := s.cfg.FrontendURL + "/tools/" + url.PathEscape(result.ToolID) + "?workspace=" + url.QueryEscape(result.WorkspaceID)
 	if err != nil {
-		s.logger.Warn("complete MCP OAuth", "tool_id", result.ToolID, "user_id", user.ID, "error", err)
+		s.logger.Warn("complete MCP OAuth", "tool_id", result.ToolID, "user_id", user.ID, "error", err, "provider_error", providerError)
 		target += "&oauth_error=authorization_failed"
 	} else {
 		target += "&oauth=connected"

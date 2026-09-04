@@ -94,6 +94,31 @@ func TestOAuthUserRegistrationAllowsPublicClients(t *testing.T) {
 	}
 }
 
+func TestOAuthResourceIndicatorCompatibilityIsProviderScoped(t *testing.T) {
+	standard := &OAuthAuthorizationServer{
+		Issuer:                "https://identity.example/realms/sap",
+		AuthorizationEndpoint: "https://identity.example/authorize",
+		TokenEndpoint:         "https://identity.example/token",
+	}
+	if isMicrosoftEntraOAuthServer(standard) {
+		t.Fatal("a standards-based provider must retain the RFC 8707 resource indicator")
+	}
+
+	entra := &OAuthAuthorizationServer{
+		Issuer:                "https://login.microsoftonline.com/tenant-id/v2.0",
+		AuthorizationEndpoint: "https://login.microsoftonline.com/tenant-id/oauth2/v2.0/authorize",
+		TokenEndpoint:         "https://login.microsoftonline.com/tenant-id/oauth2/v2.0/token",
+	}
+	if !isMicrosoftEntraOAuthServer(entra) {
+		t.Fatal("Microsoft Entra must use its scope-based resource compatibility path")
+	}
+
+	lookalike := &OAuthAuthorizationServer{Issuer: "https://login.microsoftonline.com.example/tenant/v2.0"}
+	if isMicrosoftEntraOAuthServer(lookalike) {
+		t.Fatal("an Entra-looking untrusted hostname must not enable provider compatibility")
+	}
+}
+
 // Opt-in because SAP-MCP and its authorization server are deployment
 // dependencies. It exercises the same RFC 9728/RFC 8414 discovery used by the
 // editor without needing a token or changing application data.

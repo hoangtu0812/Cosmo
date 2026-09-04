@@ -87,6 +87,12 @@ PKCE but omit the optional discovery field remain compatible. A
 shared tool shares only its client registration and contract; it never shares
 one user's token with another user.
 
+RFC 8707 resource indicators are sent to standards-compliant authorization
+servers. Microsoft Entra v2 is handled as an isolated compatibility profile:
+Entra selects the token audience from the provider-qualified API scope and
+rejects the MCP endpoint URL as a legacy `resource` value with AADSTS9010010,
+so Cosmo omits that parameter only for known Entra authority hosts.
+
 ## Local neutral conformance server
 
 The optional demo server is built with the official MCP Go SDK and has no SAP

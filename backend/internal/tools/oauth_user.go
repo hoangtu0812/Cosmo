@@ -344,6 +344,7 @@ func (repository *Repository) oauthUserRegistration(ctx context.Context, toolID 
 type oauthStateSecret struct {
 	Verifier                string           `json:"verifier"`
 	Resource                string           `json:"resource"`
+	OmitResourceIndicator   bool             `json:"omit_resource_indicator,omitempty"`
 	Issuer                  string           `json:"issuer"`
 	AuthorizationEndpoint   string           `json:"authorization_endpoint"`
 	TokenEndpoint           string           `json:"token_endpoint"`
@@ -358,8 +359,9 @@ type OAuthStart struct {
 }
 
 // BeginOAuthAuthorization creates a ten-minute, single-use state and returns
-// the provider URL. PKCE is always S256 and the RFC 8707 resource indicator is
-// sent in both authorization and token requests.
+// the provider URL. PKCE is always S256. RFC 8707 resource indicators are sent
+// unless the discovered provider is a known compatibility profile that rejects
+// the MCP resource URL in favor of its provider-qualified scope.
 func (repository *Repository) BeginOAuthAuthorization(ctx context.Context, tool Tool, userID, workspaceID, callbackURL string) (OAuthStart, error) {
 	registration, err := repository.oauthUserRegistration(ctx, tool.ID)
 	if err != nil {
@@ -394,8 +396,9 @@ func (repository *Repository) BeginOAuthAuthorization(ctx context.Context, tool 
 	verifier := oauth2.GenerateVerifier()
 	state := rand.Text()
 	style := tokenAuthStyle(selected, registration.ClientSecret)
+	omitResourceIndicator := isMicrosoftEntraOAuthServer(selected)
 	secret := oauthStateSecret{
-		Verifier: verifier, Resource: resource.Resource, Issuer: selected.Issuer,
+		Verifier: verifier, Resource: resource.Resource, OmitResourceIndicator: omitResourceIndicator, Issuer: selected.Issuer,
 		AuthorizationEndpoint: selected.AuthorizationEndpoint, TokenEndpoint: selected.TokenEndpoint,
 		AuthStyle: style, Scopes: scopes, RegistrationFingerprint: registration.fingerprint(),
 		RequireIssuerResponse: selected.requireIssuerResponse,
@@ -420,9 +423,32 @@ func (repository *Repository) BeginOAuthAuthorization(ctx context.Context, tool 
 		RedirectURL: callbackURL, Scopes: scopes,
 		Endpoint: oauth2.Endpoint{AuthURL: selected.AuthorizationEndpoint, TokenURL: selected.TokenEndpoint, AuthStyle: style},
 	}
-	authorizationURL := configuration.AuthCodeURL(state,
-		oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("resource", resource.Resource))
+	authorizationOptions := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier)}
+	if !omitResourceIndicator {
+		authorizationOptions = append(authorizationOptions, oauth2.SetAuthURLParam("resource", resource.Resource))
+	}
+	authorizationURL := configuration.AuthCodeURL(state, authorizationOptions...)
 	return OAuthStart{AuthorizationURL: authorizationURL}, nil
+}
+
+// Microsoft Entra v2 chooses the access-token audience from the requested API
+// scope. It interprets RFC 8707's resource parameter using legacy resource
+// semantics and rejects an MCP URL that differs from the scope's App ID URI
+// with AADSTS9010010. Keep this exception isolated to known Entra authorities;
+// standards-compliant OAuth servers continue to receive the MCP resource URL.
+func isMicrosoftEntraOAuthServer(server *OAuthAuthorizationServer) bool {
+	for _, raw := range []string{server.Issuer, server.AuthorizationEndpoint, server.TokenEndpoint} {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			continue
+		}
+		switch strings.ToLower(parsed.Hostname()) {
+		case "login.microsoftonline.com", "login.microsoftonline.us", "login.microsoftonline.de",
+			"login.partner.microsoftonline.cn", "login.chinacloudapi.cn":
+			return true
+		}
+	}
+	return false
 }
 
 func tokenAuthStyle(server *OAuthAuthorizationServer, clientSecret string) oauth2.AuthStyle {
@@ -508,8 +534,11 @@ func (repository *Repository) CompleteOAuthAuthorization(ctx context.Context, us
 		Endpoint: oauth2.Endpoint{AuthURL: saved.AuthorizationEndpoint, TokenURL: saved.TokenEndpoint, AuthStyle: saved.AuthStyle},
 	}
 	oauthContext := context.WithValue(ctx, oauth2.HTTPClient, repository.client())
-	token, err := configuration.Exchange(oauthContext, code,
-		oauth2.VerifierOption(saved.Verifier), oauth2.SetAuthURLParam("resource", saved.Resource))
+	exchangeOptions := []oauth2.AuthCodeOption{oauth2.VerifierOption(saved.Verifier)}
+	if !saved.OmitResourceIndicator {
+		exchangeOptions = append(exchangeOptions, oauth2.SetAuthURLParam("resource", saved.Resource))
+	}
+	token, err := configuration.Exchange(oauthContext, code, exchangeOptions...)
 	if err != nil || strings.TrimSpace(token.AccessToken) == "" {
 		return result, ErrOAuthToken
 	}

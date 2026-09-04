@@ -24,7 +24,7 @@ import {useToast} from '@astryxdesign/core/Toast';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Token} from '@astryxdesign/core/Token';
 import {StatusLabel} from '../../components/StatusLabel';
-import {api, APIError, Tool, ToolAction, ToolCallResult, ToolParameter, ToolVersion} from '../../lib/api';
+import {api, APIError, Tool, ToolAction, ToolCallResult, ToolOAuthConnection, ToolParameter, ToolVersion} from '../../lib/api';
 import {useTranslation} from '../../lib/i18n';
 
 export default function ToolDetailPage() {
@@ -373,6 +373,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   onReload: () => void;
   t: ReturnType<typeof useTranslation>;
 }) {
+  const search = useSearchParams();
   const [name, setName] = useState(tool.name);
   const [description, setDescription] = useState(tool.description);
   const [baseURL, setBaseURL] = useState(tool.base_url);
@@ -384,6 +385,9 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   const [clientID, setClientID] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [scope, setScope] = useState('');
+  const [authorizationServer, setAuthorizationServer] = useState('');
+  const [oauthInfo, setOAuthInfo] = useState<ToolOAuthConnection | null>(null);
+  const [oauthBusy, setOAuthBusy] = useState('');
   const [secret, setSecret] = useState('');
   const [visibility, setVisibility] = useState(tool.visibility);
   const [isSaving, setIsSaving] = useState(false);
@@ -395,6 +399,62 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   // Without a word from the server, a successful save and a save that never
   // happened look identical.
   const toast = useToast();
+
+  async function loadOAuth() {
+    if (tool.kind !== 'mcp') return;
+    setOAuthBusy('inspect');
+    setFailure('');
+    try {
+      const result = await api.toolOAuth(tool.id, workspaceID);
+      setOAuthInfo(result.oauth);
+      if (result.oauth.selected_authorization_server) {
+        setAuthorizationServer(result.oauth.selected_authorization_server);
+      } else if (result.oauth.authorization_servers.length === 1) {
+        setAuthorizationServer(result.oauth.authorization_servers[0].issuer);
+      }
+    } catch (caught) {
+      setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    } finally {
+      setOAuthBusy('');
+    }
+  }
+
+  useEffect(() => {
+    if (tool.kind !== 'mcp' || tool.auth_type !== 'oauth2_user') return;
+    let current = true;
+    void api.toolOAuth(tool.id, workspaceID).then((result) => {
+      if (!current) return;
+      setOAuthInfo(result.oauth);
+      if (result.oauth.selected_authorization_server) setAuthorizationServer(result.oauth.selected_authorization_server);
+      else if (result.oauth.authorization_servers.length === 1) setAuthorizationServer(result.oauth.authorization_servers[0].issuer);
+    }).catch(() => undefined);
+    return () => { current = false; };
+  }, [tool.id, tool.kind, tool.auth_type, workspaceID]);
+
+  async function connectOAuth() {
+    setOAuthBusy('connect');
+    setFailure('');
+    try {
+      const result = await api.startToolOAuth(tool.id, workspaceID);
+      window.location.assign(result.oauth.authorization_url);
+    } catch (caught) {
+      setFailure(caught instanceof Error ? caught.message : t('tool.oauthFailed'));
+      setOAuthBusy('');
+    }
+  }
+
+  async function disconnectOAuth() {
+    setOAuthBusy('disconnect');
+    setFailure('');
+    try {
+      await api.disconnectToolOAuth(tool.id, workspaceID);
+      await loadOAuth();
+    } catch (caught) {
+      setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
+    } finally {
+      setOAuthBusy('');
+    }
+  }
 
   // All three routes end the same way - actions appear in the column beside
   // this one - so they share a handler and the caller only says which.
@@ -422,6 +482,17 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   // and are rotated together, so storing them apart would invite a tool
   // authenticating as the old client with the new secret.
   function credentialToSend(): Record<string, unknown> {
+    if (authType === 'oauth2_user') {
+      if (!clientID.trim()) return {};
+      return {
+        auth_secret: JSON.stringify({
+          client_id: clientID.trim(),
+          client_secret: clientSecret,
+          scope: scope.trim(),
+          authorization_server: authorizationServer,
+        }),
+      };
+    }
     if (authType !== 'oauth2' && authType !== 'oauth2_obo') return secret ? {auth_secret: secret} : {};
     if (!tokenURL.trim() || !clientID.trim() || !clientSecret.trim()) return {};
     return {
@@ -450,6 +521,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
       }, workspaceID);
       setSecret('');
       onSaved(result.tool);
+      if (authType === 'oauth2_user') await loadOAuth();
       toast({body: t('tool.saved')});
     } catch (caught) {
       setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
@@ -461,6 +533,8 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   return (
     <VStack gap={5} width="100%">
       {failure ? <Banner isDismissable onDismiss={() => setFailure('')} status="error" title={failure} /> : null}
+      {search.get('oauth') === 'connected' ? <Banner status="success" title={t('tool.oauthSuccess')} /> : null}
+      {search.get('oauth_error') ? <Banner status="error" title={t('tool.oauthFailed')} /> : null}
 
       <HStack gap={3} vAlign="center">
         <Text type="display-3">{tool.icon || '🔌'}</Text>
@@ -517,6 +591,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             {value: 'bearer', label: t('tool.authBearer')},
             {value: 'header', label: t('tool.authHeader')},
             {value: 'oauth2', label: t('tool.authOAuth')},
+            {value: 'oauth2_user', label: t('tool.authUser')},
             {value: 'oauth2_obo', label: t('tool.authOBO')},
           ]}
           value={authType}
@@ -572,7 +647,95 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             </HStack>
           </VStack>
         ) : null}
-        {authType !== 'none' && authType !== 'oauth2' && authType !== 'oauth2_obo' ? (
+        {authType === 'oauth2_user' ? (
+          <VStack gap={3} width="100%">
+            <HStack gap={2} hAlign="start">
+              <Button
+                isLoading={oauthBusy === 'inspect'}
+                label={t('tool.oauthDiscover')}
+                onClick={() => void loadOAuth()}
+                size="sm"
+                variant="secondary"
+              />
+            </HStack>
+            {oauthInfo ? (
+              <>
+                <Text color="secondary" type="supporting">
+                  {`${oauthInfo.resource_name || 'MCP'} · ${oauthInfo.resource}`}
+                </Text>
+                <Selector
+                  isDisabled={!tool.is_editable}
+                  label={t('tool.oauthProvider')}
+                  onChange={setAuthorizationServer}
+                  options={oauthInfo.authorization_servers.map((server) => ({value: server.issuer, label: server.issuer}))}
+                  value={authorizationServer}
+                  width="100%"
+                />
+                <VStack gap={1} width="100%">
+                  <Text type="label">{t('tool.oauthCallback')}</Text>
+                  <Text color="secondary" type="supporting">{oauthInfo.callback_url}</Text>
+                </VStack>
+              </>
+            ) : null}
+            <TextInput
+              isDisabled={!tool.is_editable}
+              label={t('tool.authClientID')}
+              onChange={setClientID}
+              placeholder={tool.has_secret ? t('tool.authStored', {hint: tool.auth_hint}) : ''}
+              value={clientID}
+              width="100%"
+            />
+            <TextInput
+              isDisabled={!tool.is_editable}
+              label={t('tool.oauthClientSecretOptional')}
+              onChange={setClientSecret}
+              type="password"
+              value={clientSecret}
+              width="100%"
+            />
+            <TextInput
+              isDisabled={!tool.is_editable}
+              label={t('tool.authScope')}
+              onChange={setScope}
+              placeholder="api://resource/access_as_user offline_access"
+              value={scope}
+              width="100%"
+            />
+            <Text color="secondary" type="supporting">{t('tool.oauthScopeHint')}</Text>
+            {oauthInfo?.configured ? (
+              <VStack gap={2} width="100%">
+                <StatusLabel
+                  label={oauthInfo.connected ? t('tool.oauthConnected') : t('tool.oauthNotConnected')}
+                  variant={oauthInfo.connected ? 'success' : 'warning'}
+                />
+                <HStack gap={2} hAlign="start">
+                  {oauthInfo.connected ? (
+                    <Button
+                      isLoading={oauthBusy === 'disconnect'}
+                      label={t('tool.oauthDisconnect')}
+                      onClick={() => void disconnectOAuth()}
+                      size="sm"
+                      variant="secondary"
+                    />
+                  ) : (
+                    <Button
+                      isLoading={oauthBusy === 'connect'}
+                      label={t('tool.oauthConnect')}
+                      onClick={() => void connectOAuth()}
+                      size="sm"
+                      variant="primary"
+                    />
+                  )}
+                </HStack>
+              </VStack>
+            ) : null}
+            <HStack gap={2} vAlign="center">
+              <Icon icon={ShieldCheck} size="sm" />
+              <Text color="secondary" type="supporting">{t('tool.authSecretHint')}</Text>
+            </HStack>
+          </VStack>
+        ) : null}
+        {authType !== 'none' && authType !== 'oauth2' && authType !== 'oauth2_obo' && authType !== 'oauth2_user' ? (
           <VStack gap={2} width="100%">
             <TextInput
               isDisabled={!tool.is_editable}

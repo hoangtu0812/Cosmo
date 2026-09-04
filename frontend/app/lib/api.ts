@@ -153,7 +153,7 @@ export type Tool = {
   /** 'http' for an API described by hand, 'mcp' for a server that describes
       itself, 'builtin' for one that reaches nothing at all. */
   kind: 'http' | 'mcp' | 'builtin';
-  auth_type: 'none' | 'bearer' | 'header' | 'oauth2' | 'oauth2_obo';
+  auth_type: 'none' | 'bearer' | 'header' | 'oauth2' | 'oauth2_obo' | 'oauth2_user';
   auth_header_name: string;
   auth_hint: string;
   has_secret: boolean;
@@ -185,6 +185,25 @@ export type ToolUpdate = Partial<{
   /** An empty string clears the stored credential; omit it to leave it alone. */
   auth_secret: string;
 }>;
+
+export type ToolOAuthConnection = {
+  resource: string;
+  resource_name?: string;
+  scopes_supported: string[];
+  authorization_servers: Array<{
+    issuer: string;
+    authorization_endpoint: string;
+    token_endpoint: string;
+    registration_endpoint?: string;
+    scopes_supported: string[];
+    code_challenge_methods_supported: string[];
+  }>;
+  selected_authorization_server?: string;
+  callback_url: string;
+  configured: boolean;
+  connected: boolean;
+  expires_at?: string;
+};
 
 export type ToolCatalogEntry = {
   id: string;
@@ -608,6 +627,12 @@ export const api = {
     request<{actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}/openapi${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify(input)}),
   discoverMCPTools: (toolID: string, workspaceID?: string) =>
     request<{actions: ToolAction[]}>(`/api/tools/${encodeURIComponent(toolID)}/discover${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
+  toolOAuth: (toolID: string, workspaceID?: string) =>
+    request<{oauth: ToolOAuthConnection}>(`/api/tools/${encodeURIComponent(toolID)}/oauth${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
+  startToolOAuth: (toolID: string, workspaceID?: string) =>
+    request<{oauth: {authorization_url: string}}>(`/api/tools/${encodeURIComponent(toolID)}/oauth/start${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST'}),
+  disconnectToolOAuth: (toolID: string, workspaceID?: string) =>
+    request<void>(`/api/tools/${encodeURIComponent(toolID)}/oauth${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
   tools: (workspaceID?: string) =>
     request<{tools: Tool[]}>(`/api/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   tool: (toolID: string, workspaceID?: string) =>

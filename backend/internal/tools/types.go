@@ -66,6 +66,11 @@ var (
 	ErrAuthHeaderName      = errors.New("Cần tên header khi xác thực bằng header.")
 	ErrOAuthConfig         = errors.New("Thông tin OAuth phải gồm token_url, client_id và client_secret.")
 	ErrOAuthToken          = errors.New("Máy chủ xác thực không cấp được access token.")
+	ErrOAuthDiscovery      = errors.New("MCP server không công bố OAuth metadata hợp lệ.")
+	ErrOAuthConnection     = errors.New("Bạn chưa kết nối tài khoản với MCP server này.")
+	ErrOAuthState          = errors.New("Phiên kết nối OAuth không hợp lệ hoặc đã hết hạn.")
+	ErrOAuthProvider       = errors.New("Hãy chọn authorization server trước khi kết nối.")
+	ErrOAuthRegistration   = errors.New("Cấu hình OAuth Authorization Code phải có Client ID.")
 	ErrOBOUnavailable      = errors.New("Hệ thống chưa bật đăng nhập Entra nên chưa dùng được kiểu on-behalf-of.")
 	ErrOBONoUser           = errors.New("Tool on-behalf-of chỉ gọi được trong hội thoại có người dùng đăng nhập.")
 	ErrOBONoAssertion      = errors.New("Chưa có token Entra của bạn. Hãy đăng xuất rồi đăng nhập lại.")
@@ -282,7 +287,7 @@ func ValidateAuth(authType, headerName string) (string, string, error) {
 	if kind == "" {
 		kind = AuthNone
 	}
-	if kind != AuthNone && kind != AuthBearer && kind != AuthHeader && kind != AuthOAuth && kind != AuthOBO {
+	if kind != AuthNone && kind != AuthBearer && kind != AuthHeader && kind != AuthOAuth && kind != AuthOBO && kind != AuthOAuthUser {
 		return "", "", ErrAuthType
 	}
 	name := strings.TrimSpace(headerName)

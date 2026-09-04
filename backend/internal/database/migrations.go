@@ -50,6 +50,7 @@ var migrations = []Migration{
 	{Version: 19, Name: "user_identity_tokens", Statements: userIdentityTokenStatements},
 	{Version: 20, Name: "mcp_tool_contract", Statements: mcpToolContractStatements},
 	{Version: 21, Name: "tool_oauth_obo", Statements: toolOAuthOBOStatements},
+	{Version: 22, Name: "tool_oauth_authorization_code", Statements: toolOAuthAuthorizationCodeStatements},
 }
 
 var runEngineStatements = []string{

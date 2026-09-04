@@ -42,8 +42,11 @@ Mỗi MCP server tự công bố tools và JSON Schema của nó; Cosmo lưu ngu
 
 - `none`, bearer token hoặc custom header cho các server tương ứng;
 - OAuth client credentials cho mọi authorization server hỗ trợ grant này;
-- Microsoft Entra on-behalf-of là profile tùy chọn khi server cần danh tính
-  người dùng cuối. Profile này không làm thay đổi MCP transport hay tool schema.
+- Authorization Code + PKCE theo RFC 9728/RFC 8414 cho danh tính người dùng,
+  với token mã hóa riêng theo từng tool và từng người;
+- Microsoft Entra on-behalf-of chỉ là adapter tương thích cho tích hợp cũ.
+
+Các profile xác thực không làm thay đổi MCP transport hay tool schema.
 
 Vì vậy thêm một MCP server mới không cần sửa Cosmo theo nghiệp vụ của server,
 và SAP-MCP không cần biết model, agent hoặc cấu trúc nội bộ của Cosmo.

@@ -9,9 +9,13 @@ import (
 )
 
 type Config struct {
-	Address             string
-	DatabaseURL         string
-	FrontendURL         string
+	Address     string
+	DatabaseURL string
+	FrontendURL string
+	// PublicURL is the browser-reachable origin of this API. OAuth providers
+	// redirect here after a user authorizes an MCP server; it is deliberately
+	// independent of any provider-specific login callback.
+	PublicURL           string
 	SessionSecret       string
 	SessionTTL          time.Duration
 	CookieSecure        bool
@@ -76,6 +80,7 @@ func Load() (Config, error) {
 		Address:             env("APP_ADDRESS", ":8080"),
 		DatabaseURL:         env("DATABASE_URL", "postgres://cosmo:cosmo@localhost:5432/cosmo?sslmode=disable"),
 		FrontendURL:         strings.TrimRight(env("FRONTEND_URL", "http://localhost:3000"), "/"),
+		PublicURL:           strings.TrimRight(env("PUBLIC_API_URL", "http://localhost:8080"), "/"),
 		SessionSecret:       os.Getenv("SESSION_SECRET"),
 		SessionTTL:          ttl,
 		CookieSecure:        boolEnv("COOKIE_SECURE", false),

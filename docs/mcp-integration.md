@@ -45,17 +45,47 @@ calls.
 2. In **Workspace → Tool**, create a tool with kind **MCP** and enter the full
    endpoint, including `/mcp` when required by the server.
 3. Select one independent authentication profile:
-   `none`, bearer, custom header, OAuth 2.0 client credentials, or Microsoft
-   Entra on-behalf-of.
+   `none`, bearer, custom header, OAuth 2.0 client credentials, provider-neutral
+   Authorization Code + PKCE, or the legacy Microsoft Entra on-behalf-of adapter.
 4. Save, then select **Discover MCP tools**. Review the discovered descriptions
    and schemas before publishing.
 5. Publish the tool version and attach that published version to an agent.
 6. Run a read-only action in **Try it**. A `200` result proves transport and tool
    execution; validate the returned business data separately.
 
-Use OAuth client credentials for a workload identity. Use Entra on-behalf-of
-only when the MCP server must enforce the signed-in user's identity. Switching
-between these profiles does not change the MCP protocol or schema.
+Use OAuth client credentials for a workload identity. Use Authorization Code +
+PKCE when the MCP server must enforce the signed-in user's identity. That flow
+discovers RFC 9728 protected-resource metadata and RFC 8414/OIDC authorization
+server metadata; it does not depend on the provider used to sign in to Cosmo.
+The Entra OBO profile remains only for existing integrations that explicitly
+need token exchange.
+
+## Provider-neutral user authorization
+
+For an OAuth-protected MCP server:
+
+1. Set `PUBLIC_API_URL` to the browser-reachable Cosmo backend origin. The
+   callback is `<PUBLIC_API_URL>/api/tools/oauth/callback`.
+2. Select **OAuth 2.1 (Authorization Code + PKCE)** and click **Inspect OAuth
+   server**. Cosmo reads the MCP resource and authorization-server metadata.
+3. Register the displayed callback with the selected provider. Enter the
+   provider-issued Client ID; Client secret is optional for public clients.
+4. Enter explicit space-separated scopes only when the provider requires a
+   provider-qualified value. Otherwise leave Scope blank and Cosmo uses the
+   protected-resource metadata.
+5. Save, then click **Connect my account**. Each Cosmo user completes their own
+   authorization. Access and refresh tokens are encrypted and keyed by both
+   tool and user.
+6. After the callback reports connected, discover the MCP tools, publish them,
+   install the tool, and enable **Callable in chat**.
+
+Cosmo always sends PKCE S256 and validates state. It verifies the authorization
+response issuer when supplied (and requires it when the provider advertises
+RFC 9207 support). A server without standards metadata, or one that explicitly
+advertises only incompatible PKCE methods, is refused. Providers that support
+PKCE but omit the optional discovery field remain compatible. A
+shared tool shares only its client registration and contract; it never shares
+one user's token with another user.
 
 ## Local neutral conformance server
 
@@ -104,6 +134,25 @@ No new Azure application is required for this currently working app-only
 connection. Creating/exposing a separate SAP-MCP API application is needed only
 when the deployment is intentionally separated from the existing registration
 or when user-delegated/OBO authorization is enabled.
+
+To test the provider-neutral user flow against the current Entra-backed
+SAP-MCP, add this redirect URI to the chosen Entra application:
+
+```text
+http://localhost:8080/api/tools/oauth/callback
+```
+
+Then select **OAuth 2.1 (Authorization Code + PKCE)** in Cosmo. Use the Entra
+application's Client ID and secret and, because Entra expects a qualified API
+scope, enter:
+
+```text
+api://<SAP-MCP application ID>/access_as_user offline_access
+```
+
+The application must expose `access_as_user` and the signing-in user must be
+allowed by SAP-MCP policy. This registration work is an identity-provider
+requirement, not a dependency between Cosmo and SAP-MCP.
 
 ## Failure isolation
 

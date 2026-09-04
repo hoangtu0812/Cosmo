@@ -25,9 +25,9 @@ func TestOfferedSQLCoversTheFourRungs(t *testing.T) {
 	}
 }
 
-// A tool holding a key must not be reachable by a plain chat, and the query
-// says so itself rather than trusting the switch that was set earlier - a tool
-// can be given a key after it was switched on.
+// A shared static key must not be reachable by a plain chat. A user OAuth
+// registration is different: the call still requires the current person's
+// private grant, so that profile is intentionally admitted.
 func TestAutoCallableRefusesKeyedToolsInTheQuery(t *testing.T) {
 	repository := &Repository{}
 	_ = repository
@@ -37,6 +37,9 @@ func TestAutoCallableRefusesKeyedToolsInTheQuery(t *testing.T) {
 	source := autoCallableSQL()
 	if !strings.Contains(source, "t.auth_secret IS NULL") {
 		t.Error("a keyed tool is not excluded at read time")
+	}
+	if !strings.Contains(source, "t.auth_type = 'oauth2_user'") {
+		t.Error("a per-user OAuth grant cannot be enabled in chat")
 	}
 	if !strings.Contains(source, "wt.auto_call") {
 		t.Error("the switch is not consulted")

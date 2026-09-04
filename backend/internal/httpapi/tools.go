@@ -28,6 +28,8 @@ func writeToolError(w http.ResponseWriter, err error) {
 	case errors.Is(err, tools.ErrToolUnauthorized):
 		writeError(w, http.StatusBadGateway, err.Error())
 	case errors.Is(err, tools.ErrOAuthConfig), errors.Is(err, tools.ErrOAuthToken),
+		errors.Is(err, tools.ErrOAuthDiscovery), errors.Is(err, tools.ErrOAuthConnection),
+		errors.Is(err, tools.ErrOAuthState), errors.Is(err, tools.ErrOAuthProvider), errors.Is(err, tools.ErrOAuthRegistration),
 		errors.Is(err, tools.ErrOBOUnavailable), errors.Is(err, tools.ErrOBONoUser),
 		errors.Is(err, tools.ErrOBONoAssertion):
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -376,7 +378,7 @@ func (s *Server) generateToolActions(w http.ResponseWriter, r *http.Request) {
 // The server is the authority on its own tools, so this replaces what we hold
 // rather than merging: a tool the server has dropped should disappear here too.
 func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
-	item, _, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, user, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -385,9 +387,15 @@ func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	discovered, err := s.tools.DiscoverMCP(r.Context(), item)
+	ctx := tools.WithCaller(r.Context(), s.callerFor(r.Context(), user, workspaceID))
+	discovered, err := s.tools.DiscoverMCP(ctx, item)
 	if err != nil {
 		s.logger.Error("discover mcp tools", "tool_id", item.ID, "error", err)
+		if errors.Is(err, tools.ErrOAuthConnection) || errors.Is(err, tools.ErrOAuthRegistration) ||
+			errors.Is(err, tools.ErrOAuthToken) || errors.Is(err, tools.ErrOAuthDiscovery) {
+			writeToolError(w, err)
+			return
+		}
 		writeError(w, http.StatusBadGateway, "Không kết nối được MCP server.")
 		return
 	}

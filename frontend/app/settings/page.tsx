@@ -555,7 +555,7 @@ function InstalledToolSettings({canAdmin, onError, workspaceID}: {canAdmin: bool
     try {
       await api.setToolAutoCall(workspaceID, install.tool.id, autoCall);
       setInstalls((current) => current.map((item) => item.tool.id === install.tool.id
-        ? {...item, auto_call: autoCall, is_blocked_by_key: autoCall && item.tool.has_secret}
+        ? {...item, auto_call: autoCall, is_blocked_by_key: autoCall && item.tool.has_secret && item.tool.auth_type !== 'oauth2_user'}
         : item));
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
@@ -602,7 +602,7 @@ function InstalledToolSettings({canAdmin, onError, workspaceID}: {canAdmin: bool
                   </Text>
                 </VStack>
                 <Switch
-                  isDisabled={!canAdmin || busy === install.tool.id || install.tool.has_secret}
+                  isDisabled={!canAdmin || busy === install.tool.id || (install.tool.has_secret && install.tool.auth_type !== 'oauth2_user')}
                   label={t('tool.autoCall')}
                   onChange={(checked: boolean) => void setAutoCall(install, checked)}
                   size="sm"

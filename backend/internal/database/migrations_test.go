@@ -32,13 +32,14 @@ func TestMigrationValidationRejectsDuplicateVersion(t *testing.T) {
 }
 
 func TestToolAuthConstraintAdmitsEveryRuntimeMode(t *testing.T) {
-	constraint := strings.Join(toolOAuthOBOStatements, "\n")
+	constraint := strings.Join(toolOAuthAuthorizationCodeStatements, "\n")
 	for _, authType := range []string{
 		tools.AuthNone,
 		tools.AuthBearer,
 		tools.AuthHeader,
 		tools.AuthOAuth,
 		tools.AuthOBO,
+		tools.AuthOAuthUser,
 	} {
 		if !strings.Contains(constraint, "'"+authType+"'") {
 			t.Errorf("database constraint omits runtime auth type %q", authType)

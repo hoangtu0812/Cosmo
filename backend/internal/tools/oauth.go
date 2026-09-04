@@ -26,6 +26,11 @@ import (
 // its own behalf, so the grant is client credentials.
 const AuthOAuth = "oauth2"
 
+// AuthOAuthUser is the MCP-native authorization-code profile. Unlike OBO it
+// does not exchange Cosmo's login token and therefore does not depend on the
+// identity provider used to sign in to Cosmo.
+const AuthOAuthUser = "oauth2_user"
+
 // oauthCredential is the whole registration, and it is stored as one encrypted
 // value rather than spread across columns.
 //
@@ -132,6 +137,12 @@ func (repository *Repository) authorise(ctx context.Context, tool Tool, request 
 			return err
 		}
 		request.Header.Set("Authorization", "Bearer "+token)
+	case AuthOAuthUser:
+		token, err := repository.oauthUserAccessToken(ctx, tool.ID, secret)
+		if err != nil {
+			return err
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
 	}
 	return nil
 }
@@ -218,6 +229,14 @@ func (repository *Repository) accessToken(ctx context.Context, toolID, stored st
 func hintFor(authType, stored string) string {
 	if authType == AuthOAuth || authType == AuthOBO {
 		var credential oauthCredential
+		if err := json.Unmarshal([]byte(stored), &credential); err == nil {
+			if id := strings.TrimSpace(credential.ClientID); id != "" {
+				return secrets.Hint(id)
+			}
+		}
+	}
+	if authType == AuthOAuthUser {
+		var credential oauthUserRegistration
 		if err := json.Unmarshal([]byte(stored), &credential); err == nil {
 			if id := strings.TrimSpace(credential.ClientID); id != "" {
 				return secrets.Hint(id)

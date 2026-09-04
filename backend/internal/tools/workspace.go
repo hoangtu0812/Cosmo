@@ -66,12 +66,12 @@ func (repository *Repository) UninstallFromWorkspace(ctx context.Context, worksp
 // the part of that blast nobody would want to discover by accident.
 func (repository *Repository) SetAutoCall(ctx context.Context, workspaceID, toolID string, autoCall bool) error {
 	if autoCall {
-		var hasSecret bool
+		var blocksAutoCall bool
 		if err := repository.db.QueryRow(ctx,
-			`SELECT auth_secret IS NOT NULL FROM tools WHERE id = $1`, toolID).Scan(&hasSecret); err != nil {
+			`SELECT auth_secret IS NOT NULL AND auth_type <> 'oauth2_user' FROM tools WHERE id = $1`, toolID).Scan(&blocksAutoCall); err != nil {
 			return ErrNotFound
 		}
-		if hasSecret {
+		if blocksAutoCall {
 			return ErrKeyedAutoCall
 		}
 	}
@@ -127,7 +127,7 @@ func (repository *Repository) InstalledInWorkspace(ctx context.Context, workspac
 			// The key is what the read-time guard checks, so the same fact
 			// answers both questions: this one is only worth raising while the
 			// switch says the tool should be answering.
-			IsBlockedByKey: tool.AutoCall && tool.HasSecret,
+			IsBlockedByKey: tool.AutoCall && tool.HasSecret && tool.AuthType != AuthOAuthUser,
 		})
 	}
 	return list, rows.Err()
@@ -145,7 +145,8 @@ func autoCallableSQL() string {
 		FROM workspace_tools wt
 		JOIN tools t ON t.id = wt.tool_id
 		LEFT JOIN users u ON u.id = t.owner_user_id
-		WHERE wt.workspace_id = $1 AND wt.auto_call AND t.auth_secret IS NULL AND (` + offeredSQL + `)
+		WHERE wt.workspace_id = $1 AND wt.auto_call
+		  AND (t.auth_secret IS NULL OR t.auth_type = 'oauth2_user') AND (` + offeredSQL + `)
 		ORDER BY t.name`
 }
 

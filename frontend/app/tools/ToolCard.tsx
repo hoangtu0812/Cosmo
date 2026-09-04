@@ -83,7 +83,7 @@ export function ToolCard({tool, actions, canInstall, isBusy, origin, onOpen, onI
               <HStack className="mt-auto" gap={2} onClick={(event) => event.stopPropagation()} vAlign="center" width="100%">
                 {tool.is_installed ? (
                   <Switch
-                    isDisabled={isBusy || tool.has_secret || !canInstall}
+                    isDisabled={isBusy || (tool.has_secret && tool.auth_type !== 'oauth2_user') || !canInstall}
                     label={t('tool.autoCall')}
                     onChange={(checked: boolean) => onAutoCall(checked)}
                     size="sm"

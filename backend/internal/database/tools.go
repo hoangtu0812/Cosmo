@@ -293,6 +293,35 @@ var toolOAuthOBOStatements = []string{
 	 CHECK (auth_type IN ('none', 'bearer', 'header', 'oauth2', 'oauth2_obo'))`,
 }
 
+// A standards-based MCP authorization belongs to the person using the tool,
+// not to the tool row. The row keeps only the client registration; each user
+// gets an independently encrypted token grant. Short-lived authorization
+// state is persisted so a callback remains valid across replicas or a restart,
+// and is deleted atomically on first use.
+var toolOAuthAuthorizationCodeStatements = []string{
+	`ALTER TABLE tools DROP CONSTRAINT IF EXISTS tools_auth_type_check`,
+	`ALTER TABLE tools ADD CONSTRAINT tools_auth_type_check
+	 CHECK (auth_type IN ('none', 'bearer', 'header', 'oauth2', 'oauth2_obo', 'oauth2_user'))`,
+	`CREATE TABLE IF NOT EXISTS tool_oauth_tokens (
+		tool_id TEXT NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		token_secret BYTEA NOT NULL,
+		expires_at TIMESTAMPTZ NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (tool_id, user_id)
+	)`,
+	`CREATE TABLE IF NOT EXISTS tool_oauth_states (
+		state_hash TEXT PRIMARY KEY,
+		tool_id TEXT NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+		state_secret BYTEA NOT NULL,
+		expires_at TIMESTAMPTZ NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_tool_oauth_states_expiry ON tool_oauth_states(expires_at)`,
+}
+
 // MCP tool definitions are JSON Schema contracts, not the flat parameter
 // hints used by hand-authored HTTP actions. Keeping the complete tools/list
 // entry lets Cosmo remain a general MCP client without changing the HTTP tool

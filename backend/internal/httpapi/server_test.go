@@ -37,21 +37,35 @@ func TestCitationsUsedByAnswerKeepsReferencedOrder(t *testing.T) {
 	}
 }
 
-// A model that answers in headings rather than markers still used what it was
-// given, so the candidates stand in - capped, because the whole retrieval set
-// is not evidence. What keeps this honest is upstream: nothing is retrieved
-// unless the turn decided the question was about the documents.
-func TestCitationsUsedByAnswerCapsUnreferencedFallback(t *testing.T) {
+// The reader's complaint, as a test: a question the knowledge base has nothing
+// to say about still came back listing documents. Retrieval had run, so
+// candidates existed, and the answer that ignored them was given three of them
+// anyway.
+func TestCitationsUsedByAnswerListsNothingWhenTheAnswerCitedNothing(t *testing.T) {
 	candidates := []Citation{{Index: 1}, {Index: 2}, {Index: 3}, {Index: 4}}
 	got := citationsUsedByAnswer("Câu trả lời không có citation inline.", candidates)
-	if len(got) != 3 {
-		t.Fatalf("fallback returned %d citations, want 3", len(got))
+	if len(got) != 0 {
+		t.Fatalf("an answer citing nothing was given %d sources", len(got))
 	}
 }
 
 func TestCitationsUsedByAnswerIgnoresUnknownIndexes(t *testing.T) {
 	got := citationsUsedByAnswer("Không có nguồn [99].", []Citation{{Index: 1}, {Index: 2}})
-	if len(got) != 2 {
-		t.Fatalf("unknown inline index should use capped fallback: %#v", got)
+	if len(got) != 0 {
+		t.Fatalf("a marker naming no candidate is not evidence: %#v", got)
+	}
+}
+
+// One marker may name several passages. "[1, 2]" matched nothing before, which
+// read as "cited nothing" - survivable while a fallback caught it, and a silent
+// loss of the whole list now that none does.
+func TestCitationsUsedByAnswerReadsGroupedMarkers(t *testing.T) {
+	candidates := []Citation{{Index: 1, DocumentID: "a"}, {Index: 2, DocumentID: "b"}, {Index: 3, DocumentID: "c"}}
+	got := citationsUsedByAnswer("Theo hai nguồn [1, 2] và thêm [3].", candidates)
+	if len(got) != 3 {
+		t.Fatalf("grouped marker lost: %#v", got)
+	}
+	if got[0].Index != 1 || got[1].Index != 2 || got[2].Index != 3 {
+		t.Fatalf("order should follow the answer: %#v", got)
 	}
 }

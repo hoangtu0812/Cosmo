@@ -1322,18 +1322,22 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var inlineCitationPattern = regexp.MustCompile(`\[(\d+)]`)
+var inlineCitationPattern = regexp.MustCompile(`\[([\d\s,]+)]`)
 
 // citationsUsedByAnswer keeps the evidence list aligned with the answer the
 // reader actually received. Retrieval may collect many candidates, but only
 // passages cited inline are evidence for the generated claims.
 //
-// An answer that cites nothing falls back to at most three candidates. That
-// used to be dishonest - a question about the reader's own account came back
-// citing a remote-access procedure - but the turn now searches only when it
-// decided the question was about the documents, so candidates exist only where
-// somebody asked for them, and a model that writes in headings rather than
-// markers still gets its sources listed.
+// An answer that cites nothing gets no sources. There used to be a fallback of
+// three candidates here, resting on the premise that retrieval runs only when
+// the question is about the documents - so anything retrieved must be
+// relevant. The premise does not hold. The planner sends unrelated questions to
+// the knowledge base often enough that readers noticed documents listed under
+// answers which plainly ignored them, and the fallback is what turned a
+// planner's mistake into a visible false claim about where an answer came from.
+//
+// The model already reports what it used, by marking it. Nothing is a report
+// too, and it is the honest one to pass on.
 func citationsUsedByAnswer(answer string, candidates []Citation) []Citation {
 	if len(candidates) == 0 {
 		return []Citation{}
@@ -1345,23 +1349,20 @@ func citationsUsedByAnswer(answer string, candidates []Citation) []Citation {
 	used := make([]Citation, 0, len(candidates))
 	seen := map[int]bool{}
 	for _, match := range inlineCitationPattern.FindAllStringSubmatch(answer, -1) {
-		index, err := strconv.Atoi(match[1])
-		if err != nil || seen[index] {
-			continue
+		// One marker may name several passages: [2] and [1, 2] are both things
+		// a model writes, and the second used to match nothing at all.
+		for _, field := range strings.Split(match[1], ",") {
+			index, err := strconv.Atoi(strings.TrimSpace(field))
+			if err != nil || seen[index] {
+				continue
+			}
+			if citation, ok := byIndex[index]; ok {
+				used = append(used, citation)
+				seen[index] = true
+			}
 		}
-		if citation, ok := byIndex[index]; ok {
-			used = append(used, citation)
-			seen[index] = true
-		}
 	}
-	if len(used) > 0 {
-		return used
-	}
-	limit := 3
-	if len(candidates) < limit {
-		limit = len(candidates)
-	}
-	return append([]Citation(nil), candidates[:limit]...)
+	return used
 }
 
 func (s *Server) requireUser(next http.Handler) http.Handler {

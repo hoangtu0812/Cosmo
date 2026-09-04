@@ -687,7 +687,7 @@ func buildGroundingPrompt(passages []knowledgePassage) string {
 		return ""
 	}
 	var builder strings.Builder
-	builder.WriteString("Use the passages below to answer. Cite the source in square brackets once at the end of each paragraph or section that relies on it. Do not repeat the same citation after every bullet when adjacent items use the same source. If the passages do not contain the answer, say so instead of filling the gap.\n")
+	builder.WriteString("Use the passages below to answer. Cite the source in square brackets once at the end of each paragraph or section that relies on it. Do not repeat the same citation after every bullet when adjacent items use the same source. A passage you did not use must not be cited: the brackets are what tells the reader where the answer came from, and the sources listed beside the answer are exactly the ones you marked. If the passages do not contain the answer, say so and cite none of them instead of filling the gap.\n")
 	for index, passage := range passages {
 		fmt.Fprintf(&builder, "\n[%d] %s\n%s\n", index+1, passage.label(), passage.Text)
 	}

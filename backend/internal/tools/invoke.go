@@ -82,10 +82,19 @@ func (policy EgressPolicy) CheckEgress(rawURL string) error {
 		return nil
 	}
 	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() {
+			return ErrLoopbackAddress
+		}
 		if isBlockedIP(ip) {
 			return ErrPrivateAddress
 		}
 		return nil
+	}
+	// "localhost" resolves to a loopback address, but saying so after the
+	// lookup would lose which name was typed - and the name is the thing the
+	// reader has to change.
+	if strings.EqualFold(host, "localhost") {
+		return ErrLoopbackAddress
 	}
 	addresses, err := net.LookupIP(host)
 	if err != nil {
@@ -94,6 +103,9 @@ func (policy EgressPolicy) CheckEgress(rawURL string) error {
 		return nil
 	}
 	for _, ip := range addresses {
+		if ip.IsLoopback() {
+			return ErrLoopbackAddress
+		}
 		if isBlockedIP(ip) {
 			return ErrPrivateAddress
 		}

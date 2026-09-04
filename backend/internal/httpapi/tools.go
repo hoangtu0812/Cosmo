@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 
 	"cosmo/backend/internal/tools"
@@ -28,6 +30,7 @@ func writeToolError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadGateway, err.Error())
 	case errors.Is(err, tools.ErrNameLength), errors.Is(err, tools.ErrDescription),
 		errors.Is(err, tools.ErrBaseURL), errors.Is(err, tools.ErrPrivateAddress),
+		errors.Is(err, tools.ErrLoopbackAddress),
 		errors.Is(err, tools.ErrBuiltinHasNoBaseURL),
 		errors.Is(err, tools.ErrAuthType), errors.Is(err, tools.ErrAuthHeaderName),
 		errors.Is(err, tools.ErrActionName), errors.Is(err, tools.ErrActionMethod),
@@ -96,6 +99,12 @@ func (s *Server) createTool(w http.ResponseWriter, r *http.Request) {
 		writeToolError(w, err)
 		return
 	}
+	// A tool is an address Cosmo will call with a credential attached, so where
+	// it points is recorded every time it is set or changed.
+	s.audit(r, auditEvent{
+		Action: "tool.created", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"kind": item.Kind, "base_url": item.BaseURL},
+	})
 	writeJSON(w, http.StatusCreated, map[string]any{"tool": item})
 }
 
@@ -132,6 +141,34 @@ func (s *Server) updateTool(w http.ResponseWriter, r *http.Request) {
 		writeToolError(w, err)
 		return
 	}
+	changed := []string{}
+	for field, sent := range map[string]bool{
+		"name": changes.Name != nil, "description": changes.Description != nil, "icon": changes.Icon != nil,
+		"tags": changes.Tags != nil, "visibility": changes.Visibility != nil, "base_url": changes.BaseURL != nil,
+		"auth_type": changes.AuthType != nil, "auth_header_name": changes.AuthHeaderName != nil,
+		"credential": changes.AuthSecret != nil,
+	} {
+		if sent {
+			changed = append(changed, field)
+		}
+	}
+	sort.Strings(changed)
+	if len(changed) > 0 {
+		metadata := map[string]any{"fields": changed, "base_url": updated.BaseURL, "visibility": updated.Visibility}
+		if changes.AuthSecret != nil {
+			// The key never appears. Whether one was set or cleared does: a tool
+			// that gains a credential also loses the right to be called
+			// automatically, and that follows from this row.
+			metadata["credential"] = "cleared"
+			if strings.TrimSpace(*changes.AuthSecret) != "" {
+				metadata["credential"] = "replaced"
+			}
+		}
+		s.audit(r, auditEvent{
+			Action: "tool.updated", TargetType: "tool", TargetID: item.ID, TargetLabel: updated.Name,
+			WorkspaceID: workspaceID, Metadata: metadata,
+		})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"tool": updated})
 }
 
@@ -144,11 +181,15 @@ func (s *Server) deleteTool(w http.ResponseWriter, r *http.Request) {
 		writeToolError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "tool.deleted", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"kind": item.Kind, "base_url": item.BaseURL},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) saveToolAction(w http.ResponseWriter, r *http.Request) {
-	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, _, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -161,18 +202,29 @@ func (s *Server) saveToolAction(w http.ResponseWriter, r *http.Request) {
 		writeToolError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "tool.action.saved", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID,
+		Metadata:    map[string]string{"action": action.Name, "method": action.Method, "path": action.Path},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"action": action})
 }
 
 func (s *Server) deleteToolAction(w http.ResponseWriter, r *http.Request) {
-	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, _, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
-	if err := s.tools.DeleteAction(r.Context(), item.ID, chi.URLParam(r, "actionID")); err != nil {
+	actionID := chi.URLParam(r, "actionID")
+	removed, _ := s.tools.Action(r.Context(), item.ID, actionID)
+	if err := s.tools.DeleteAction(r.Context(), item.ID, actionID); err != nil {
 		writeToolError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "tool.action.deleted", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]string{"action": removed.Name},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -199,6 +251,19 @@ func (s *Server) testToolAction(w http.ResponseWriter, r *http.Request) {
 	// same answer here as it would mid-conversation.
 	ctx := tools.WithCaller(r.Context(), s.callerFor(r.Context(), user, workspaceID))
 	result, err := s.tools.Invoke(ctx, item, action, input.Arguments)
+	// Recorded either way: this is Cosmo reaching a third-party endpoint with
+	// the workspace's credential, on someone's say-so, outside any run. The
+	// arguments and the response body are not stored - the point of the row is
+	// that the call happened, not what came back.
+	outcome, status := auditSuccess, result.Status
+	if err != nil {
+		outcome = auditFailure
+	}
+	s.audit(r, auditEvent{
+		Action: "tool.action.tested", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Outcome: outcome,
+		Metadata: map[string]any{"action": action.Name, "method": action.Method, "path": action.Path, "status": status},
+	})
 	if err != nil {
 		writeToolError(w, err)
 		return
@@ -242,6 +307,10 @@ func (s *Server) setAgentTools(w http.ResponseWriter, r *http.Request) {
 		writeToolError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "agent.tools.updated", TargetType: "agent", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]any{"tool_ids": ids},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"tool_ids": ids})
 }
 
@@ -289,6 +358,10 @@ func (s *Server) generateToolActions(w http.ResponseWriter, r *http.Request) {
 		}
 		saved = append(saved, result)
 	}
+	s.audit(r, auditEvent{
+		Action: "tool.actions.drafted", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]int{"actions": len(saved), "offered": len(drafted)},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
 }
 
@@ -296,7 +369,7 @@ func (s *Server) generateToolActions(w http.ResponseWriter, r *http.Request) {
 // The server is the authority on its own tools, so this replaces what we hold
 // rather than merging: a tool the server has dropped should disappear here too.
 func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
-	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, _, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -329,6 +402,13 @@ func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
 		}
 		saved = append(saved, result)
 	}
+	// This replaces the whole callable surface of the tool, so what it replaced
+	// is recorded alongside what it became.
+	s.audit(r, auditEvent{
+		Action: "tool.actions.discovered", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID,
+		Metadata:    map[string]int{"actions": len(saved), "replaced": len(existing)},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
 }
 
@@ -379,6 +459,13 @@ func (s *Server) installCatalogTool(w http.ResponseWriter, r *http.Request) {
 	if existed {
 		status = http.StatusOK
 	}
+	if !existed {
+		s.audit(r, auditEvent{
+			Action: "tool.installed_from_catalog", TargetType: "tool", TargetID: installed.ID,
+			TargetLabel: installed.Name, WorkspaceID: workspaceID,
+			Metadata: map[string]string{"catalog_entry": entry.ID, "base_url": installed.BaseURL},
+		})
+	}
 	writeJSON(w, status, map[string]any{"tool": installed, "already_installed": existed})
 }
 
@@ -386,7 +473,7 @@ func (s *Server) installCatalogTool(w http.ResponseWriter, r *http.Request) {
 // remember it. Existing actions are left alone: an import adds what the
 // specification has, and a name already in use is skipped by SaveAction.
 func (s *Server) importOpenAPI(w http.ResponseWriter, r *http.Request) {
-	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, _, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -422,6 +509,11 @@ func (s *Server) importOpenAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		saved = append(saved, result)
 	}
+	s.audit(r, auditEvent{
+		Action: "tool.actions.imported", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID,
+		Metadata:    map[string]any{"actions": len(saved), "described": len(parsed), "source": input.URL},
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
 }
 
@@ -451,10 +543,15 @@ func (s *Server) installWorkspaceTool(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Chỉ quản trị viên workspace mới được cài tool.")
 		return
 	}
-	if err := s.tools.InstallToWorkspace(r.Context(), workspaceID, chi.URLParam(r, "toolID"), user.ID); err != nil {
+	toolID := chi.URLParam(r, "toolID")
+	if err := s.tools.InstallToWorkspace(r.Context(), workspaceID, toolID, user.ID); err != nil {
 		writeToolError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workspace.tool.installed", TargetType: "tool", TargetID: toolID,
+		TargetLabel: s.toolName(r.Context(), toolID), WorkspaceID: workspaceID,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -467,11 +564,25 @@ func (s *Server) uninstallWorkspaceTool(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusForbidden, "Chỉ quản trị viên workspace mới được gỡ tool.")
 		return
 	}
-	if err := s.tools.UninstallFromWorkspace(r.Context(), workspaceID, chi.URLParam(r, "toolID")); err != nil {
+	toolID := chi.URLParam(r, "toolID")
+	name := s.toolName(r.Context(), toolID)
+	if err := s.tools.UninstallFromWorkspace(r.Context(), workspaceID, toolID); err != nil {
 		writeToolError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "workspace.tool.uninstalled", TargetType: "tool", TargetID: toolID,
+		TargetLabel: name, WorkspaceID: workspaceID,
+	})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// toolName is what a tool is called, for the audit rows raised by handlers that
+// only ever see its id.
+func (s *Server) toolName(ctx context.Context, toolID string) string {
+	var name string
+	_ = s.db.QueryRow(ctx, `SELECT name FROM tools WHERE id = $1`, toolID).Scan(&name)
+	return name
 }
 
 // setWorkspaceToolAutoCall is the flag that lets the model reach for a tool on
@@ -491,10 +602,19 @@ func (s *Server) setWorkspaceToolAutoCall(w http.ResponseWriter, r *http.Request
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	if err := s.tools.SetAutoCall(r.Context(), workspaceID, chi.URLParam(r, "toolID"), input.AutoCall); err != nil {
+	toolID := chi.URLParam(r, "toolID")
+	if err := s.tools.SetAutoCall(r.Context(), workspaceID, toolID, input.AutoCall); err != nil {
 		writeToolError(w, err)
 		return
 	}
+	// Switching this on is what lets the model call a third-party endpoint
+	// without anyone asking it to, which makes it the single most consequential
+	// toggle a workspace admin has.
+	s.audit(r, auditEvent{
+		Action: "workspace.tool.auto_call_updated", TargetType: "tool", TargetID: toolID,
+		TargetLabel: s.toolName(r.Context(), toolID), WorkspaceID: workspaceID,
+		Metadata: map[string]bool{"auto_call": input.AutoCall},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -514,7 +634,7 @@ func (s *Server) listToolShares(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) setToolShares(w http.ResponseWriter, r *http.Request) {
-	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, _, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -528,6 +648,10 @@ func (s *Server) setToolShares(w http.ResponseWriter, r *http.Request) {
 		writeToolError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "tool.sharing_updated", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID, Metadata: map[string]any{"workspaces": input.Workspaces},
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -535,7 +659,7 @@ func (s *Server) setToolShares(w http.ResponseWriter, r *http.Request) {
 // keeps calling that and not whatever the tool becomes later. Only someone who
 // may edit the tool may publish it, which toolForWrite already decides.
 func (s *Server) publishTool(w http.ResponseWriter, r *http.Request) {
-	item, user, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, user, workspaceID, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -550,6 +674,11 @@ func (s *Server) publishTool(w http.ResponseWriter, r *http.Request) {
 		writeToolError(w, err)
 		return
 	}
+	s.audit(r, auditEvent{
+		Action: "tool.published", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
+		WorkspaceID: workspaceID,
+		Metadata:    map[string]any{"version": version.VersionNumber, "changelog": strings.TrimSpace(input.Changelog)},
+	})
 	writeJSON(w, http.StatusCreated, map[string]any{"version": version})
 }
 

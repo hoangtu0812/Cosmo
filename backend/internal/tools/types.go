@@ -53,6 +53,11 @@ var (
 	ErrDescription    = errors.New("Mô tả tối đa 512 ký tự.")
 	ErrBaseURL        = errors.New("API base URL phải là http hoặc https.")
 	ErrPrivateAddress = errors.New("Tool chỉ được gọi ra Internet, không gọi vào địa chỉ nội bộ.")
+	// Loopback gets its own wording because it is both the commonest mistake
+	// and the one where naming the rule helps least: the reader is looking at a
+	// server they can open in a browser, so being told it is unreachable is
+	// only confusing until they learn which machine is doing the reaching.
+	ErrLoopbackAddress = errors.New("localhost là chính container backend, không phải máy của bạn. Dùng host.docker.internal thay cho localhost, và thêm host đó vào TOOL_EGRESS_ALLOWED_HOSTS.")
 	// Setting one is not a typo to correct but a misunderstanding of what the
 	// tool is, so it says which of the two it is rather than what to type.
 	ErrBuiltinHasNoBaseURL = errors.New("Tool tích hợp sẵn chạy ngay trong hệ thống nên không có API base URL.")

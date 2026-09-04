@@ -34,7 +34,11 @@ func TestCheckEgressRefusesPrivateAddresses(t *testing.T) {
 		"http://0.0.0.0/",
 	}
 	for _, raw := range blocked {
-		if err := policy.CheckEgress(raw); !errors.Is(err, ErrPrivateAddress) {
+		// Refused is what matters here. Loopback is refused in its own words,
+		// because it is the commonest mistake and the reader needs telling what
+		// to type instead; the test below is the one that holds that apart.
+		err := policy.CheckEgress(raw)
+		if !errors.Is(err, ErrPrivateAddress) && !errors.Is(err, ErrLoopbackAddress) {
 			t.Fatalf("CheckEgress(%q) should have been refused, got %v", raw, err)
 		}
 	}
@@ -313,5 +317,26 @@ func TestBaseURLForKindStillDemandsOneOfEverythingElse(t *testing.T) {
 		if err != nil || got != "https://api.example.com" {
 			t.Fatalf("%s lost its endpoint: %q %v", kind, got, err)
 		}
+	}
+}
+
+// localhost is what anyone running a server on their own machine types, and it
+// is the one address certainly wrong here: the backend is in a container, so
+// localhost there is the container. Being told "internal addresses are refused"
+// is true and leaves the reader with nothing to do.
+func TestCheckEgressTellsLoopbackApartFromThePrivateNetwork(t *testing.T) {
+	policy := EgressPolicy{}
+	for _, raw := range []string{"http://localhost:8000/mcp", "http://127.0.0.1:8000/mcp", "http://[::1]:8000/mcp"} {
+		err := policy.CheckEgress(raw)
+		if !errors.Is(err, ErrLoopbackAddress) {
+			t.Fatalf("%s should name the fix, got %v", raw, err)
+		}
+	}
+	// A LAN address is a different mistake and keeps the general wording.
+	if err := policy.CheckEgress("http://10.0.0.5/api"); !errors.Is(err, ErrPrivateAddress) {
+		t.Fatalf("a private address should not be reported as loopback: %v", err)
+	}
+	if !strings.Contains(ErrLoopbackAddress.Error(), "host.docker.internal") {
+		t.Fatalf("the message should name what to type instead: %v", ErrLoopbackAddress)
 	}
 }

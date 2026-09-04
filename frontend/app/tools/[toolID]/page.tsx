@@ -371,6 +371,12 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
   const [baseURL, setBaseURL] = useState(tool.base_url);
   const [authType, setAuthType] = useState(tool.auth_type);
   const [headerName, setHeaderName] = useState(tool.auth_header_name);
+  // The four parts of an OAuth registration. They are sealed together as one
+  // value, so none of them reads back and all four are retyped to change any.
+  const [tokenURL, setTokenURL] = useState('');
+  const [clientID, setClientID] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [scope, setScope] = useState('');
   const [secret, setSecret] = useState('');
   const [visibility, setVisibility] = useState(tool.visibility);
   const [isSaving, setIsSaving] = useState(false);
@@ -404,6 +410,23 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
     }
   }
 
+  // What travels in auth_secret. For OAuth that is the whole registration as
+  // one sealed value: an issuer, a client and its secret are meaningless apart
+  // and are rotated together, so storing them apart would invite a tool
+  // authenticating as the old client with the new secret.
+  function credentialToSend(): Record<string, unknown> {
+    if (authType !== 'oauth2') return secret ? {auth_secret: secret} : {};
+    if (!tokenURL.trim() || !clientID.trim() || !clientSecret.trim()) return {};
+    return {
+      auth_secret: JSON.stringify({
+        token_url: tokenURL.trim(),
+        client_id: clientID.trim(),
+        client_secret: clientSecret,
+        scope: scope.trim(),
+      }),
+    };
+  }
+
   async function save(extra: Record<string, unknown> = {}) {
     setIsSaving(true);
     setFailure('');
@@ -415,7 +438,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
         auth_type: authType,
         auth_header_name: headerName,
         visibility,
-        ...(secret ? {auth_secret: secret} : {}),
+        ...credentialToSend(),
         ...extra,
       }, workspaceID);
       setSecret('');
@@ -486,6 +509,7 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             {value: 'none', label: t('tool.authNone')},
             {value: 'bearer', label: t('tool.authBearer')},
             {value: 'header', label: t('tool.authHeader')},
+            {value: 'oauth2', label: t('tool.authOAuth')},
           ]}
           value={authType}
           width="100%"
@@ -500,7 +524,47 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
             width="100%"
           />
         ) : null}
-        {authType !== 'none' ? (
+        {authType === 'oauth2' ? (
+          <VStack gap={2} width="100%">
+            <TextInput
+              isDisabled={!tool.is_editable}
+              label={t('tool.authTokenURL')}
+              onChange={setTokenURL}
+              placeholder="https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+              value={tokenURL}
+              width="100%"
+            />
+            <TextInput
+              isDisabled={!tool.is_editable}
+              label={t('tool.authClientID')}
+              onChange={setClientID}
+              value={clientID}
+              width="100%"
+            />
+            <TextInput
+              isDisabled={!tool.is_editable}
+              label={t('tool.authClientSecret')}
+              onChange={setClientSecret}
+              placeholder={tool.has_secret ? t('tool.authStored', {hint: tool.auth_hint}) : ''}
+              type="password"
+              value={clientSecret}
+              width="100%"
+            />
+            <TextInput
+              isDisabled={!tool.is_editable}
+              label={t('tool.authScope')}
+              onChange={setScope}
+              placeholder="api://.../.default"
+              value={scope}
+              width="100%"
+            />
+            <HStack gap={2} vAlign="center">
+              <Icon icon={ShieldCheck} size="sm" />
+              <Text color="secondary" type="supporting">{t('tool.authSecretHint')}</Text>
+            </HStack>
+          </VStack>
+        ) : null}
+        {authType !== 'none' && authType !== 'oauth2' ? (
           <VStack gap={2} width="100%">
             <TextInput
               isDisabled={!tool.is_editable}

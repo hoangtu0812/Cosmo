@@ -20,6 +20,10 @@ type Repository struct {
 	secrets *secrets.Box
 	egress  EgressPolicy
 	search  SearchBackend
+	// Access tokens fetched for tools that authenticate with OAuth. Not
+	// constructed here: a repository built by hand in a test has no need of it
+	// until something asks for a token.
+	tokens tokenCache
 }
 
 func NewRepository(db *pgxpool.Pool, logger *slog.Logger, box *secrets.Box, egress EgressPolicy, search SearchBackend) *Repository {

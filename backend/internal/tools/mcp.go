@@ -95,7 +95,7 @@ func (repository *Repository) mcpRequest(ctx context.Context, tool Tool, session
 			request.Header.Set("Mcp-Session-Id", session.id)
 		}
 	}
-	if err := repository.authoriseMCP(ctx, tool, request); err != nil {
+	if err := repository.authorise(ctx, tool, request); err != nil {
 		return nil, err
 	}
 
@@ -112,29 +112,6 @@ func (repository *Repository) mcpRequest(ctx context.Context, tool Tool, session
 		return nil, ErrCallFailed
 	}
 	return response, nil
-}
-
-// authoriseMCP attaches the tool's credential. The spec's own answer here is
-// OAuth 2.1; a static key is what this platform can store, so a server that
-// wants a rotating token needs one pasted in and replaced when it expires.
-func (repository *Repository) authoriseMCP(ctx context.Context, tool Tool, request *http.Request) error {
-	if tool.AuthType == AuthNone {
-		return nil
-	}
-	secret, err := repository.secretFor(ctx, tool.ID)
-	if err != nil {
-		return err
-	}
-	if secret == "" {
-		return nil
-	}
-	switch tool.AuthType {
-	case AuthBearer:
-		request.Header.Set("Authorization", "Bearer "+secret)
-	case AuthHeader:
-		request.Header.Set(tool.AuthHeaderName, secret)
-	}
-	return nil
 }
 
 // callMCP sends one JSON-RPC request and returns the raw result.
@@ -253,7 +230,7 @@ func (repository *Repository) closeMCP(ctx context.Context, tool Tool, session *
 	if session.version != "" {
 		request.Header.Set("MCP-Protocol-Version", session.version)
 	}
-	if err := repository.authoriseMCP(ctx, tool, request); err != nil {
+	if err := repository.authorise(ctx, tool, request); err != nil {
 		return
 	}
 	response, err := repository.client().Do(request)

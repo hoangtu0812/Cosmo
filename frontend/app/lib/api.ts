@@ -141,7 +141,7 @@ export type Tool = {
   /** 'http' for an API described by hand, 'mcp' for a server that describes
       itself, 'builtin' for one that reaches nothing at all. */
   kind: 'http' | 'mcp' | 'builtin';
-  auth_type: 'none' | 'bearer' | 'header';
+  auth_type: 'none' | 'bearer' | 'header' | 'oauth2';
   auth_header_name: string;
   auth_hint: string;
   has_secret: boolean;
@@ -374,7 +374,83 @@ export type RunStep = {
 export type RunEvent = {id: number; run_id: string; step_id?: string; sequence: number; type: string; payload: Record<string, unknown>; created_at: string};
 export type AuthConfig = {local_signup_enabled: boolean; local_auth_enabled: boolean; entra_enabled: boolean; model_configured: boolean; model_alias: string};
 export type AdminUser = {id: string; email: string; name: string; role: 'admin' | 'user'; provider: 'entra' | 'local'; workspace_count: number; created_at: string; has_avatar: boolean};
-export type AuditEvent = {id: number; actor_name: string; actor_email: string; action: string; target_type: string; target_id: string; metadata: Record<string, unknown>; created_at: string};
+export type AuditOutcome = 'success' | 'failure' | 'denied';
+export type AuditEvent = {
+  id: number;
+  actor_id?: string;
+  actor_name: string;
+  actor_email: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  /** What the target was called when it was touched, kept for the rows whose
+      target no longer exists. */
+  target_label?: string;
+  workspace_id?: string;
+  workspace_name?: string;
+  outcome: AuditOutcome;
+  ip_address?: string;
+  user_agent?: string;
+  request_id?: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+export type AuditFilterOption = {value: string; label: string; count: number};
+export type AuditFilterSet = {actions: AuditFilterOption[]; domains: AuditFilterOption[]; workspaces: AuditFilterOption[]; actors: AuditFilterOption[]};
+export type AuditQuery = {
+  limit?: number;
+  /** The id of the last row already shown. Paging by id keeps a page stable
+      while new events arrive above it. */
+  before?: number;
+  action?: string;
+  domain?: string;
+  actor?: string;
+  workspace?: string;
+  target_type?: string;
+  outcome?: string;
+  q?: string;
+  from?: string;
+  to?: string;
+};
+
+export type AnalyticsInventory = {workspaces: number; users: number; knowledge_bases: number; documents: number; agents: number; tools: number; workflows: number; conversations: number};
+export type AnalyticsActivity = {
+  runs: number;
+  failed_runs: number;
+  active_workspaces: number;
+  active_users: number;
+  conversations: number;
+  messages: number;
+  tool_calls: number;
+  failed_tool_calls: number;
+  documents: number;
+  audit_events: number;
+  sign_ins: number;
+  failed_sign_ins: number;
+  avg_run_seconds: number;
+};
+export type AnalyticsDay = {date: string; runs: number; failed_runs: number; active_users: number; messages: number; conversations: number; tool_calls: number};
+export type WorkspaceActivity = {id: string; name: string; type: string; members: number; runs: number; active_users: number; messages: number; tool_calls: number; last_active_at?: string};
+export type ToolUsage = {name: string; action?: string; calls: number; failures: number; workspaces: number; avg_ms: number};
+export type AgentUsage = {id: string; name: string; workspace_name: string; runs: number};
+export type CountedItem = {label: string; count: number};
+export type HourlyLoad = {hour: number; runs: number; tool_calls: number};
+export type PlatformAnalytics = {
+  range: {days: number; from: string; to: string};
+  inventory: AnalyticsInventory;
+  window: AnalyticsActivity;
+  previous: AnalyticsActivity;
+  trend: AnalyticsDay[];
+  workspaces: WorkspaceActivity[];
+  tools: ToolUsage[];
+  tool_actions: ToolUsage[];
+  agents: AgentUsage[];
+  models: CountedItem[];
+  run_status: CountedItem[];
+  hourly: HourlyLoad[];
+  document_status: CountedItem[];
+  audit_domains: CountedItem[];
+};
 export type SystemGatewaySettings = {base_url: string; has_api_key: boolean; api_key_hint?: string; configured: boolean};
 export type SystemStatus = {entra_enabled: boolean; entra_tenant_id?: string; model_gateway_enabled: boolean; knowledge_enabled: boolean; cookie_secure: boolean; session_ttl: string; admin_email_count: number; configuration_source: string; embedding_model: string; reranker_model: string; system_gateway: SystemGatewaySettings};
 
@@ -419,13 +495,28 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** A query string from the fields that were actually set, or nothing at all. */
+function searchParams(query: Record<string, string | number | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '' && value !== 0) params.set(key, String(value));
+  }
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : '';
+}
+
 export const api = {
   authConfig: () => request<AuthConfig>('/api/auth/config'),
   me: () => request<{user: User}>('/api/auth/me'),
   userAvatarURL: () => `${API_BASE}/api/auth/me/avatar`,
   adminUsers: () => request<{users: AdminUser[]}>('/api/admin/users'),
   updateAdminUser: (userID: string, role: 'admin' | 'user') => request<{id: string; role: 'admin' | 'user'}>(`/api/admin/users/${encodeURIComponent(userID)}`, {method: 'PATCH', body: JSON.stringify({role})}),
-  auditEvents: () => request<{events: AuditEvent[]}>('/api/admin/audit-logs'),
+  auditEvents: (query: AuditQuery = {}) => request<{events: AuditEvent[]; has_more: boolean; next_cursor: number}>(`/api/admin/audit-logs${searchParams(query)}`),
+  auditFilters: () => request<AuditFilterSet>('/api/admin/audit-logs/filters'),
+  // A CSV arrives as a download rather than as JSON, so it is a URL the browser
+  // navigates to rather than something the client reads and re-encodes.
+  auditExportURL: (query: AuditQuery = {}) => `${API_BASE}/api/admin/audit-logs/export${searchParams(query)}`,
+  analytics: (days: number) => request<PlatformAnalytics>(`/api/admin/analytics?days=${days}`),
   systemStatus: () => request<SystemStatus>('/api/admin/system'),
   updateSystemSettings: (body: {embedding_model: string; reranker_model: string; gateway_base_url: string; gateway_api_key?: string}) => request<SystemStatus>('/api/admin/system', {method: 'PUT', body: JSON.stringify(body)}),
   systemGatewayModels: (body: {base_url?: string; api_key?: string}) => request<{ok: boolean; message?: string; models: GatewayModel[]}>('/api/admin/system/models', {method: 'POST', body: JSON.stringify(body)}),

@@ -58,6 +58,8 @@ var (
 	ErrBuiltinHasNoBaseURL = errors.New("Tool tích hợp sẵn chạy ngay trong hệ thống nên không có API base URL.")
 	ErrAuthType            = errors.New("Kiểu xác thực không hợp lệ.")
 	ErrAuthHeaderName      = errors.New("Cần tên header khi xác thực bằng header.")
+	ErrOAuthConfig         = errors.New("Thông tin OAuth phải gồm token_url, client_id và client_secret.")
+	ErrOAuthToken          = errors.New("Máy chủ xác thực không cấp được access token.")
 	ErrActionName          = errors.New("Tên action phải từ 1 đến 120 ký tự và chỉ gồm chữ, số, gạch dưới.")
 	ErrActionMethod        = errors.New("Phương thức HTTP không hợp lệ.")
 	ErrActionPath          = errors.New("Đường dẫn action phải bắt đầu bằng /.")
@@ -259,7 +261,7 @@ func ValidateAuth(authType, headerName string) (string, string, error) {
 	if kind == "" {
 		kind = AuthNone
 	}
-	if kind != AuthNone && kind != AuthBearer && kind != AuthHeader {
+	if kind != AuthNone && kind != AuthBearer && kind != AuthHeader && kind != AuthOAuth {
 		return "", "", ErrAuthType
 	}
 	name := strings.TrimSpace(headerName)

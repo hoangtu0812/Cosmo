@@ -163,19 +163,8 @@ func (repository *Repository) Invoke(ctx context.Context, tool Tool, action Acti
 	}
 	request.Header.Set("Accept", "application/json, text/plain;q=0.9, */*;q=0.8")
 
-	if tool.AuthType != AuthNone {
-		secret, err := repository.secretFor(ctx, tool.ID)
-		if err != nil {
-			return CallResult{}, err
-		}
-		if secret != "" {
-			switch tool.AuthType {
-			case AuthBearer:
-				request.Header.Set("Authorization", "Bearer "+secret)
-			case AuthHeader:
-				request.Header.Set(tool.AuthHeaderName, secret)
-			}
-		}
+	if err := repository.authorise(ctx, tool, request); err != nil {
+		return CallResult{}, err
 	}
 
 	started := time.Now()

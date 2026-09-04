@@ -117,7 +117,9 @@ function ToolsScreen() {
         {
           name: newName,
           description: newDescription,
-          icon: route === 'mcp' ? '🧩' : '🔌',
+          // An MCP tool draws its own mark from its kind, so it needs no
+          // stored icon; anything put here would be ignored.
+          icon: route === 'mcp' ? '' : '🔌',
           tags: [],
           base_url: newBaseURL,
           kind: route === 'mcp' ? 'mcp' : 'http',

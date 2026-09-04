@@ -11,6 +11,7 @@ import {StatusLabel} from '../components/StatusLabel';
 import {CardContextMenu, CardMenuButton, CardMenuItems} from '../components/CardMenu';
 import {cardHover} from '../components/motion';
 import {Tool} from '../lib/api';
+import {McpMark} from '../components/McpMark';
 import {useTranslation} from '../lib/i18n';
 
 /**
@@ -43,7 +44,9 @@ export function ToolCard({tool, actions, canInstall, isBusy, origin, onOpen, onI
           <Section padding={5} variant="muted">
             <HStack hAlign="center" width="100%">
               <Card padding={3}>
-                <Text type="display-3">{tool.icon || '🔌'}</Text>
+                {tool.kind === 'mcp'
+                  ? <McpMark size={34} />
+                  : <Text type="display-3">{tool.icon || '🔌'}</Text>}
               </Card>
             </HStack>
           </Section>

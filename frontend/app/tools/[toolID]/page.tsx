@@ -25,6 +25,7 @@ import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Token} from '@astryxdesign/core/Token';
 import {StatusLabel} from '../../components/StatusLabel';
 import {api, APIError, Tool, ToolAction, ToolCallResult, ToolOAuthConnection, ToolParameter, ToolVersion} from '../../lib/api';
+import {McpMark} from '../../components/McpMark';
 import {useTranslation} from '../../lib/i18n';
 
 export default function ToolDetailPage() {
@@ -537,7 +538,9 @@ function ToolOverview({tool, actionCount, workspaceID, onSaved, onReload, t}: {
       {search.get('oauth_error') ? <Banner status="error" title={t('tool.oauthFailed')} /> : null}
 
       <HStack gap={3} vAlign="center">
-        <Text type="display-3">{tool.icon || '🔌'}</Text>
+        {tool.kind === 'mcp'
+          ? <McpMark size={34} />
+          : <Text type="display-3">{tool.icon || '🔌'}</Text>}
         <VStack gap={0}>
           <Text size="xl" type="large">{tool.name}</Text>
           <Text color="secondary" type="supporting">{tool.base_url}</Text>

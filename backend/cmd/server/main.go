@@ -46,6 +46,8 @@ func main() {
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	worker := runs.NewWorker(db, logger, runs.WorkerOptions{})
 	var chatWorkers sync.WaitGroup
+	chatWorkers.Add(1)
+	go func() { defer chatWorkers.Done(); api.RunKnowledgeSnapshotCleanup(workerCtx) }()
 	for i := 0; i < cfg.ChatWorkers; i++ {
 		chatWorkers.Add(1)
 		go func() {

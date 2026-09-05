@@ -62,6 +62,16 @@ var migrations = []Migration{
 		`CREATE INDEX knowledge_mount_snapshot ON knowledge_mounts(snapshot_id) WHERE snapshot_id IS NOT NULL`,
 	}},
 	{Version: 30, Name: "snapshot_originals", Statements: []string{`ALTER TABLE knowledge_snapshots ADD COLUMN originals JSONB NOT NULL DEFAULT '{}'::jsonb`}},
+	{Version: 31, Name: "snapshot_cleanup", Statements: []string{
+		`CREATE TABLE knowledge_snapshot_cleanup(snapshot_id TEXT PRIMARY KEY,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),attempts INTEGER NOT NULL DEFAULT 0,next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE FUNCTION queue_knowledge_snapshot_cleanup() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN INSERT INTO knowledge_snapshot_cleanup(snapshot_id) VALUES(OLD.id) ON CONFLICT DO NOTHING; RETURN OLD; END $$`,
+		`CREATE TRIGGER knowledge_snapshot_cleanup BEFORE DELETE ON knowledge_snapshots FOR EACH ROW EXECUTE FUNCTION queue_knowledge_snapshot_cleanup()`,
+	}},
+	{Version: 32, Name: "snapshot_reference_indexes", Statements: []string{
+		`CREATE INDEX agent_snapshot_references ON agent_versions USING GIN (knowledge_snapshots jsonb_path_ops)`,
+		`CREATE INDEX run_snapshot_references ON runs USING GIN ((input->'knowledge_snapshots') jsonb_path_ops)`,
+		`CREATE INDEX message_snapshot_references ON messages USING GIN (citations jsonb_path_ops)`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

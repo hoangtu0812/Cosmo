@@ -48,13 +48,14 @@ type Config struct {
 	// RetrievalLog records the questions asked of the knowledge plane and what
 	// came back, which is where a curated evaluation set comes from. It stores
 	// what people typed, so it is off unless an operator turns it on.
-	RetrievalLog        bool
-	RetrievalWorkers    int
-	RetrievalTimeout    time.Duration
-	RetrievalKBTimeout  time.Duration
-	RetrievalCandidates int
-	ChatWorkers         int
-	ChatTimeout         time.Duration
+	RetrievalLog          bool
+	SnapshotRetentionDays int
+	RetrievalWorkers      int
+	RetrievalTimeout      time.Duration
+	RetrievalKBTimeout    time.Duration
+	RetrievalCandidates   int
+	ChatWorkers           int
+	ChatTimeout           time.Duration
 }
 
 func Load() (Config, error) {
@@ -120,6 +121,7 @@ func Load() (Config, error) {
 		RAGTimeout:             ragTimeout,
 		ReindexWorkers:         intEnv("KNOWLEDGE_REINDEX_WORKERS", 4),
 		RetrievalLog:           boolEnv("KNOWLEDGE_RETRIEVAL_LOG", false),
+		SnapshotRetentionDays:  min(intEnv("KNOWLEDGE_SNAPSHOT_RETENTION_DAYS", 30), 36500),
 		RetrievalWorkers:       intEnv("KNOWLEDGE_RETRIEVAL_WORKERS", 4),
 		RetrievalTimeout:       retrievalTimeout,
 		RetrievalKBTimeout:     kbTimeout,

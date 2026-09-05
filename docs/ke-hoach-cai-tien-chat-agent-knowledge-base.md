@@ -638,3 +638,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Citation lưu snapshot_id và giao diện preview/download dùng đúng pin. Route gốc giải quyết theo manifest snapshot, không cần hàng document live còn tồn tại, không fallback sang tệp live; kiểm tra lại quyền KB trước khi trả nội dung.
 - Xóa tài liệu live giữ các bản sao snapshot; xóa snapshot dọn cả vector và tệp riêng. Deadline response publish được nâng theo deadline công việc 5 phút.
 - Backend/PostgreSQL, 119 RAG tests, TypeScript/build frontend qua. Có tests xóa live vẫn mở được bản gốc snapshot, pin thiếu trả 404, thu hồi share chặn tải, lỗi copy dọn phần tạm.
+
+### 2026-09-05 — KB-06e: Retention và cleanup bền vững
+
+- Worker chạy khi khởi động và mỗi giờ, mặc định xét snapshot quá 30 ngày (KNOWLEDGE_SNAPSHOT_RETENTION_DAYS). Giữ bản KB hiện hành và mọi snapshot còn được mount, bất kỳ agent version, run hoặc citation trong message tham chiếu. Không xóa chỉ vì snapshot cũ; thêm GIN indexes để tra tham chiếu.
+- Migration 31/32 thêm outbox xóa storage và indexes. Trigger ghi outbox cùng transaction xóa snapshot, kể cả cascade khi xóa KB/workspace. Worker xóa Qdrant và MinIO sau commit; lỗi storage giữ hàng đợi và retry sau một giờ. Advisory lock tránh nhiều worker dọn trùng, KB row lock phối hợp với publish/mount, không giữ transaction khi gọi storage.
+- PostgreSQL integration kiểm tra giữ current/recent/mount/agent/run/citation, chỉ loại snapshot đủ điều kiện, lỗi upstream giữ retry rồi thành công, xóa KB vẫn ghi đủ cleanup. Toàn bộ backend suite qua.
+- Giới hạn còn lại: build snapshot vẫn đồng bộ; crash trước khi có snapshot metadata có thể để lại tài nguyên mồ côi chưa được collector này tự nhận diện. Retention không xóa các bản còn tham chiếu và không phải chính sách xóa lịch sử chat/run.

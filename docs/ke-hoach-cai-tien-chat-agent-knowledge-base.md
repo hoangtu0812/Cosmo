@@ -573,3 +573,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Tests: cùng/khác chiều, khác model/owner/gateway, key rotation, profile thiếu, đổi chiều trong profile, creation race, xóa nhiều profile; integration xác minh owner header và rollback queue khi tài liệu thứ hai lỗi, chống reindex trùng và chỉ gọi ingest.
 - Rollout: mặc định KNOWLEDGE_PROFILE_READS=true. Với dữ liệu legacy, tạm đặt false để vẫn đọc collection cũ trong lúc backfill (ingest luôn ghi profile mới), kiểm tra đủ tài liệu rồi chuyển true. Không chạy bản backend cũ trong giai đoạn này vì bản cũ còn reset toàn bộ index. Legacy không tự được gán provenance từ cấu hình hiện tại.
 - Giới hạn: đây là phân tách không gian embedding và giữ collection cũ, chưa phải snapshot/generation nguyên tử của cả KB. Profile mới có thể được đọc khi mới hoàn tất một phần tài liệu; chuyển model đang phục vụ cần backfill/kiểm tra trước. Job reindex vẫn chạy trong process, chưa có durable ingestion queue/lease hoặc retention tự động cho profile cũ.
+
+### 2026-09-05 — Rollout KB-05b trên server test
+
+- Deploy backend/RAG/frontend từ 5e4ec31. Giữ image cũ với tag before-embedding-profiles-20260905; backup PostgreSQL tại .cache/deployments/20260905-kb-profiles/database.dump đã đọc được bằng pg_restore --list.
+- Tạm đọc legacy trong khi API admin reindex dựng lại đủ 3 tài liệu/67 chunk vào một profile theo cấu hình thực tế. Kiểm tra count từng tài liệu và inspection đúng, collection legacy còn nguyên; sau đó bật KNOWLEDGE_PROFILE_READS=true và recreate RAG healthy.
+- Truy vấn bằng gateway thật qua API retrieval có xác thực cho cả 3 tài liệu: có bằng chứng, không partial, KB trả về đúng danh sách yêu cầu. Đây là kiểm tra kết nối và provenance, không phải baseline chất lượng trên câu hỏi nghiệp vụ gán nhãn.
+- Frontend có manifest Sites rỗng, chưa gắn project_id; triển khai tiếp tục theo phạm vi server test Docker Compose đã được yêu cầu, không tạo site cloud mới.

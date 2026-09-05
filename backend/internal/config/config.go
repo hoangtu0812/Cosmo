@@ -53,9 +53,18 @@ type Config struct {
 	RetrievalTimeout    time.Duration
 	RetrievalKBTimeout  time.Duration
 	RetrievalCandidates int
+	ChatWorkers         int
+	ChatTimeout         time.Duration
 }
 
 func Load() (Config, error) {
+	chatTimeout, err := durationEnv("CHAT_EXECUTION_TIMEOUT", 10*time.Minute)
+	if err != nil {
+		return Config{}, err
+	}
+	if chatTimeout <= 0 {
+		return Config{}, fmt.Errorf("CHAT_EXECUTION_TIMEOUT must be positive")
+	}
 	ttl, err := durationEnv("SESSION_TTL", 24*time.Hour)
 	if err != nil {
 		return Config{}, err
@@ -115,6 +124,8 @@ func Load() (Config, error) {
 		RetrievalTimeout:       retrievalTimeout,
 		RetrievalKBTimeout:     kbTimeout,
 		RetrievalCandidates:    intEnv("KNOWLEDGE_RETRIEVAL_CANDIDATES", 24),
+		ChatWorkers:            min(intEnv("CHAT_WORKERS", 2), 16),
+		ChatTimeout:            chatTimeout,
 	}
 
 	if len(cfg.SessionSecret) < 32 {

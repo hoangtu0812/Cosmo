@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -44,6 +45,14 @@ func main() {
 	}
 	workerCtx, stopWorker := context.WithCancel(context.Background())
 	worker := runs.NewWorker(db, logger, runs.WorkerOptions{})
+	var chatWorkers sync.WaitGroup
+	for i := 0; i < cfg.ChatWorkers; i++ {
+		chatWorkers.Add(1)
+		go func() {
+			defer chatWorkers.Done()
+			_ = api.RunChatWorker(workerCtx, httpapi.ChatWorkerOptions{Timeout: cfg.ChatTimeout})
+		}()
+	}
 	go func() {
 		if err := worker.Run(workerCtx); err != nil {
 			logger.Error("run worker stopped", "error", err)
@@ -74,4 +83,5 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+	chatWorkers.Wait()
 }

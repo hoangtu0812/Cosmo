@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -19,6 +18,9 @@ type chatTurnIdentity struct {
 	ClientMessageID string
 	RequestHash     string
 	AssistantID     string
+	Payload         []byte
+	RuntimeHash     string
+	ReadableIDs     []string
 }
 
 type chatTurn struct {
@@ -32,6 +34,12 @@ type chatTurn struct {
 }
 
 func (t *chatTurn) Error() string { return "chat turn already accepted" }
+
+func chatRuntimeHash(values ...any) string {
+	encoded, _ := json.Marshal(values)
+	hash := sha256.Sum256(encoded)
+	return hex.EncodeToString(hash[:])
+}
 
 func chatRequestHash(content, model, effort string) string {
 	encoded, _ := json.Marshal([]string{content, model, effort})
@@ -59,6 +67,10 @@ func lookupChatTurn(ctx context.Context, db interface {
 func (s *Server) writeChatTurnError(w http.ResponseWriter, r *http.Request, conversation string, err error) {
 	var existing *chatTurn
 	if errors.As(err, &existing) {
+		if existing.Status == "queued" || existing.Status == "executing" {
+			s.followChatTurn(w, r, conversation, existing.ClientMessageID, existing.RequestHash)
+			return
+		}
 		if existing.Status == "succeeded" {
 			var message Message
 			var citations, calls, usage []byte
@@ -96,15 +108,4 @@ func (s *Server) writeChatTurnError(w http.ResponseWriter, r *http.Request, conv
 		return
 	}
 	writeError(w, http.StatusServiceUnavailable, "Không thể tiếp nhận câu hỏi. Vui lòng thử lại.")
-}
-
-// An exited HTTP handler cannot be resumed safely: a tool may already have
-// changed external state. Preserve the identity and mark it interrupted.
-// A process crash leaves executing untouched pending recovery/reconciliation.
-func (s *Server) interruptChatTurn(conversation, key string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := s.db.Exec(ctx, `UPDATE chat_turns SET status='interrupted',finished_at=NOW() WHERE conversation_id=$1 AND client_message_id=$2 AND status='executing'`, conversation, key); err != nil {
-		s.logger.Error("finalize interrupted chat turn", "conversation_id", conversation, "error", err)
-	}
 }

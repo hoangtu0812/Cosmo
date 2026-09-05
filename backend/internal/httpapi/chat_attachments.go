@@ -184,10 +184,14 @@ func (s *Server) pendingAttachments(ctx context.Context, conversationID string) 
 // asked about, so it is the one that survives a conversation with more files
 // than fit.
 func (s *Server) conversationAttachments(ctx context.Context, conversationID string) ([]attachmentText, error) {
+	return s.conversationAttachmentsFor(ctx, conversationID, nil)
+}
+
+func (s *Server) conversationAttachmentsFor(ctx context.Context, conversationID string, only []string) ([]attachmentText, error) {
 	list, err := s.readAttachments(ctx, `
 		SELECT id, name, text, is_truncated FROM conversation_attachments
-		WHERE conversation_id = $1
-		ORDER BY created_at DESC`, conversationID)
+		WHERE conversation_id = $1 AND ($2::text[] IS NULL OR id=ANY($2))
+		ORDER BY created_at DESC`, conversationID, only)
 	if err != nil {
 		return nil, err
 	}
@@ -216,8 +220,8 @@ func (s *Server) conversationAttachments(ctx context.Context, conversationID str
 	return kept, nil
 }
 
-func (s *Server) readAttachments(ctx context.Context, query, conversationID string) ([]attachmentText, error) {
-	rows, err := s.db.Query(ctx, query, conversationID)
+func (s *Server) readAttachments(ctx context.Context, query string, args ...any) ([]attachmentText, error) {
+	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

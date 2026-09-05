@@ -496,3 +496,15 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Legacy chưa có identity vẫn dùng heuristic thời gian, nhưng không ghép với message thuộc lượt đã có identity. Trả/audit đúng các ID thực sự được xóa.
 - Khóa conversation trong transaction ngắn và từ chối xóa khi có lượt executing. Giữ turn identity sau xóa để retry không chạy lại tool/model.
 - Integration PostgreSQL kiểm tra interrupted, legacy cạnh lượt mới, quyền owner, chặn đang chạy và giữ tombstone. `go test ./...` đều qua với database integration.
+
+### 2026-09-05 — RUN-01a / CHAT-02d: Queue bền vững và worker chat
+
+- Migration 27 bổ sung trạng thái queued, payload/cấu hình fingerprint, danh sách attachment đã chụp, lease và bảng SSE events. Tiếp nhận câu hỏi commit trước khi chờ subscriber; không thực thi model/tool trong HTTP subscriber.
+- Server chạy worker chat có giới hạn (`CHAT_WORKERS`, mặc định 2, trần 16). PostgreSQL claim theo sequence, `SKIP LOCKED` và unique executing đảm bảo mỗi hội thoại một lượt; các hội thoại khác có thể chạy song song. Lượt mới được xếp hàng thay vì trả busy 409.
+- Worker dựng lại history theo sequence trước khi chạy: giữ answer của lượt trước dù được tạo sau thời điểm câu hỏi đang chờ; loại toàn bộ lượt tương lai. Transcript cũng hiển thị theo cặp user/assistant của sequence.
+- Worker kiểm tra lại membership/agent access/dependency. Model, gateway, instruction hoặc tool configuration thay đổi khi đang chờ thì từ chối chạy với cấu hình khác; không lưu credential trong payload. Attachment chỉ đọc danh sách đã chụp lúc tiếp nhận.
+- Lease được gia hạn và theo dõi cancellation; mất lease/hủy run dừng context và được kiểm tra trước invocation, trước lưu answer. Answer chỉ được commit khi worker còn sở hữu lease và run còn running. `CHAT_EXECUTION_TIMEOUT` mặc định 10 phút giới hạn cả lượt.
+- Queued turn được worker mới tiếp tục sau restart. Executing turn hết lease được đánh dấu interrupted cùng run/step; không tự chạy lại tool có tác động chưa xác định. Answer đã lưu là checkpoint để khôi phục run succeeded nếu tiến trình chết trước khi hoàn tất telemetry.
+- SSE được lưu trước khi phát; subscriber/retry đọc lại cùng lượt, hỗ trợ `Last-Event-ID`. Đóng kết nối không hủy worker. Xóa transcript bị chặn khi còn queued/executing.
+- Tests PostgreSQL/HTTP qua worker thật trong process kiểm tra FIFO, nhiều subscriber, lịch sử/transcript đúng thứ tự, ngắt subscriber, membership bị thu hồi, cấu hình thay đổi, cancellation tới gateway, replay cursor. Mô phỏng worker chết bằng lease hết hạn xác minh worker cũ bị chặn ghi và worker mới nhận lượt chờ; chưa chạy bài chaos kill container ngoài môi trường test.
+- `go test ./...` với database integration qua. Rollout cần drain backend cũ trước migrate/start phiên bản này. Còn resume từng checkpoint model/tool, reconciliation action ghi, retention/compaction sự kiện và giới hạn backlog toàn hệ thống; không tuyên bố exactly-once cho tác động bên ngoài.

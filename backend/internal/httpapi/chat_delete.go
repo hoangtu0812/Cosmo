@@ -19,7 +19,7 @@ func (s *Server) deleteChatMessages(ctx context.Context, userID, conversationID,
 		return nil, "", err
 	}
 	var busy bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chat_turns WHERE conversation_id=$1 AND status='executing')`, conversationID).Scan(&busy); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chat_turns WHERE conversation_id=$1 AND status IN ('queued','executing'))`, conversationID).Scan(&busy); err != nil {
 		return nil, "", err
 	}
 	if busy {

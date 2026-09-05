@@ -143,6 +143,9 @@ func (s *Server) runToolRounds(
 
 		for _, call := range calls {
 			toolName, actionName := tools.SplitCallName(call.Name)
+			if err := s.checkChatExecution(ctx); err != nil {
+				return history, reported
+			}
 			shown := ToolCall{
 				ID:        call.ID,
 				Tool:      toolName,
@@ -169,6 +172,9 @@ func (s *Server) runToolRounds(
 				step, stepErr = s.runs.TransitionStep(ctx, step.ID, runs.Running, nil, "", "", "")
 			}
 
+			if err := s.checkChatExecution(ctx); err != nil {
+				return history, reported
+			}
 			result, callErr := s.tools.InvokeInSet(ctx, set.tools, set.actions, call.Name, call.Arguments)
 			content := result.Body
 			if callErr != nil {

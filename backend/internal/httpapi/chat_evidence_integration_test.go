@@ -105,6 +105,7 @@ func TestChatKnowledgeEvidenceHandling(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			startTestChatWorkers(t, s)
 			router := chi.NewRouter()
 			router.Post("/conversations/{conversationID}/messages", s.chat)
 			r := httptest.NewRequest(http.MethodPost, "/conversations/"+conversation+"/messages", strings.NewReader(fmt.Sprintf(`{"content":%q}`, question)))

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"cosmo/backend/internal/modelgateway"
 	"cosmo/backend/internal/runs"
 	"cosmo/backend/internal/tools"
 	"github.com/go-chi/chi/v5"
@@ -26,6 +28,23 @@ func TestChatTurnRetriesReplayWithoutExecutingAgain(t *testing.T) {
 	var calls atomic.Int32
 	started, release := make(chan struct{}), make(chan struct{})
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []modelgateway.Message `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		if len(payload.Messages) > 0 && payload.Messages[len(payload.Messages)-1].Content == "Next question" {
+			found := false
+			for _, m := range payload.Messages {
+				if m.Role == "assistant" && m.Content == "Saved answer" {
+					found = true
+				}
+			}
+			if !found {
+				t.Error("queued question lost the previous answer created after admission")
+			}
+		}
 		if calls.Add(1) == 1 {
 			close(started)
 			select {
@@ -53,7 +72,9 @@ func TestChatTurnRetriesReplayWithoutExecutingAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := chi.NewRouter()
+	stopWorkers := startTestChatWorkers(t, s)
 	router.Post("/conversations/{conversationID}/messages", s.chat)
+	router.Get("/conversations/{conversationID}/messages", s.listMessages)
 	request := func(user User, key, content string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodPost, "/conversations/"+conversation+"/messages", strings.NewReader(fmt.Sprintf(`{"client_message_id":%q,"content":%q}`, key, content)))
 		r = r.WithContext(context.WithValue(r.Context(), userContextKey, user))
@@ -68,12 +89,17 @@ func TestChatTurnRetriesReplayWithoutExecutingAgain(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("first execution never started")
 	}
-	for _, test := range []struct{ key, content, code string }{{"request-1", "Question", "chat_turn_exists"}, {"request-1", "Changed", "chat_turn_mismatch"}, {"request-2", "Next question", "chat_turn_busy"}} {
+	for _, test := range []struct{ key, content, code string }{{"request-1", "Changed", "chat_turn_mismatch"}} {
 		w := request(owner, test.key, test.content)
 		if w.Code != 409 || !strings.Contains(w.Body.String(), test.code) {
 			t.Fatalf("expected %s: %d %s", test.code, w.Code, w.Body.String())
 		}
 	}
+	duplicate := make(chan *httptest.ResponseRecorder, 1)
+	next := make(chan *httptest.ResponseRecorder, 1)
+	go func() { duplicate <- request(owner, "request-1", "Question") }()
+	go func() { next <- request(owner, "request-2", "Next question") }()
+	awaitChatStatus(t, s, conversation, "request-2", "queued")
 	if w := request(member, "request-1", "Question"); w.Code != 404 {
 		t.Fatalf("another user read turn identity: %d", w.Code)
 	}
@@ -85,6 +111,13 @@ func TestChatTurnRetriesReplayWithoutExecutingAgain(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "event: done") {
 		t.Fatalf("first failed: %d %s", w.Code, w.Body.String())
 	}
+	for _, result := range []<-chan *httptest.ResponseRecorder{duplicate, next} {
+		w := <-result
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "event: done") {
+			t.Fatalf("queued/subscribed request failed: %d %s", w.Code, w.Body.String())
+		}
+	}
+	stopWorkers()
 	after := calls.Load()
 	w = request(owner, "request-1", "Question")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"replayed":true`) || !strings.Contains(w.Body.String(), "Saved answer") || calls.Load() != after {
@@ -94,8 +127,25 @@ func TestChatTurnRetriesReplayWithoutExecutingAgain(t *testing.T) {
 	if err := s.db.QueryRow(ctx, `SELECT (SELECT count(*) FROM messages WHERE conversation_id=$1),(SELECT count(*) FROM runs WHERE resource_id=$1),(SELECT count(*) FROM chat_turns WHERE conversation_id=$1)`, conversation).Scan(&messages, &runCount, &turns); err != nil {
 		t.Fatal(err)
 	}
-	if messages != 2 || runCount != 1 || turns != 1 {
+	if messages != 4 || runCount != 2 || turns != 2 {
 		t.Fatalf("duplicate persistent state: messages=%d runs=%d turns=%d", messages, runCount, turns)
+	}
+	transcriptRequest := httptest.NewRequest(http.MethodGet, "/conversations/"+conversation+"/messages", nil).WithContext(context.WithValue(ctx, userContextKey, owner))
+	transcriptResponse := httptest.NewRecorder()
+	router.ServeHTTP(transcriptResponse, transcriptRequest)
+	var transcript struct {
+		Messages []Message `json:"messages"`
+	}
+	if err := json.Unmarshal(transcriptResponse.Body.Bytes(), &transcript); err != nil {
+		t.Fatal(err)
+	}
+	if len(transcript.Messages) != 4 {
+		t.Fatalf("bad transcript: %s", transcriptResponse.Body.String())
+	}
+	for i, want := range []string{"Question", "Saved answer", "Next question", "Saved answer"} {
+		if transcript.Messages[i].Content != want {
+			t.Fatalf("queued transcript order: %+v", transcript.Messages)
+		}
 	}
 	if _, err := s.db.Exec(ctx, `DELETE FROM messages WHERE conversation_id=$1`, conversation); err != nil {
 		t.Fatal(err)
@@ -145,7 +195,11 @@ func TestChatTurnConcurrentAdmissionAndInterruptedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.interruptChatTurn(conversation, identity.ClientMessageID)
+	claimed, err := s.claimChatTurn(ctx, "test-owner", time.Second)
+	if err != nil || claimed == nil {
+		t.Fatalf("claim turn: %v", err)
+	}
+	s.finishChatExecution(claimed)
 	_, _, _, err = s.acceptChatQuestion(ctx, Message{ID: "msg_" + randomID(18), ConversationID: conversation, Content: "Question", CreatedAt: time.Now()}, input, nil, identity)
 	var old *chatTurn
 	if !errors.As(err, &old) || old.Status != "interrupted" {

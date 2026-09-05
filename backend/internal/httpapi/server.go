@@ -824,7 +824,9 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		           ) ORDER BY a.created_at)
 		           FROM conversation_attachments a WHERE a.message_id = m.id
 		       ), '[]'::jsonb)
-		FROM messages m WHERE m.conversation_id = $1 ORDER BY m.created_at ASC`, conversationID)
+		FROM messages m LEFT JOIN chat_turns t ON t.conversation_id=m.conversation_id AND (t.user_message_id=m.id OR t.assistant_message_id=m.id)
+		WHERE m.conversation_id = $1 ORDER BY COALESCE(t.sequence,0),
+		CASE WHEN t.sequence IS NOT NULL AND m.role='assistant' THEN 1 ELSE 0 END,m.created_at,m.id`, conversationID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải nội dung hội thoại.")
 		return
@@ -855,6 +857,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
+	execution := currentChatExecution(r.Context())
 	user := currentUser(r.Context())
 	conversationID := chi.URLParam(r, "conversationID")
 	if !s.ownsConversation(r.Context(), user.ID, conversationID) {
@@ -955,12 +958,16 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	options := modelgateway.Options{Model: input.Model, ReasoningEffort: input.ReasoningEffort}
 	identity := chatTurnIdentity{ClientMessageID: input.ClientMessageID, RequestHash: chatRequestHash(input.Content, input.Model, input.ReasoningEffort), AssistantID: "msg_" + randomID(18)}
-	if existing, err := lookupChatTurn(r.Context(), s.db, conversationID, identity.ClientMessageID, identity.RequestHash); err != nil {
-		s.writeChatTurnError(w, r, conversationID, err)
-		return
-	} else if existing != nil {
-		s.writeChatTurnError(w, r, conversationID, existing)
-		return
+	if execution != nil {
+		identity = execution.Identity
+	} else {
+		if existing, err := lookupChatTurn(r.Context(), s.db, conversationID, identity.ClientMessageID, identity.RequestHash); err != nil {
+			s.writeChatTurnError(w, r, conversationID, err)
+			return
+		} else if existing != nil {
+			s.writeChatTurnError(w, r, conversationID, existing)
+			return
+		}
 	}
 	if !models.HasGateway() {
 		writeError(w, http.StatusServiceUnavailable, "Workspace này chưa cấu hình Model Gateway. Vào Cài đặt để thêm Base URL và API key.")
@@ -993,7 +1000,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "Không thể đọc tệp đính kèm.")
 		return
 	}
-	readable, readableErr := s.conversationAttachments(r.Context(), conversationID)
+	var readableIDs []string
+	if execution != nil {
+		readableIDs = execution.Identity.ReadableIDs
+	}
+	readable, readableErr := s.conversationAttachmentsFor(r.Context(), conversationID, readableIDs)
 	if readableErr != nil {
 		s.logger.Error("read conversation attachments", "conversation_id", conversationID, "error", readableErr)
 		writeError(w, http.StatusServiceUnavailable, "Không thể đọc tệp của hội thoại.")
@@ -1001,6 +1012,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userMessage := Message{ID: "msg_" + randomID(18), ConversationID: conversationID, Role: "user", Content: input.Content, CreatedAt: time.Now()}
+	if execution != nil {
+		userMessage = execution.Question
+	}
+	runtimeHash := chatRuntimeHash(models.ExecutionFingerprint(options), agentKnowledge, agentToolVersions, set.definitions, set.actions, set.tools, agentRemembers, agentSuggests)
+	if execution != nil && execution.Identity.RuntimeHash != runtimeHash {
+		writeError(w, http.StatusConflict, "Cấu hình đã thay đổi trong lúc chờ. Vui lòng gửi một lượt mới.")
+		return
+	}
 
 	// Chat is the first production path recorded through the common run model.
 	// Only identifiers and execution metadata are stored here; the user's text
@@ -1021,22 +1040,44 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		runInput["agent_id"] = conversationAgentID
 		runInput["tool_versions"] = agentToolVersions
 	}
-	history, chatRun, isFirstTurn, err := s.acceptChatQuestion(r.Context(), userMessage, runs.NewRun{
-		WorkspaceID:     conversationWorkspaceID,
-		ActorUserID:     user.ID,
-		TriggerType:     "manual",
-		ResourceType:    runResourceType,
-		ResourceID:      runResourceID,
-		ResourceVersion: conversationVersionID,
-		Input:           runInput,
-		TraceID:         middleware.GetReqID(r.Context()),
-	}, attachmentIDs, identity)
-	if err != nil {
-		s.logger.Error("accept chat question", "conversation_id", conversationID, "error", err)
-		s.writeChatTurnError(w, r, conversationID, err)
+	var history []modelgateway.Message
+	var chatRun runs.Run
+	var isFirstTurn bool
+	var err error
+	if execution == nil {
+		identity.RuntimeHash = runtimeHash
+		for _, file := range readable {
+			identity.ReadableIDs = append(identity.ReadableIDs, file.ID)
+		}
+		if conversationAgentID == "" {
+			input.Model = models.ResolveModel(options)
+		}
+		identity.Payload, _ = json.Marshal(input)
+		history, chatRun, isFirstTurn, err = s.acceptChatQuestion(r.Context(), userMessage, runs.NewRun{
+			WorkspaceID:     conversationWorkspaceID,
+			ActorUserID:     user.ID,
+			TriggerType:     "manual",
+			ResourceType:    runResourceType,
+			ResourceID:      runResourceID,
+			ResourceVersion: conversationVersionID,
+			Input:           runInput,
+			TraceID:         middleware.GetReqID(r.Context()),
+		}, attachmentIDs, identity)
+		if err != nil {
+			s.logger.Error("accept chat question", "conversation_id", conversationID, "error", err)
+			s.writeChatTurnError(w, r, conversationID, err)
+			return
+		}
+		s.followChatTurn(w, r, conversationID, identity.ClientMessageID, identity.RequestHash)
 		return
 	}
-	defer s.interruptChatTurn(conversationID, identity.ClientMessageID)
+	chatRun = execution.Run
+	isFirstTurn = execution.First
+	history, err = s.executionHistory(r.Context(), execution)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "Không thể đọc lịch sử lượt chat.")
+		return
+	}
 	chatRun, runErr := s.runs.Transition(r.Context(), chatRun.ID, runs.Running, nil, "", "")
 	if runErr != nil {
 		s.logger.Error("start chat run", "conversation_id", conversationID, "error", runErr)
@@ -1241,6 +1282,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// The counts come back with the stream, so the reader can be told what the
 	// turn cost rather than shown an estimate of it.
 	onDelta := func(delta string) error {
+		if err := r.Context().Err(); err != nil {
+			return err
+		}
 		assistant.WriteString(delta)
 		writeSSE(w, "delta", map[string]string{"content": delta})
 		flusher.Flush()
@@ -1301,10 +1345,19 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		usageJSON, _ = json.Marshal(usage)
 		assistantMessage.Usage = &usage
 	}
-	_, err = s.db.Exec(r.Context(), `WITH saved AS (
-		INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, usage, created_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
+	if err = s.checkChatExecution(r.Context()); err != nil {
+		return
+	}
+	tag, saveErr := s.db.Exec(r.Context(), `WITH active AS (
+		SELECT t.conversation_id FROM chat_turns t JOIN runs r ON r.id=t.run_id WHERE t.conversation_id=$2 AND t.client_message_id=$10 AND t.lease_owner=$11 AND t.status='executing' AND t.lease_expires_at>NOW() AND r.status='running' FOR UPDATE OF t,r
+	), saved AS (
+		INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, usage, created_at) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM active RETURNING id
 	) UPDATE chat_turns SET status='succeeded',finished_at=NOW()
-	WHERE conversation_id=$2 AND client_message_id=$10 AND assistant_message_id=(SELECT id FROM saved)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, usageJSON, assistantMessage.CreatedAt, identity.ClientMessageID)
+	WHERE conversation_id=$2 AND client_message_id=$10 AND assistant_message_id=(SELECT id FROM saved)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, usageJSON, assistantMessage.CreatedAt, identity.ClientMessageID, execution.Owner)
+	err = saveErr
+	if err == nil && tag.RowsAffected() != 1 {
+		err = fmt.Errorf("chat execution no longer owns completion")
+	}
 	if err != nil {
 		if runErr == nil {
 			_, _ = s.runs.TransitionStep(context.Background(), generationStep.ID, runs.Failed, nil, "", "history_write", err.Error())
@@ -1483,7 +1536,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Vary", "Origin")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Last-Event-ID")
 			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 		}
 		if r.Method == http.MethodOptions {

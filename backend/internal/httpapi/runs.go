@@ -146,6 +146,9 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Không thể hủy run.")
 		return
 	}
+	if err := s.recoverChatTurns(r.Context()); err != nil {
+		s.logger.Warn("close cancelled chat queue entry", "run_id", item.ID, "error", err)
+	}
 	s.audit(r, auditEvent{
 		Action: "run.cancelled", TargetType: "run", TargetID: item.ID, WorkspaceID: item.WorkspaceID,
 		Metadata: map[string]string{"resource_type": item.ResourceType, "resource_id": item.ResourceID},

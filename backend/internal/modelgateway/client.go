@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,6 +96,15 @@ func (c *Client) ResolveModel(options Options) string {
 		return options.Model
 	}
 	return c.model
+}
+
+// ExecutionFingerprint detects provider/model/instruction changes while a
+// request waits in a durable queue. Credentials may rotate without changing
+// the execution destination; no credential is included in this fingerprint.
+func (c *Client) ExecutionFingerprint(options Options) string {
+	payload, _ := json.Marshal([]string{c.baseURL, c.ResolveModel(options), c.systemPrompt})
+	hash := sha256.Sum256(payload)
+	return hex.EncodeToString(hash[:])
 }
 
 // Complete runs one request and returns the whole reply rather than streaming

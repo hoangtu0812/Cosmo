@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -33,6 +34,10 @@ type mcpAuthorisingTransport struct {
 }
 
 func (transport *mcpAuthorisingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	endpoint, err := url.Parse(transport.tool.BaseURL)
+	if err != nil || endpoint.Host == "" || !sameOrigin(endpoint, request.URL) {
+		return nil, ErrRedirectOrigin
+	}
 	copy := request.Clone(request.Context())
 	copy.Header = request.Header.Clone()
 	if err := transport.repository.authorise(copy.Context(), transport.tool, copy); err != nil {

@@ -46,6 +46,8 @@ const (
 	MaxResponseBytes = 64 * 1024
 )
 
+var ErrRedirectOrigin = errors.New("Không cho phép chuyển hướng request sang origin khác.")
+
 // The errors carry the message the reader sees, so the transport layer maps
 // them to a status without restating them and the wording stays in one place.
 var (

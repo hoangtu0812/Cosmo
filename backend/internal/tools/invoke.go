@@ -140,6 +140,11 @@ func (policy EgressPolicy) guardedClient(allowedIPs map[string]bool) *http.Clien
 		Timeout:   CallTimeout,
 		Transport: &http.Transport{DialContext: dialer.DialContext},
 		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			// This client also carries custom credentials and OAuth form bodies.
+			// Reject before sending either to a different origin, even on 307/308.
+			if len(via) == 0 || !sameOrigin(request.URL, via[0].URL) {
+				return ErrRedirectOrigin
+			}
 			if len(via) >= 3 {
 				return fmt.Errorf("too many redirects")
 			}

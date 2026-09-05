@@ -101,3 +101,7 @@ Các điểm trên không thay thế việc sửa các trường hợp lỗi đ�
 5. MCP-REV-06: sửa cấu hình demo, kiểm tra lại qua API trên server test.
 
 Mỗi phần cần regression test phù hợp, commit riêng và kiểm tra lại sau triển khai. Kiểm tra đăng nhập Entra thực, gọi SAP bằng quyền người dùng, phản hồi quá lớn và tool có tác động ghi vẫn là các phần chưa được xác minh trong lượt rà soát này.
+
+## Tiến độ khắc phục
+
+- MCP-REV-01: Chặn redirect khác origin trước khi gửi request; MCP kiểm tra origin trước khi đọc/gắn credential. Áp dụng cùng HTTP client cho custom header và OAuth token exchange. Tests kiểm tra 302/307/308, khác hostname/port, downgrade và guard trước đọc secret; tools suite qua.

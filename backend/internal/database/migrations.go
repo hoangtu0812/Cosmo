@@ -56,6 +56,23 @@ var migrations = []Migration{
 	{Version: 25, Name: "drop_platform_model_settings", Statements: dropPlatformModelSettingsStatements},
 	{Version: 26, Name: "chat_turn_identity", Statements: chatTurnStatements},
 	{Version: 27, Name: "durable_chat_queue", Statements: chatQueueStatements},
+	{Version: 28, Name: "knowledge_snapshots", Statements: knowledgeSnapshotStatements},
+}
+
+var knowledgeSnapshotStatements = []string{
+	`CREATE TABLE knowledge_snapshots (
+		id TEXT PRIMARY KEY,
+		kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+		version INTEGER NOT NULL,
+		manifest JSONB NOT NULL,
+		model_settings JSONB NOT NULL,
+		chunks INTEGER NOT NULL CHECK(chunks > 0),
+		digest TEXT NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		UNIQUE(kb_id,version)
+	)`,
+	`ALTER TABLE agent_versions ADD COLUMN knowledge_mode TEXT NOT NULL DEFAULT 'live' CHECK(knowledge_mode IN ('live','snapshot'))`,
+	`ALTER TABLE agent_versions ADD COLUMN knowledge_snapshots JSONB NOT NULL DEFAULT '{}'::jsonb`,
 }
 
 var runEngineStatements = []string{

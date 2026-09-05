@@ -24,6 +24,7 @@ from typing import Sequence
 from . import lexical
 from . import models as ml
 from . import store
+from . import snapshots
 from .config import settings
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,7 @@ def search(
     retrieval_mode: str = "hybrid",
     rerank_enabled: bool = True,
     score_threshold: float = 0.2,
+    snapshot_id: str | None = None,
 ) -> list[dict]:
     """Retrieve the passages that answer a query across authorised KBs.
 
@@ -166,8 +168,8 @@ def search(
     limit = limit or settings.rerank_output
     allowed = set(kb_ids)
 
-    collection = store.profile_collection(gateway) if settings.profile_reads else settings.collection
-    if settings.profile_reads:
+    collection = snapshots.resolve(snapshot_id, list(kb_ids), gateway) if snapshot_id else (store.profile_collection(gateway) if settings.profile_reads else settings.collection)
+    if settings.profile_reads and not snapshot_id:
         store.require_profile(collection, kb_ids)
 
     use_dense = retrieval_mode in {"semantic", "hybrid"}

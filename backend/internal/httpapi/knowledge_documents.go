@@ -536,6 +536,10 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 }
 
 func (s *Server) retrieveKnowledge(ctx context.Context, workspaceID, query string, only []string) (knowledgeRetrieval, error) {
+	return s.retrieveKnowledgePinned(ctx, workspaceID, query, only, nil)
+}
+
+func (s *Server) retrieveKnowledgePinned(ctx context.Context, workspaceID, query string, only []string, pins map[string]string) (knowledgeRetrieval, error) {
 	var report knowledgeRetrieval
 	if strings.TrimSpace(query) == "" {
 		return report, nil
@@ -544,6 +548,7 @@ func (s *Server) retrieveKnowledge(ctx context.Context, workspaceID, query strin
 		return report, fmt.Errorf("knowledge service is not configured")
 	}
 	policy := s.knowledgeRetrievalPolicy()
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, policy.timeout)
 	defer cancel()
 
@@ -593,7 +598,16 @@ func (s *Server) retrieveKnowledge(ctx context.Context, workspaceID, query strin
 	// using the chat workspace's embedding model would make those vectors
 	// incomparable and could also send source content to the wrong provider.
 	lists, states := fanOutKnowledge(ctx, kbIDs, policy, func(ctx context.Context, kbID string) ([]knowledge.Passage, error) {
-		models, settingsErr := s.knowledgeModelSettingsForKB(ctx, kbID)
+		var models knowledge.ModelSettings
+		var settingsErr error
+		if pins != nil {
+			if pins[kbID] == "" {
+				return nil, fmt.Errorf("knowledge snapshot pin missing")
+			}
+			models, settingsErr = s.snapshotModelSettings(ctx, kbID, pins[kbID])
+		} else {
+			models, settingsErr = s.knowledgeModelSettingsForKB(ctx, kbID)
+		}
 		if settingsErr != nil {
 			return nil, settingsErr
 		}
@@ -604,9 +618,46 @@ func (s *Server) retrieveKnowledge(ctx context.Context, workspaceID, query strin
 		limit = min(limit, policy.candidates)
 		return s.knowledge.Search(ctx, query, []string{kbID}, limit, models)
 	})
+	for i := range states {
+		if pins != nil {
+			states[i].SnapshotID = pins[states[i].KBID]
+		}
+	}
 	report.Sources = states
+	// Keep the access check bounded by the caller, but let completed branches
+	// survive the fan-out deadline when another KB times out.
+	accessCtx, accessCancel := context.WithTimeout(parent, 2*time.Second)
+	defer accessCancel()
+	// Sharing/mounts can be revoked during a remote retrieval. Recheck before
+	// recording passages or forwarding them into the answer context.
+	currentRows, accessErr := s.db.Query(accessCtx, `SELECT kb.id FROM knowledge_bases kb
+		JOIN knowledge_mounts m ON m.kb_id=kb.id AND m.target_type='workspace' AND m.target_id=$1
+		WHERE kb.id=ANY($2) AND (`+workspaceRetrievableKnowledgeSQL+`)`, workspaceID, kbIDs)
+	if accessErr != nil {
+		return report, accessErr
+	}
+	current := map[string]bool{}
+	for currentRows.Next() {
+		var id string
+		if err := currentRows.Scan(&id); err != nil {
+			currentRows.Close()
+			return report, err
+		}
+		current[id] = true
+	}
+	currentRows.Close()
+	if err := currentRows.Err(); err != nil {
+		return report, err
+	}
+	for i, id := range kbIDs {
+		if !current[id] {
+			lists[i] = nil
+			report.Sources[i].Status = "failed"
+			report.Sources[i].PassageCount = 0
+		}
+	}
 	passages := fuseKnowledgeRanks(lists, policy.candidates)
-	s.logRetrieval(ctx, workspaceID, query, kbIDs, passages)
+	s.logRetrieval(accessCtx, workspaceID, query, kbIDs, passages)
 
 	allowed := make(map[string]bool, len(kbIDs))
 	for _, id := range kbIDs {

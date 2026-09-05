@@ -26,7 +26,7 @@ func writeAgentError(w http.ResponseWriter, err error) {
 		// 409: the request was well formed, but the world moved under it.
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, agents.ErrNameLength), errors.Is(err, agents.ErrIntroLength), errors.Is(err, agents.ErrRevisionRequired),
-		errors.Is(err, agents.ErrKnowledgeNotInstalled), errors.Is(err, agents.ErrKnowledgeSave):
+		errors.Is(err, agents.ErrKnowledgeMode), errors.Is(err, agents.ErrKnowledgeSnapshotRequired), errors.Is(err, agents.ErrKnowledgeNotInstalled), errors.Is(err, agents.ErrKnowledgeSave):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "Không thể xử lý agent.")
@@ -370,12 +370,13 @@ func (s *Server) publishAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Changelog string `json:"changelog"`
+		Changelog     string `json:"changelog"`
+		KnowledgeMode string `json:"knowledge_mode"`
 	}
 	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
 		return
 	}
-	version, err := s.agents.Publish(r.Context(), current.ID, user.ID, strings.TrimSpace(input.Changelog))
+	version, err := s.agents.PublishKnowledge(r.Context(), current.ID, user.ID, strings.TrimSpace(input.Changelog), input.KnowledgeMode)
 	if err != nil {
 		writeAgentError(w, err)
 		return
@@ -386,7 +387,7 @@ func (s *Server) publishAgent(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, auditEvent{
 		Action: "agent.published", TargetType: "agent", TargetID: current.ID, TargetLabel: current.Name,
 		WorkspaceID: workspaceID,
-		Metadata:    map[string]any{"version": version.VersionNumber, "changelog": strings.TrimSpace(input.Changelog)},
+		Metadata:    map[string]any{"version": version.VersionNumber, "changelog": strings.TrimSpace(input.Changelog), "knowledge_mode": version.KnowledgeMode, "knowledge_snapshots": version.KnowledgeSnapshots},
 	})
 	s.writeAgent(w, r, current.ID, user, workspaceID, http.StatusOK)
 }

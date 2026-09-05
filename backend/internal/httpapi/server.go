@@ -879,6 +879,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// former, which is what keeps its retrieval workspace-wide.
 	models := s.modelsFor(r.Context(), conversationWorkspaceID)
 	var agentKnowledge []string
+	var knowledgePins map[string]string
+	knowledgeMode := "live"
 	// Nil while the conversation runs the draft, which means "whatever is
 	// attached now"; a published version fills it with what it froze.
 	var agentTools []string
@@ -894,7 +896,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		agent, err := s.agentRuntime(r.Context(), user, conversationWorkspaceID, conversationAgentID, conversationVersionID)
 		if err != nil {
 			s.logger.Error("load agent for conversation", "conversation_id", conversationID, "agent_id", conversationAgentID, "error", err)
-			if errors.Is(err, agents.ErrDraftForbidden) || errors.Is(err, agents.ErrNotFound) {
+			if errors.Is(err, agents.ErrDraftForbidden) || errors.Is(err, agents.ErrNotFound) || errors.Is(err, agents.ErrKnowledgeSnapshotRequired) {
 				writeAgentError(w, err)
 			} else {
 				writeError(w, http.StatusConflict, "Agent không còn khả dụng trong workspace này.")
@@ -911,6 +913,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		// went should see them named.
 		agentPrompt = agent.SystemPrompt
 		agentKnowledge = agent.KnowledgeBaseIDs
+		if agent.KnowledgeMode == "snapshot" {
+			knowledgeMode = "snapshot"
+			knowledgePins = agent.KnowledgeSnapshots
+		}
 		agentTools = agent.ToolIDs
 		agentToolVersions = agent.ToolVersions
 		agentRemembers = agent.IsMemoryEnabled
@@ -1016,7 +1022,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	if execution != nil {
 		userMessage = execution.Question
 	}
-	runtimeHash := chatRuntimeHash(models.ExecutionFingerprint(options), agentKnowledge, agentToolVersions, set.definitions, set.actions, set.tools, agentRemembers, agentSuggests)
+	runtimeHash := chatRuntimeHash(models.ExecutionFingerprint(options), agentKnowledge, knowledgeMode, knowledgePins, agentToolVersions, set.definitions, set.actions, set.tools, agentRemembers, agentSuggests)
 	if execution != nil && execution.Identity.RuntimeHash != runtimeHash {
 		writeError(w, http.StatusConflict, "Cấu hình đã thay đổi trong lúc chờ. Vui lòng gửi một lượt mới.")
 		return
@@ -1035,7 +1041,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		attachmentIDs = append(attachmentIDs, file.ID)
 	}
 
-	runInput := map[string]any{"message_id": userMessage.ID, "model": models.ResolveModel(options), "conversation_id": conversationID}
+	runInput := map[string]any{"message_id": userMessage.ID, "model": models.ResolveModel(options), "conversation_id": conversationID, "knowledge_mode": knowledgeMode, "knowledge_snapshots": knowledgePins}
 	if conversationAgentID != "" {
 		runResourceType, runResourceID = "agent", conversationAgentID
 		runInput["agent_id"] = conversationAgentID
@@ -1175,7 +1181,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 		// The log records which answer this search fed, so a relevance floor
 		// can later be chosen from what the answers actually used.
-		retrieval, retrievalErr := s.retrieveKnowledge(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, plan.SearchQuery, agentKnowledge)
+		retrieval, retrievalErr := s.retrieveKnowledgePinned(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, plan.SearchQuery, agentKnowledge, knowledgePins)
 		passages = retrieval.Passages
 		incomplete := retrievalErr != nil || retrieval.incomplete()
 		partialKnowledge = incomplete && len(passages) > 0
@@ -1652,7 +1658,23 @@ func (s *Server) agentRuntime(ctx context.Context, user User, workspaceID, agent
 		return agents.Runtime{}, err
 	}
 	if versionID != "" {
-		return s.agents.RuntimeForVersion(ctx, agentID, versionID)
+		runtime, err := s.agents.RuntimeForVersion(ctx, agentID, versionID)
+		if err != nil {
+			return runtime, err
+		}
+		if runtime.KnowledgeMode == "snapshot" {
+			for _, kbID := range runtime.KnowledgeBaseIDs {
+				var allowed bool
+				err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM knowledge_bases kb
+					JOIN knowledge_mounts m ON m.kb_id=kb.id AND m.target_type='workspace' AND m.target_id=$1
+					JOIN knowledge_snapshots ks ON ks.kb_id=kb.id AND ks.id=$3
+					WHERE kb.id=$2 AND (`+workspaceRetrievableKnowledgeSQL+`))`, workspaceID, kbID, runtime.KnowledgeSnapshots[kbID]).Scan(&allowed)
+				if err != nil || !allowed {
+					return agents.Runtime{}, agents.ErrKnowledgeSnapshotRequired
+				}
+			}
+		}
+		return runtime, nil
 	}
 	if agent.OwnerUserID != user.ID && !s.isWorkspaceAdmin(ctx, user, workspaceID) {
 		return agents.Runtime{}, agents.ErrDraftForbidden

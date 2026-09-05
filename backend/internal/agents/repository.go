@@ -43,7 +43,7 @@ const columns = `
 	a.opening_line, a.preset_questions, a.has_suggested_questions, a.is_memory_enabled,
 	(a.avatar_image IS NOT NULL), a.draft_revision, COALESCE(pv.version_number, 0),
 	COALESCE(a.published_version_id, ''), ` + unpublishedSQL + `,
-	a.created_at, a.updated_at`
+	a.created_at, a.updated_at, COALESCE(pv.knowledge_mode, 'live')`
 
 // unpublishedSQL answers whether the draft has drifted from what is live. It
 // compares the draft field by field against the published snapshot rather than
@@ -82,7 +82,7 @@ func scan(row func(...any) error) (Agent, error) {
 		&item.OwnerName, &item.WorkspaceID, &item.Visibility, &item.Model, &item.SystemPrompt,
 		&item.OpeningLine, &presets, &item.HasSuggestedQuestions, &item.IsMemoryEnabled,
 		&item.HasAvatarImage, &item.DraftRevision, &item.PublishedVersion,
-		&item.PublishedVersionID, &item.HasUnpublishedChanges, &item.CreatedAt, &item.UpdatedAt)
+		&item.PublishedVersionID, &item.HasUnpublishedChanges, &item.CreatedAt, &item.UpdatedAt, &item.PublishedKnowledgeMode)
 	if err != nil {
 		return Agent{}, err
 	}

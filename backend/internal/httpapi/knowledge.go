@@ -652,12 +652,7 @@ func (s *Server) deleteKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// publishKnowledgeBase releases the current documents as the next version.
-//
-// Retrieval always reads the latest documents, so this does not change what a
-// workspace gets back. What it changes is the announcement: installers see a
-// new version and can acknowledge it, which is how an owner says "this is
-// ready" rather than leaving people to guess.
+// Publish retains immutable indexed evidence while live retrieval stays live.
 func (s *Server) publishKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r.Context())
 	kbID := chi.URLParam(r, "kbID")
@@ -666,29 +661,16 @@ func (s *Server) publishKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ready int
-	if err := s.db.QueryRow(r.Context(),
-		`SELECT COUNT(*) FROM knowledge_documents WHERE kb_id = $1 AND status = 'ready'`, kbID).Scan(&ready); err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể publish knowledge base.")
-		return
-	}
-	if ready == 0 {
-		writeError(w, http.StatusBadRequest, "Cần ít nhất một tài liệu đã xử lý xong.")
-		return
-	}
-
-	var version int
-	if err := s.db.QueryRow(r.Context(), `
-		UPDATE knowledge_bases SET version = version + 1, published_at = NOW(), updated_at = NOW()
-		WHERE id = $1 RETURNING version`, kbID).Scan(&version); err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể publish knowledge base.")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	defer cancel()
+	snapshotID, version, err := s.publishKnowledgeSnapshot(ctx, kbID)
+	if err != nil {
+		s.logger.Error("knowledge snapshot publication failed", "kb_id", kbID, "error", err)
+		writeSnapshotError(w, err)
 		return
 	}
 	workspaceID, name := s.knowledgeOwner(r.Context(), kbID)
-	s.audit(r, auditEvent{
-		Action: "knowledge.base.published", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: name,
-		WorkspaceID: workspaceID, Metadata: map[string]int{"version": version, "documents": ready},
-	})
+	s.audit(r, auditEvent{Action: "knowledge.base.published", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: name, WorkspaceID: workspaceID, Metadata: map[string]any{"version": version, "snapshot_id": snapshotID}})
 	s.writeKnowledgeBase(w, r, kbID, http.StatusOK)
 }
 

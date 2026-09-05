@@ -60,11 +60,12 @@ type IngestRequest struct {
 // control plane supplies it from the platform configuration, so the data
 // service never has to hold database credentials or read deployment env vars.
 type ModelSettings struct {
+	SnapshotID     string `json:"-"`
 	EmbeddingScope string
 	EmbeddingModel string
 	RerankerModel  string
 	GatewayBaseURL string
-	GatewayAPIKey  string
+	GatewayAPIKey  string `json:"-"`
 	RetrievalMode  string
 	RerankEnabled  bool
 	ScoreThreshold float64
@@ -253,6 +254,9 @@ func (c *Client) Search(ctx context.Context, query string, kbIDs []string, limit
 		"embedding_model": models.EmbeddingModel, "reranker_model": models.RerankerModel,
 		"retrieval_mode": models.RetrievalMode, "rerank_enabled": models.RerankEnabled,
 		"score_threshold": models.ScoreThreshold,
+	}
+	if models.SnapshotID != "" {
+		body["snapshot_id"] = models.SnapshotID
 	}
 	if models.TopK > 0 {
 		body["limit"] = models.TopK

@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import ingest, objects, pipeline, retrieve, store
+from . import snapshots
 from . import models as ml
 from .config import settings
 
@@ -74,6 +75,7 @@ class ExtractResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
+    snapshot_id: str | None = Field(default=None, pattern=r"^kbs_[0-9a-f]{32}$")
     kb_ids: list[str] = Field(default_factory=list)
     limit: int | None = None
     embedding_model: str | None = Field(default=None, max_length=200)
@@ -178,7 +180,29 @@ def search(
         retrieval_mode=request.retrieval_mode,
         rerank_enabled=request.rerank_enabled,
         score_threshold=request.score_threshold,
+        snapshot_id=request.snapshot_id,
     ))
+
+
+class SnapshotRequest(BaseModel):
+    snapshot_id: str = Field(pattern=r"^kbs_[0-9a-f]{32}$")
+    kb_id: str
+    embedding_model: str
+    documents: dict[str, int]
+
+
+@app.post("/snapshots")
+def create_snapshot(request: SnapshotRequest,
+                    gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
+                    embedding_scope: str | None = Header(default=None, alias="X-Cosmo-Embedding-Scope")) -> dict:
+    gateway = ml.gateway_settings(request.embedding_model, None, gateway_base_url, None, embedding_scope)
+    return snapshots.create(request.snapshot_id, request.kb_id, gateway, request.documents)
+
+
+@app.delete("/snapshots/{snapshot_id}")
+def discard_snapshot(snapshot_id: str) -> dict:
+    snapshots.discard(snapshot_id)
+    return {"deleted": snapshot_id}
 
 
 @app.post("/extract", response_model=ExtractResponse)
@@ -251,4 +275,5 @@ def open_original_document(document_id: str, storage_key: str | None = None) -> 
 @app.delete("/knowledge-bases/{kb_id}")
 def delete_knowledge_base(kb_id: str) -> dict:
     store.delete_knowledge_base(kb_id)
+    snapshots.delete_knowledge_base(kb_id)
     return {"deleted": kb_id}

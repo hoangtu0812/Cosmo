@@ -74,11 +74,12 @@ type Agent struct {
 	// current draft; a stale one is refused rather than silently overwriting.
 	DraftRevision int64 `json:"draft_revision"`
 	// PublishedVersion is empty while an agent has never been published.
-	PublishedVersion      int       `json:"published_version"`
-	PublishedVersionID    string    `json:"published_version_id"`
-	HasUnpublishedChanges bool      `json:"has_unpublished_changes"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	PublishedVersion       int       `json:"published_version"`
+	PublishedVersionID     string    `json:"published_version_id"`
+	PublishedKnowledgeMode string    `json:"published_knowledge_mode"`
+	HasUnpublishedChanges  bool      `json:"has_unpublished_changes"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // NewAgent is what creating one requires. The workspace and owner are settled
@@ -112,19 +113,21 @@ type Changes struct {
 
 // Version is an immutable snapshot of a draft at the moment it was published.
 type Version struct {
-	ID                    string    `json:"id"`
-	AgentID               string    `json:"agent_id"`
-	VersionNumber         int       `json:"version_number"`
-	Model                 string    `json:"model"`
-	SystemPrompt          string    `json:"system_prompt"`
-	OpeningLine           string    `json:"opening_line"`
-	PresetQuestions       []string  `json:"preset_questions"`
-	HasSuggestedQuestions bool      `json:"has_suggested_questions"`
-	IsMemoryEnabled       bool      `json:"is_memory_enabled"`
-	KnowledgeBaseIDs      []string  `json:"knowledge_base_ids"`
-	Changelog             string    `json:"changelog"`
-	PublishedBy           string    `json:"published_by"`
-	CreatedAt             time.Time `json:"created_at"`
+	KnowledgeMode         string            `json:"knowledge_mode"`
+	KnowledgeSnapshots    map[string]string `json:"knowledge_snapshots"`
+	ID                    string            `json:"id"`
+	AgentID               string            `json:"agent_id"`
+	VersionNumber         int               `json:"version_number"`
+	Model                 string            `json:"model"`
+	SystemPrompt          string            `json:"system_prompt"`
+	OpeningLine           string            `json:"opening_line"`
+	PresetQuestions       []string          `json:"preset_questions"`
+	HasSuggestedQuestions bool              `json:"has_suggested_questions"`
+	IsMemoryEnabled       bool              `json:"is_memory_enabled"`
+	KnowledgeBaseIDs      []string          `json:"knowledge_base_ids"`
+	Changelog             string            `json:"changelog"`
+	PublishedBy           string            `json:"published_by"`
+	CreatedAt             time.Time         `json:"created_at"`
 }
 
 // Conversation is an agent's own chat history, kept in the same table the
@@ -144,9 +147,11 @@ type Conversation struct {
 // Runtime is the configuration a conversation actually runs on: only the
 // fields the chat pipeline reads, without the presentation an editor needs.
 type Runtime struct {
-	Model            string
-	SystemPrompt     string
-	KnowledgeBaseIDs []string
+	KnowledgeMode      string
+	KnowledgeSnapshots map[string]string
+	Model              string
+	SystemPrompt       string
+	KnowledgeBaseIDs   []string
 	// Empty when the conversation runs the draft rather than a published
 	// version; the caller then reads the live attachment instead.
 	ToolIDs []string
@@ -193,3 +198,6 @@ Người dùng hỏi:
 
 Agent trả lời:
 %s`
+
+var ErrKnowledgeMode = errors.New("Knowledge mode phải là live hoặc snapshot.")
+var ErrKnowledgeSnapshotRequired = errors.New("Cần publish snapshot của tất cả Knowledge Base đã gắn trước khi phát hành agent ở chế độ Snapshot.")

@@ -13,6 +13,7 @@ import (
 var errKnowledgeIncomplete = errors.New("one or more knowledge sources could not be searched")
 
 type knowledgeSourceStatus struct {
+	SnapshotID   string `json:"snapshot_id,omitempty"`
 	KBID         string `json:"kb_id"`
 	Status       string `json:"status"`
 	PassageCount int    `json:"passage_count"`

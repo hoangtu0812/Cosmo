@@ -557,3 +557,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Lỗi ghi không chạy cleanup; lỗi cleanup báo ingestion error và có thể retry với ID ổn định. Kiểm thử Qdrant local xác minh tài liệu khác được giữ nguyên, replacement ngắn hơn không còn chunk thừa và embedding sai không phá bản cũ. Toàn bộ 99 tests RAG qua trong image runtime.
 - Đây chưa phải chuyển snapshot nguyên tử: trong lúc upsert/cleanup có thể thấy dữ liệu cũ và mới; lỗi ghi một phần vẫn cần generation/snapshot để rollback trọn vẹn. Reindex toàn hệ thống hiện vẫn reset collection và chưa hỗ trợ đồng thời nhiều embedding profile; KB-05 chưa hoàn tất.
 - EVAL-01a bổ sung: API trả mảng rỗng cho passages/sources khi không có KB/kết quả; harness ghi nhận response sai kiểu là failed và tiếp tục các case sau. Kiểm thử HTTP/PostgreSQL cho workspace trống và 5 tests metrics/harness qua.
+
+### 2026-09-05 — Rollout EVAL-01a / KB-05a / MCP response bound
+
+- Backend chạy code e3bf20e; RAG chứa thay đổi f7707cc. Hai dịch vụ healthy sau recreate, không có tài liệu pending/processing tại thời điểm chuyển RAG.
+- Smoke HTTP có đăng nhập trên server test qua: queue FIFO, ngắt subscriber, nối SSE theo cursor, replay answer, MCP discovery/rediscovery giữ ID, count_words và API retrieval workspace trống.
+- Smoke riêng trên Qdrant v1.12.5 đang chạy xác minh replacement ngắn hơn, dọn chunk thừa, tìm dense đúng và không trả nguồn ngoài KB allowlist. Dùng collection tạm; đã xóa collection và user/workspace/gateway fixture sau kiểm tra.
+- Chưa chạy baseline chất lượng nghiệp vụ vì chưa có bộ câu hỏi gán nhãn. Các hạng mục còn mở trong kế hoạch vẫn gồm embedding profiles/snapshot, reindex toàn hệ thống không reset, context budget, action ghi/approval/reconciliation, retention và accounting đầy đủ; không coi lần rollout này là hoàn tất toàn bộ kế hoạch.

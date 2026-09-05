@@ -705,3 +705,13 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 Đã triển khai phân loại read/approval/blocked, chặn automatic write trong chat/workflow, xác nhận nội dung tại màn hình tool, durable idempotency ledger và đối soát thủ công sau kết quả chưa rõ. Mọi MCP action mặc định cần xác nhận; chủ sở hữu phải duyệt read để cho phép tự gọi. Migration 35–36 bổ sung policy/ledger và nội dung review. Xem [phạm vi, kiểm thử và giới hạn](tool-write-policy.md).
 
 TOOL-01 chưa đóng toàn bộ: còn approval/resume trong chat/workflow và tích hợp business idempotency/tra cứu giao dịch SAP. EVAL-02 còn cần bộ câu hỏi nghiệp vụ được gán nhãn và duyệt để nghiệm thu chất lượng thực tế; không suy ra chất lượng từ smoke test. KB-05 đã có durable rebuild và atomic switch theo từng KB, còn tối ưu incremental/batch và retention.
+
+
+### 2026-09-06 — nghiệm thu rollout TOOL-01b trên server test
+
+- Đã triển khai backend/frontend `ced08aa` (policy/ledger từ `24cb652`, khôi phục key sau mất phản hồi từ `ced08aa`, tải nhiều tệp tuần tự từ `05dae36`); RAG giữ bản durable ingestion `38c3908`. Migration hiện tại 36. Backend/frontend healthy và HTTP 200.
+- Trước migration đã dừng backend, xác nhận không có chat/ingestion đang chạy, tạo và kiểm tra PostgreSQL backup 418980 bytes, 305 TOC lines tại `.cache/deployments/20260906-tool-write-policy/database.dump`. Image cũ giữ tag `before-tool-write-policy-20260906` cho backend/frontend. Không tự rollback schema đã có ledger ghi.
+- Smoke qua API có xác thực với tool HTTP giả lập: chưa duyệt không dispatch; cùng key chỉ một lần; đổi payload bị chặn; lỗi 503 thành uncertain; key cũ và intent mới bị chặn cho đến đối soát; nội dung review và key khôi phục được từ ledger; blocked policy chặn xác nhận.
+- Đã SIGKILL backend sau khi endpoint giả lập nhận lệnh. Sau restart vẫn đúng một dispatch, ledger còn nguyên và đối soát được. Chỉ điều chỉnh thời điểm tạo của bản ghi fixture để kiểm tra cửa sổ đối soát một phút. Fixture không gọi SAP thật và đã được dọn sạch.
+- Regression chat FIFO, subscriber ngắt kết nối, SSE Last-Event-ID/replay, MCP discovery/rediscovery/invoke đã qua; MCP count_words được chủ sở hữu fixture phân loại read trước khi gọi. Truy xuất 3 tài liệu thực qua gateway hiện tại đã qua, passage thuộc đúng KB. Dữ liệu cuối: 3 tài liệu, 67 chunks; không còn job chat/ingestion/snapshot/write đang chạy.
+- Full backend với PostgreSQL đã qua cho phần policy; kiểm thử tools chạy lại sau bản sửa recovery cũng qua, gồm trường hợp hơn 50 operation mới không che mất operation chưa đối soát. TypeScript và Docker production build đã qua. Chưa nghiệm thu thao tác UI bằng trình duyệt hoặc business write SAP thật.

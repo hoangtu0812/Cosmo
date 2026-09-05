@@ -685,3 +685,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Cleanup outbox nhận generation cũ/attempt bị bỏ, chờ một giờ trước dọn; collector không xóa generation còn hoạt động. Xóa KB cũng ghi cleanup. Không tự đổi chỉ mục legacy trước khi có upload/reindex thành công.
 - Toàn bộ backend/PostgreSQL và 125 RAG tests qua. Tests có durable upload intent, restart giữ job, lease bị nhận lại, worker cũ trả muộn, lỗi tài liệu thứ hai, đổi cấu hình/quyền và rollback admission toàn hàng đợi.
 - Bản đầu dựng lại toàn bộ KB từ bản gốc, chưa reuse embedding/chunk không đổi hoặc checkpoint từng tài liệu. Mỗi KB nhận một tác vụ; upload tiếp khi KB đang dựng trả 409. Nguyên tử trong từng KB, không phải một transaction dữ liệu trên mọi KB của đợt global reindex. Tệp chưa lưu thành công trước crash không thể tái tạo từ RAM; job sẽ báo thất bại để tải lại. Retention job/events và tối ưu incremental còn mở.
+
+### 2026-09-06 — Rollout EVAL-02 / KB-05c và thử crash ingestion
+
+- Backend/RAG chạy 38c3908, migration 34; backup PostgreSQL sau khi dừng backend và xác nhận không có chat/ingestion đang chạy: .cache/deployments/20260906-ingestion-jobs/database.dump, 413291 bytes, pg_restore đọc được 295 dòng TOC. Giữ image before-ingestion-jobs-20260906.
+- Smoke upload hai tệp qua HTTP có xác thực, dùng PostgreSQL/Qdrant/MinIO thật và embedding gateway giả lập có điểm dừng. Khi tài liệu thứ hai đang embedding, truy vấn chỉ thấy generation trước. SIGKILL backend rồi nhận lại lease của duy nhất job thử: attempt 2 thành công, ID mới, hai tài liệu cùng xuất hiện, terminal event của tài liệu mới đúng một lần.
+- Inspect generation hiện hành, publish snapshot từ generation và xóa tài liệu Live đều qua. Đã dọn toàn bộ KB/workspace/user, originals/generations/snapshot tạm; sửa smoke cleanup để xóa KB trước workspace vì owner workspace có thể được SET NULL.
+- Regression chat FIFO/disconnect/replay/Last-Event-ID/transcript, MCP discovery/rediscovery/invocation và endpoint eval qua. Gateway thật vẫn truy vấn đủ ba tài liệu đang phục vụ, đúng KB và không partial. Không reindex dữ liệu thật trong smoke này.

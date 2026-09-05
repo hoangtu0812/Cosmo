@@ -61,6 +61,11 @@ export default function KnowledgeDetailPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [query, setQuery] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const uploadScope = useRef(0);
+
+  useEffect(() => {
+    return () => { uploadScope.current += 1; };
+  }, [kbID]);
 
   const canEdit = base?.access === 'owner';
 
@@ -118,11 +123,21 @@ export default function KnowledgeDetailPage() {
     setUploading(true);
     setError('');
     const failures: string[] = [];
+    const scope = uploadScope.current;
     try {
-      // Each request enters the backend queue immediately; submitting them in
-      // order avoids a large multi-file selection exhausting browser memory
-      // while all documents still process concurrently in the background.
+      // A KB admits one generation build at a time. Wait before admitting the
+      // next file; never replay an upload whose HTTP outcome is unknown.
       for (const file of files) {
+        const deadline = Date.now() + 95 * 60 * 1000;
+        while (true) {
+          if (uploadScope.current !== scope) return;
+          const current = await api.knowledgeDocuments(kbID);
+          if (uploadScope.current !== scope) return;
+          setDocuments(current.documents);
+          if (!current.documents.some((item) => item.status === 'pending' || item.status === 'processing')) break;
+          if (Date.now() >= deadline) throw new Error('KB vẫn đang xử lý. Các tệp còn lại chưa được tải lên.');
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+        }
         try {
           const result = await api.uploadKnowledgeDocument(kbID, file);
           setDocuments((current) => [result.document, ...current]);
@@ -132,8 +147,11 @@ export default function KnowledgeDetailPage() {
         }
       }
       if (failures.length > 0) setError(failures.join('\n'));
+    } catch (caught) {
+      failures.push(caught instanceof Error ? caught.message : t('kb.uploadFailed'));
+      if (uploadScope.current === scope) setError(failures.join('\n'));
     } finally {
-      setUploading(false);
+      if (uploadScope.current === scope) setUploading(false);
     }
   }
 

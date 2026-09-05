@@ -692,3 +692,9 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Smoke upload hai tệp qua HTTP có xác thực, dùng PostgreSQL/Qdrant/MinIO thật và embedding gateway giả lập có điểm dừng. Khi tài liệu thứ hai đang embedding, truy vấn chỉ thấy generation trước. SIGKILL backend rồi nhận lại lease của duy nhất job thử: attempt 2 thành công, ID mới, hai tài liệu cùng xuất hiện, terminal event của tài liệu mới đúng một lần.
 - Inspect generation hiện hành, publish snapshot từ generation và xóa tài liệu Live đều qua. Đã dọn toàn bộ KB/workspace/user, originals/generations/snapshot tạm; sửa smoke cleanup để xóa KB trước workspace vì owner workspace có thể được SET NULL.
 - Regression chat FIFO/disconnect/replay/Last-Event-ID/transcript, MCP discovery/rediscovery/invocation và endpoint eval qua. Gateway thật vẫn truy vấn đủ ba tài liệu đang phục vụ, đúng KB và không partial. Không reindex dữ liệu thật trong smoke này.
+
+
+### 2026-09-06 — KB-05d: tải nhiều tệp với durable ingestion
+
+- Frontend chờ KB hết pending/processing trước khi gửi tệp tiếp theo, tương thích giới hạn một generation build đang chạy trên mỗi KB. Dừng hàng đợi trong trình duyệt khi rời KB; không tự gửi lại upload có kết quả HTTP chưa rõ.
+- Đã kiểm tra TypeScript. Đây vẫn là rebuild toàn KB sau mỗi tệp; batch upload/incremental indexing và hàng đợi tệp bền vững phía trình duyệt chưa được triển khai.

@@ -56,7 +56,7 @@ func TestChatToolFailuresAndMissingStepNeverSucceed(t *testing.T) {
 			}
 			recorder := httptest.NewRecorder()
 			var answer strings.Builder
-			_, calls := s.runToolRounds(ctx, recorder, recorder, toolSet{tools: list, actions: actions, definitions: definitions}, nil, modelgateway.Options{}, modelgateway.New(gateway.URL, "", "test", "", time.Second), runID, &answer)
+			_, calls, _ := s.runToolRounds(ctx, recorder, recorder, toolSet{tools: list, actions: actions, definitions: definitions}, nil, modelgateway.Options{}, modelgateway.New(gateway.URL, "", "test", "", time.Second), runID, &answer)
 			if len(calls) != 1 || calls[0].Status != "error" {
 				t.Fatalf("tool error shown as success: %+v", calls)
 			}

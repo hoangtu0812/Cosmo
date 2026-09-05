@@ -1242,6 +1242,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// The answer is accumulated across both phases: a tool round can narrate
 	// before it calls, and that narration is part of the same answer.
 	var assistant strings.Builder
+	var decidedAnswer string
 	if partialKnowledge {
 		assistant.WriteString(partialKnowledgeNotice)
 		writeSSE(w, "delta", map[string]string{"content": partialKnowledgeNotice})
@@ -1260,7 +1261,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		if described, marshalErr := json.Marshal(set.definitions); marshalErr == nil {
 			contextParts["tools"] = len([]rune(string(described)))
 		}
-		history, toolCalls = s.runToolRounds(toolCtx, w, flusher, set, history, options, models, chatRun.ID, &assistant)
+		history, toolCalls, decidedAnswer = s.runToolRounds(toolCtx, w, flusher, set, history, options, models, chatRun.ID, &assistant)
 	}
 
 	writeSSE(w, "status", map[string]string{"stage": "writing", "message": "Đang soạn câu trả lời…"})
@@ -1270,6 +1271,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	var generationStep runs.Step
 	if runErr == nil {
 		stepType, stepName := "model", "Answer generation"
+		if decidedAnswer != "" {
+			stepType, stepName = "output", "Answer from tool decision"
+		}
 		if evidenceAnswer != "" {
 			stepType, stepName = "policy", "Insufficient knowledge evidence"
 		}
@@ -1293,6 +1297,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	var usage modelgateway.Usage
 	if evidenceAnswer != "" {
 		err = onDelta(evidenceAnswer)
+	} else if decidedAnswer != "" {
+		if assistant.Len() > 0 {
+			decidedAnswer = "\n\n" + decidedAnswer
+		}
+		err = onDelta(decidedAnswer)
 	} else {
 		usage, err = models.StreamWithUsage(r.Context(), history, options, onDelta)
 	}

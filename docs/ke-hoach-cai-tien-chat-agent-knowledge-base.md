@@ -534,3 +534,8 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Kiểm tra inputSchema gốc (required, nested types, enum, bounds) trước MCP transport, giới hạn arguments 64 KiB; không tải remote schema refs. Legacy action chưa có MCP contract giữ tương thích.
 - Chat không gọi tool nếu không tạo/chuyển running được execution step. HTTP ngoài 2xx và MCP isError được ghi failed và hiện error; workflow InvokeAction cũng từ chối kết quả lỗi.
 - Tests schema trước kết nối và HTTP/DB kiểm tra tool 503, lỗi tạo step; backend suite/PostgreSQL qua. Chưa hoàn tất policy action ghi, approval/idempotency/reconciliation.
+
+### 2026-09-05 — OBS-01a: Dùng câu trả lời đã có từ tool decision
+
+- Khi model kết thúc tool decision bằng nội dung trả lời và không yêu cầu tool, dùng nội dung đó cho answer; không gọi generation để viết lại. Trường hợp không có nội dung vẫn giữ fallback generation.
+- HTTP integration qua worker/model fixture xác minh answer lưu đúng từ decision, chỉ một decision và không thêm generation chính. Còn usage toàn lượt và đưa các tác vụ phụ sang job riêng.

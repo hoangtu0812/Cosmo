@@ -99,7 +99,7 @@ func (s *Server) runToolRounds(
 	models *modelgateway.Client,
 	runID string,
 	answer *strings.Builder,
-) ([]modelgateway.Message, []ToolCall) {
+) ([]modelgateway.Message, []ToolCall, string) {
 	reported := []ToolCall{}
 	for round := 0; round < maxToolRounds; round++ {
 		narration, calls, err := models.Decide(ctx, history, set.definitions, options)
@@ -109,10 +109,10 @@ func (s *Server) runToolRounds(
 			s.logger.Error("tool round failed", "source", set.source, "error", err)
 			writeSSE(w, "status", map[string]string{"stage": "tool_failed", "message": "Không gọi được tool."})
 			flusher.Flush()
-			return history, reported
+			return history, reported, ""
 		}
 		if len(calls) == 0 {
-			return history, reported
+			return history, reported, strings.TrimSpace(narration)
 		}
 
 		// What the model said on its way to calling is part of the answer, not
@@ -144,7 +144,7 @@ func (s *Server) runToolRounds(
 		for _, call := range calls {
 			toolName, actionName := tools.SplitCallName(call.Name)
 			if err := s.checkChatExecution(ctx); err != nil {
-				return history, reported
+				return history, reported, ""
 			}
 			shown := ToolCall{
 				ID:        call.ID,
@@ -173,7 +173,7 @@ func (s *Server) runToolRounds(
 			}
 
 			if err := s.checkChatExecution(ctx); err != nil {
-				return history, reported
+				return history, reported, ""
 			}
 			var result tools.CallResult
 			var callErr error
@@ -228,7 +228,7 @@ func (s *Server) runToolRounds(
 			})
 		}
 	}
-	return history, reported
+	return history, reported, ""
 }
 
 // toolSetFor gathers what a turn may call.

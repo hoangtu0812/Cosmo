@@ -515,3 +515,11 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Dừng ngay khi nhận done; lỗi HTTP hoặc error event từ execution được hiển thị thay vì retry tác động nghiệp vụ. Sau khi hết số lần nối lại, ID vẫn được giữ để người dùng kiểm tra lại cùng lượt.
 - Unit tests giả lập stream đứt, phát lại event cũ, continuation từ cursor, HTTP conflict và ID qua retry. Frontend retry tests, TypeScript và build đều qua.
 - Cursor dùng cho nối lại trong cùng lần gửi. Sau reload tab, retry dùng ID đã lưu và đọc lại từ đầu; tự resume màn hình sau reload không cần người dùng gửi lại còn là phần UX tiếp theo.
+
+### 2026-09-05 — Triển khai lên Docker Compose server test
+
+- Build lại backend/frontend từ commit `4ada616`, dừng hai dịch vụ trước migration và khởi động lại bằng image mới. API healthy, giao diện `http://localhost:3100` trả HTTP 200; các dịch vụ dữ liệu/RAG vẫn healthy.
+- Sao lưu PostgreSQL bằng `pg_dump -Fc`, xác minh archive đọc được bằng `pg_restore --list`. Bản sao tại `.cache/deployments/20260905-chat-queue/database.dump` nằm ngoài Git; giữ image cũ với tag `before-chat-queue-20260905` cho backend/frontend.
+- Migration 26 `chat_turn_identity` và 27 `durable_chat_queue` áp dụng thành công lúc 11:47:50 (UTC+7). Không sửa các migration đã áp dụng; không tự hạ schema khi đổi image.
+- Smoke test qua HTTP trên backend container đang chạy, với user/workspace tạm và gateway giả lập trong mạng Docker: ngắt subscriber không dừng execution, hai câu hỏi xếp hàng FIFO, nối lại lượt đang chạy bằng `Last-Event-ID` không phát event cũ, retry lượt hoàn thành trả answer đã lưu, transcript đúng hai cặp message và chỉ có hai run succeeded. Đã dọn user/workspace/gateway tạm sau kiểm tra.
+- Phạm vi xác minh triển khai là hạ tầng và contract thực thi chat. Smoke test này không đánh giá chất lượng trả lời của model thật, đăng nhập Entra hay chất lượng retrieval trên bộ KB nghiệp vụ; các giới hạn RUN-01/KB phía trên vẫn còn hiệu lực.

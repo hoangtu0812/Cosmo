@@ -23,6 +23,12 @@ func writeToolError(w http.ResponseWriter, err error) {
 		return
 	}
 	switch {
+	case errors.Is(err, tools.ErrApprovalRequired), errors.Is(err, tools.ErrWriteUncertain), errors.Is(err, tools.ErrWriteKey):
+		writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, tools.ErrActionBlocked):
+		writeError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, tools.ErrWritePolicy):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, tools.ErrNotOffered), errors.Is(err, tools.ErrNotInstalled),
 		errors.Is(err, tools.ErrKeyedAutoCall), errors.Is(err, tools.ErrNoActions):
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -256,7 +262,10 @@ func (s *Server) testToolAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Arguments map[string]any `json:"arguments"`
+		Arguments      map[string]any `json:"arguments"`
+		Confirmed      bool           `json:"confirmed"`
+		IdempotencyKey string         `json:"idempotency_key"`
+		Definition     string         `json:"definition"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -264,10 +273,11 @@ func (s *Server) testToolAction(w http.ResponseWriter, r *http.Request) {
 	// The test runs as the reader, so a built-in that describes them has the
 	// same answer here as it would mid-conversation.
 	ctx := tools.WithCaller(r.Context(), s.callerFor(r.Context(), user, workspaceID))
-	result, err := s.tools.Invoke(ctx, item, action, input.Arguments)
+	result, operation, err := s.tools.InvokeConfirmed(ctx, item, action, input.Arguments, input.Confirmed, input.IdempotencyKey, input.Definition)
 	// Recorded either way: this is Cosmo reaching a third-party endpoint with
 	// the workspace's credential, on someone's say-so, outside any run. The
-	// arguments and the response body are not stored - the point of the row is
+	// arguments and the response body are omitted from this audit row (confirmed
+	// writes retain them in their separate reconciliation ledger). Its purpose is
 	// that the call happened, not what came back.
 	outcome, status := auditSuccess, result.Status
 	if err != nil {
@@ -279,10 +289,14 @@ func (s *Server) testToolAction(w http.ResponseWriter, r *http.Request) {
 		Metadata: map[string]any{"action": action.Name, "method": action.Method, "path": action.Path, "status": status},
 	})
 	if err != nil {
+		if operation != nil {
+			writeJSON(w, 200, map[string]any{"result": result, "operation": operation, "error": map[string]string{"message": err.Error()}})
+			return
+		}
 		writeToolError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"result": result})
+	writeJSON(w, http.StatusOK, map[string]any{"result": result, "operation": operation})
 }
 
 // listAgentTools and setAgentTools are the Capabilities tab. They live with the

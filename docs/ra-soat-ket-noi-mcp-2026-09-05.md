@@ -115,3 +115,10 @@ Mỗi phần cần regression test phù hợp, commit riêng và kiểm tra lạ
 - MCP-REV-06 / rollout: Đã thêm mcpdemo vào allowlist cục bộ (giữ host.docker.internal), build/recreate backend từ ac4dd58. API healthy; smoke trên server test xác minh discovery bốn action, rediscovery giữ ID, count_words trả 3, queue FIFO, subscriber disconnect và SSE cursor/replay. Fixture user/workspace/gateway đã dọn. Không sửa dữ liệu BSR SAP MCP và không chạy nghiệp vụ SAP bằng token người dùng.
 
 - MCP payload bound: Transport giới hạn mỗi HTTP response ở 8 MiB trước SDK (JSON/SSE, gồm body sau giải nén tự động). Content-Length vượt trần bị từ chối; stream không khai báo độ dài trả lỗi khi đọc vượt trần và đóng body. Tests boundary và discovery JSON/SSE quá lớn qua; backend suite/PostgreSQL qua. Giới hạn áp dụng tổng response của một request, không chỉ text cuối đưa vào model.
+
+
+### 2026-09-06 — TOOL-01b: policy, manual approval và đối soát
+
+Đã triển khai phân loại read/approval/blocked, chặn automatic write trong chat/workflow, xác nhận nội dung tại màn hình tool, durable idempotency ledger và đối soát thủ công sau kết quả chưa rõ. Mọi MCP action mặc định cần xác nhận; chủ sở hữu phải duyệt read để cho phép tự gọi. Migration 35–36 bổ sung policy/ledger và nội dung review. Xem [phạm vi, kiểm thử và giới hạn](tool-write-policy.md).
+
+TOOL-01 chưa đóng toàn bộ: còn approval/resume trong chat/workflow và tích hợp business idempotency/tra cứu giao dịch SAP. EVAL-02 còn cần bộ câu hỏi nghiệp vụ được gán nhãn và duyệt để nghiệm thu chất lượng thực tế; không suy ra chất lượng từ smoke test. KB-05 đã có durable rebuild và atomic switch theo từng KB, còn tối ưu incremental/batch và retention.

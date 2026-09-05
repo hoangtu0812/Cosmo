@@ -106,6 +106,11 @@ func (repository *Repository) openMCP(ctx context.Context, tool Tool) (*mcpsdk.C
 
 	httpClient := repository.client()
 	base := httpClient.Transport
+	if ctx.Value(confirmedWriteKey{}) == true {
+		if transport, ok := base.(*http.Transport); ok {
+			transport.DisableKeepAlives = true
+		}
+	}
 	if base == nil {
 		base = http.DefaultTransport
 	}

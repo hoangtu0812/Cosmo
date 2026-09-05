@@ -80,6 +80,8 @@ var migrations = []Migration{
 		`CREATE TRIGGER cleanup_snapshot_job_attempt BEFORE DELETE ON knowledge_snapshot_jobs FOR EACH ROW EXECUTE FUNCTION cleanup_snapshot_job_attempt()`,
 	}},
 	{Version: 34, Name: "durable_knowledge_ingestion", Statements: knowledgeIngestionStatements},
+	{Version: 35, Name: "tool_write_policy", Statements: toolWritePolicyStatements},
+	{Version: 36, Name: "tool_write_review_payload", Statements: []string{`ALTER TABLE tool_write_operations ADD COLUMN request JSONB NOT NULL DEFAULT '{}'::jsonb`}},
 }
 
 var knowledgeSnapshotStatements = []string{

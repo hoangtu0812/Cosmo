@@ -343,7 +343,7 @@ func (repository *Repository) InvokeInSet(ctx context.Context, list []Tool, acti
 	for _, tool := range list {
 		for _, action := range actions[tool.ID] {
 			if callName(prefixes[tool.ID], action) == name {
-				return repository.Invoke(ctx, tool, action, arguments)
+				return repository.invokeAutomatic(ctx, tool, action, arguments)
 			}
 		}
 	}
@@ -365,7 +365,7 @@ func (repository *Repository) InvokeAction(ctx context.Context, userID, workspac
 	if err != nil {
 		return "", err
 	}
-	result, err := repository.Invoke(ctx, tool, action, arguments)
+	result, err := repository.invokeAutomatic(ctx, tool, action, arguments)
 	if err != nil {
 		return "", err
 	}

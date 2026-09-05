@@ -107,6 +107,9 @@ export type ToolParameter = {
   value?: string;
 };
 
+export type ToolActionPolicy = {effect: 'read' | 'approval' | 'blocked'; definition: string; destination: string; action: string; method: string; path: string; parameters: ToolParameter[]};
+export type ToolWriteOperation = {id: string; action_id: string; status: string; result: ToolCallResult; created_at: string; reconciliation_note: string; request: Record<string, unknown>};
+
 export type ToolAction = {
   id: string;
   tool_id: string;
@@ -650,10 +653,18 @@ export const api = {
     ),
   deleteToolAction: (toolID: string, actionID: string, workspaceID?: string) =>
     request<void>(`/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
-  testToolAction: (toolID: string, actionID: string, args: Record<string, unknown>, workspaceID?: string) =>
-    request<{result: ToolCallResult}>(
+  toolActionPolicy: (toolID: string, actionID: string, workspaceID: string) =>
+    request<ToolActionPolicy>(`/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}/policy?workspace=${encodeURIComponent(workspaceID)}`),
+  setToolActionPolicy: (toolID: string, actionID: string, workspaceID: string, effect: string, definition: string) =>
+    request<ToolActionPolicy>(`/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}/policy?workspace=${encodeURIComponent(workspaceID)}`, {method:'PUT', body:JSON.stringify({effect,definition})}),
+  toolWriteOperations: (toolID: string, workspaceID: string) =>
+    request<{operations: ToolWriteOperation[]}>(`/api/tools/${encodeURIComponent(toolID)}/write-operations?workspace=${encodeURIComponent(workspaceID)}`),
+  reconcileToolWrite: (toolID: string, workspaceID: string, operationID: string, outcome: string, note: string) =>
+    request<void>(`/api/tools/${encodeURIComponent(toolID)}/write-operations/${encodeURIComponent(operationID)}/reconcile?workspace=${encodeURIComponent(workspaceID)}`, {method:'POST', body:JSON.stringify({outcome,note})}),
+  testToolAction: (toolID: string, actionID: string, args: Record<string, unknown>, workspaceID?: string, approval?: {confirmed: boolean; idempotency_key: string; definition: string}) =>
+    request<{result: ToolCallResult; operation?: ToolWriteOperation; error?: {message: string}}>(
       `/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}/test${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`,
-      {method: 'POST', body: JSON.stringify({arguments: args})},
+      {method: 'POST', body: JSON.stringify({arguments: args, ...approval})},
     ),
   agentTools: (agentID: string, workspaceID?: string) =>
     request<{tool_ids: string[]}>(`/api/agents/${encodeURIComponent(agentID)}/tools${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),

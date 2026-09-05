@@ -274,6 +274,10 @@ func (s *Server) Router() http.Handler {
 		protected.Put("/api/tools/{toolID}/actions/{actionID}", s.saveToolAction)
 		protected.Delete("/api/tools/{toolID}/actions/{actionID}", s.deleteToolAction)
 		protected.Post("/api/tools/{toolID}/actions/{actionID}/test", s.testToolAction)
+		protected.Get("/api/tools/{toolID}/actions/{actionID}/policy", s.getToolActionPolicy)
+		protected.Put("/api/tools/{toolID}/actions/{actionID}/policy", s.setToolActionPolicy)
+		protected.Get("/api/tools/{toolID}/write-operations", s.listToolWriteOperations)
+		protected.Post("/api/tools/{toolID}/write-operations/{operationID}/reconcile", s.reconcileToolWrite)
 		protected.Get("/api/tools/{toolID}/shares", s.listToolShares)
 		protected.Put("/api/tools/{toolID}/shares", s.setToolShares)
 

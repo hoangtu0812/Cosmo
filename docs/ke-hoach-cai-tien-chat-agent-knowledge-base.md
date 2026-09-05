@@ -698,3 +698,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 
 - Frontend chờ KB hết pending/processing trước khi gửi tệp tiếp theo, tương thích giới hạn một generation build đang chạy trên mỗi KB. Dừng hàng đợi trong trình duyệt khi rời KB; không tự gửi lại upload có kết quả HTTP chưa rõ.
 - Đã kiểm tra TypeScript. Đây vẫn là rebuild toàn KB sau mỗi tệp; batch upload/incremental indexing và hàng đợi tệp bền vững phía trình duyệt chưa được triển khai.
+
+
+### 2026-09-06 — TOOL-01b: policy, manual approval và đối soát
+
+Đã triển khai phân loại read/approval/blocked, chặn automatic write trong chat/workflow, xác nhận nội dung tại màn hình tool, durable idempotency ledger và đối soát thủ công sau kết quả chưa rõ. Mọi MCP action mặc định cần xác nhận; chủ sở hữu phải duyệt read để cho phép tự gọi. Migration 35–36 bổ sung policy/ledger và nội dung review. Xem [phạm vi, kiểm thử và giới hạn](tool-write-policy.md).
+
+TOOL-01 chưa đóng toàn bộ: còn approval/resume trong chat/workflow và tích hợp business idempotency/tra cứu giao dịch SAP. EVAL-02 còn cần bộ câu hỏi nghiệp vụ được gán nhãn và duyệt để nghiệm thu chất lượng thực tế; không suy ra chất lượng từ smoke test. KB-05 đã có durable rebuild và atomic switch theo từng KB, còn tối ưu incremental/batch và retention.

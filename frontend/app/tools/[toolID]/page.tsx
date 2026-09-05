@@ -27,6 +27,7 @@ import {StatusLabel} from '../../components/StatusLabel';
 import {api, APIError, Tool, ToolAction, ToolCallResult, ToolOAuthConnection, ToolParameter, ToolVersion} from '../../lib/api';
 import {McpMark} from '../../components/McpMark';
 import {useTranslation} from '../../lib/i18n';
+import {useToolWriteControl} from '../../components/ToolWriteControl';
 
 export default function ToolDetailPage() {
   return (
@@ -858,6 +859,7 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
   const [testValues, setTestValues] = useState<Record<string, string>>({});
   const [isTesting, setIsTesting] = useState(false);
   const [result, setResult] = useState<ToolCallResult | null>(null);
+  const writeControl = useToolWriteControl(toolID, action.id, workspaceID, isEditable, setResult, setFailure);
 
   async function save() {
     setIsSaving(true);
@@ -905,8 +907,7 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
             argumentsForCall[parameter.name] = raw;
         }
       }
-      const response = await api.testToolAction(toolID, action.id, argumentsForCall, workspaceID);
-      setResult(response.result);
+      await writeControl.test(argumentsForCall);
     } catch (caught) {
       setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
     } finally {
@@ -1105,6 +1106,7 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
           <Icon icon={Zap} size="sm" />
           <Text type="label">{t('tool.testTitle')}</Text>
         </HStack>
+        {writeControl.controls}
         {action.parameters.map((parameter) => (
           <TextInput
             key={parameter.name}
@@ -1118,7 +1120,7 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
         <HStack gap={2} hAlign="start">
           <Button
             icon={<Play size={14} />}
-            isDisabled={!isEditable || isTesting}
+            isDisabled={!isEditable || isTesting || writeControl.isBlocked}
             isLoading={isTesting}
             label={t('tool.test')}
             onClick={() => void test()}

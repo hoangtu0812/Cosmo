@@ -143,6 +143,14 @@ func TestSnapshotSettingsExcludeCredentials(t *testing.T) {
 }
 
 func TestChatWorkerUsesPinnedKnowledgeSnapshot(t *testing.T) {
+	testChatPinnedKnowledge(t, false)
+}
+
+func TestWorkspaceChatWorkerUsesPinnedKnowledgeSnapshot(t *testing.T) {
+	testChatPinnedKnowledge(t, true)
+}
+
+func testChatPinnedKnowledge(t *testing.T, workspacePin bool) {
 	s, agent, owner, _ := agentAccessFixture(t)
 	ctx := context.Background()
 	var calls atomic.Int32
@@ -198,7 +206,14 @@ func TestChatWorkerUsesPinnedKnowledgeSnapshot(t *testing.T) {
 	s.tools = tools.NewRepository(s.db, slog.Default(), nil, tools.EgressPolicy{}, tools.SearchBackend{})
 	s.cfg.LLMRequestTimeout = time.Second
 	conversation := "con_" + randomID(18)
-	if _, err := s.db.Exec(ctx, `INSERT INTO conversations(id,user_id,workspace_id,title,agent_id,agent_version_id) VALUES($1,$2,$3,'Test',$4,$5)`, conversation, owner.ID, agent.WorkspaceID, agent.ID, release.ID); err != nil {
+	agentID, releaseID := agent.ID, release.ID
+	if workspacePin {
+		agentID, releaseID = "", ""
+		if _, err := s.db.Exec(ctx, `UPDATE knowledge_mounts SET snapshot_id=$2 WHERE kb_id=$1`, kb, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(ctx, `INSERT INTO conversations(id,user_id,workspace_id,title,agent_id,agent_version_id) VALUES($1,$2,$3,'Test',NULLIF($4,''),NULLIF($5,''))`, conversation, owner.ID, agent.WorkspaceID, agentID, releaseID); err != nil {
 		t.Fatal(err)
 	}
 	startTestChatWorkers(t, s)

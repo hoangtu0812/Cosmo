@@ -57,6 +57,10 @@ var migrations = []Migration{
 	{Version: 26, Name: "chat_turn_identity", Statements: chatTurnStatements},
 	{Version: 27, Name: "durable_chat_queue", Statements: chatQueueStatements},
 	{Version: 28, Name: "knowledge_snapshots", Statements: knowledgeSnapshotStatements},
+	{Version: 29, Name: "workspace_knowledge_snapshots", Statements: []string{
+		`ALTER TABLE knowledge_mounts ADD COLUMN snapshot_id TEXT REFERENCES knowledge_snapshots(id)`,
+		`CREATE INDEX knowledge_mount_snapshot ON knowledge_mounts(snapshot_id) WHERE snapshot_id IS NOT NULL`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

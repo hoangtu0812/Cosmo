@@ -536,10 +536,18 @@ func (s *Server) retrievalContextFor(ctx context.Context, workspaceID, query str
 }
 
 func (s *Server) retrieveKnowledge(ctx context.Context, workspaceID, query string, only []string) (knowledgeRetrieval, error) {
-	return s.retrieveKnowledgePinned(ctx, workspaceID, query, only, nil)
+	pins, err := s.workspaceKnowledgePins(ctx, workspaceID)
+	if err != nil {
+		return knowledgeRetrieval{}, err
+	}
+	return s.retrieveKnowledgeSelection(ctx, workspaceID, query, only, pins, false)
 }
 
 func (s *Server) retrieveKnowledgePinned(ctx context.Context, workspaceID, query string, only []string, pins map[string]string) (knowledgeRetrieval, error) {
+	return s.retrieveKnowledgeSelection(ctx, workspaceID, query, only, pins, true)
+}
+
+func (s *Server) retrieveKnowledgeSelection(ctx context.Context, workspaceID, query string, only []string, pins map[string]string, strict bool) (knowledgeRetrieval, error) {
 	var report knowledgeRetrieval
 	if strings.TrimSpace(query) == "" {
 		return report, nil
@@ -601,10 +609,15 @@ func (s *Server) retrieveKnowledgePinned(ctx context.Context, workspaceID, query
 		var models knowledge.ModelSettings
 		var settingsErr error
 		if pins != nil {
-			if pins[kbID] == "" {
+			pin, exists := pins[kbID]
+			if !exists || (strict && pin == "") {
 				return nil, fmt.Errorf("knowledge snapshot pin missing")
 			}
-			models, settingsErr = s.snapshotModelSettings(ctx, kbID, pins[kbID])
+			if pin != "" {
+				models, settingsErr = s.snapshotModelSettings(ctx, kbID, pin)
+			} else {
+				models, settingsErr = s.knowledgeModelSettingsForKB(ctx, kbID)
+			}
 		} else {
 			models, settingsErr = s.knowledgeModelSettingsForKB(ctx, kbID)
 		}

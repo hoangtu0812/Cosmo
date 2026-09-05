@@ -922,6 +922,15 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		agentRemembers = agent.IsMemoryEnabled
 		agentSuggests = agent.HasSuggestedQuestions
 	}
+	if conversationAgentID == "" {
+		var pinErr error
+		knowledgePins, pinErr = s.workspaceKnowledgePins(r.Context(), conversationWorkspaceID)
+		if pinErr != nil {
+			writeError(w, 503, "Không thể đọc cấu hình Knowledge Base của workspace.")
+			return
+		}
+		knowledgeMode = "workspace"
+	}
 	var input struct {
 		Content         string `json:"content"`
 		Model           string `json:"model"`
@@ -1181,7 +1190,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 		// The log records which answer this search fed, so a relevance floor
 		// can later be chosen from what the answers actually used.
-		retrieval, retrievalErr := s.retrieveKnowledgePinned(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, plan.SearchQuery, agentKnowledge, knowledgePins)
+		retrieval, retrievalErr := s.retrieveKnowledgeSelection(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, plan.SearchQuery, agentKnowledge, knowledgePins, knowledgeMode != "workspace")
 		passages = retrieval.Passages
 		incomplete := retrievalErr != nil || retrieval.incomplete()
 		partialKnowledge = incomplete && len(passages) > 0

@@ -51,6 +51,7 @@ export type KnowledgeBase = {
   has_unpublished_changes: boolean;
   is_mounted: boolean;
   installed_version: number;
+  snapshot_id?: string;
   update_available: boolean;
   document_count: number;
 	processing_count: number;
@@ -740,8 +741,8 @@ export const api = {
     `${API_BASE}/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}/stream`,
   workspaceKnowledge: (workspaceID: string) =>
     request<{knowledge_bases: KnowledgeBase[]}>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge`),
-  mountKnowledge: (workspaceID: string, kbID: string) =>
-    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'PUT'}),
+  mountKnowledge: (workspaceID: string, kbID: string, knowledgeMode?: 'live' | 'snapshot') =>
+    request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'PUT', body: JSON.stringify({knowledge_mode: knowledgeMode})}),
   unmountKnowledge: (workspaceID: string, kbID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
   deleteWorkspace: (workspaceID: string) =>

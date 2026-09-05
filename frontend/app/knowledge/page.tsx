@@ -17,6 +17,7 @@ import {HStack, Layout, LayoutContent, LayoutFooter, VStack} from '@astryxdesign
 import {Link} from '@astryxdesign/core/Link';
 import {Section} from '@astryxdesign/core/Section';
 import {Selector} from '@astryxdesign/core/Selector';
+import {RadioList, RadioListItem} from '@astryxdesign/core/RadioList';
 import {Skeleton} from '@astryxdesign/core/Skeleton';
 import {Text} from '@astryxdesign/core/Text';
 import {TextArea} from '@astryxdesign/core/TextArea';
@@ -50,6 +51,8 @@ export default function KnowledgePage() {
 	const [newTags, setNewTags] = useState('');
   const [deleting, setDeleting] = useState<KnowledgeBase | null>(null);
   const [pending, setPending] = useState('');
+  const [installing, setInstalling] = useState<KnowledgeBase | null>(null);
+  const [knowledgeMode, setKnowledgeMode] = useState<'live' | 'snapshot'>('live');
   const [busy, setBusy] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [query, setQuery] = useState('');
@@ -139,14 +142,15 @@ export default function KnowledgePage() {
 
   // Install, update and uninstall are the same write from the workspace's side:
   // it is choosing which version of a base it runs on, or none at all.
-  async function setInstalled(base: KnowledgeBase, installed: boolean) {
+  async function setInstalled(base: KnowledgeBase, installed: boolean, mode?: 'live' | 'snapshot') {
     if (!workspaceID) return;
     setPending(base.id);
     setError('');
     try {
-      if (installed) await api.mountKnowledge(workspaceID, base.id);
+      if (installed) await api.mountKnowledge(workspaceID, base.id, mode);
       else await api.unmountKnowledge(workspaceID, base.id);
       load(workspaceID);
+      setInstalling(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('kb.mountFailed'));
     } finally {
@@ -158,7 +162,7 @@ export default function KnowledgePage() {
     if (base.version === 0) return null;
     if (!canInstall) return base.is_mounted ? <StatusLabel label={t('kb.installed')} variant="success" /> : null;
     return (
-      <Button
+      <HStack gap={1}><Button
         isDisabled={pending === base.id || !workspaceID}
         isLoading={pending === base.id}
         label={
@@ -166,10 +170,16 @@ export default function KnowledgePage() {
             : base.is_mounted ? t('kb.uninstall')
               : t('kb.install')
         }
-        onClick={() => void setInstalled(base, !base.is_mounted || base.update_available)}
+        onClick={() => {
+          if (base.is_mounted && !base.update_available) void setInstalled(base, false);
+          else { setKnowledgeMode(base.snapshot_id ? 'snapshot' : 'live'); setInstalling(base); }
+        }}
         size="sm"
         variant={base.is_mounted && !base.update_available ? 'ghost' : 'primary'}
       />
+      {base.is_mounted ? <Button size="sm" variant="ghost" label={base.snapshot_id ? 'Snapshot' : 'Live'}
+        isDisabled={pending === base.id} onClick={() => {setKnowledgeMode(base.snapshot_id ? 'snapshot' : 'live'); setInstalling(base);}} /> : null}
+      </HStack>
     );
   }
 
@@ -301,6 +311,22 @@ export default function KnowledgePage() {
           }
           header={<DialogHeader onOpenChange={setCreating} title={t('kb.create')} />}
         />
+      </Dialog>
+
+      <Dialog isOpen={installing !== null} onOpenChange={(open) => {if (!open && !pending) setInstalling(null);}} purpose="form">
+        <Layout header={<DialogHeader title={installing?.name ?? ''} onOpenChange={(open) => {if (!open && !pending) setInstalling(null);}} />}
+          content={<LayoutContent><VStack gap={3}>
+            {error ? <Banner status="error" title={error} /> : null}
+            <RadioList label={t('agent.knowledgeMode')} value={knowledgeMode} isDisabled={!!pending}
+              onChange={(value) => setKnowledgeMode(value === 'snapshot' ? 'snapshot' : 'live')}>
+              <RadioListItem value="live" label="Live" description={t('agent.knowledgeLiveDescription')} />
+              <RadioListItem value="snapshot" label="Snapshot" description={t('kb.snapshotInstallDescription')} />
+            </RadioList>
+          </VStack></LayoutContent>}
+          footer={<LayoutFooter><HStack gap={2} hAlign="end">
+            <Button label={t('common.cancel')} variant="secondary" isDisabled={!!pending} onClick={() => setInstalling(null)} />
+            <Button label={t('common.save')} variant="primary" isLoading={!!pending} onClick={() => {if (installing) void setInstalled(installing, true, knowledgeMode);}} />
+          </HStack></LayoutFooter>} />
       </Dialog>
 
       {sharing ? (

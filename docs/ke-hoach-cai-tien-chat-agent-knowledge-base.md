@@ -625,3 +625,9 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Smoke có xác thực tạo hai KB tạm trên PostgreSQL/Qdrant thật: publish snapshot, publish agent ghim cả hai, thay nội dung live và publish KB lại; truy vấn snapshot vẫn trả nội dung cũ, live trả nội dung mới; agent release cũ giữ pin và release mới nhận pin mới. Đã dọn user/workspace/agent/KB và các collection tạm. Không tự publish hay đổi chế độ các agent/KB hiện có.
 - Smoke chat qua subscriber disconnect, FIFO queue, idempotent replay, Last-Event-ID, transcript; MCP discovery/rediscovery giữ ID và invocation qua. Gateway thật vẫn truy vấn được đủ ba tài liệu đang phục vụ, đúng KB và không partial. Đây là kiểm tra kết nối/provenance, chưa phải benchmark câu hỏi nghiệp vụ gán nhãn.
 - Có 3 run cũ từ 03/09 còn trạng thái running nhưng không gắn chat_turn; đợt này chỉ đối chiếu, không sửa lịch sử của chúng. Không có chat_turn queued/running lúc rollout. Các giới hạn KB-06a và phần còn lại của kế hoạch vẫn giữ trạng thái mở.
+
+### 2026-09-05 — KB-06c: Pin snapshot ở workspace installation
+
+- Migration 29 thêm pin snapshot vào mount. Quản trị viên chọn Live/Snapshot khi cài hoặc cập nhật; client cũ không gửi mode giữ chế độ hiện hành. Publish KB không tự đổi pin workspace; phiên bản legacy chưa có snapshot bị từ chối khi chọn Snapshot.
+- Chat thường và endpoint retrieval dùng từng cấu hình mount, cho phép trộn KB Live và Snapshot. Run input ghi đủ map; thay cấu hình giữa admission và worker bị runtime hash phát hiện. Agent release vẫn theo chế độ đã publish của chính agent.
+- UI hiển thị chế độ và cho đổi ngay ở KB đã cài. Tests PostgreSQL qua các nhánh phân quyền, thiếu snapshot, cập nhật pin có chủ ý, chuyển Live và worker chat dùng workspace pin. Toàn bộ backend, TypeScript và build frontend qua.

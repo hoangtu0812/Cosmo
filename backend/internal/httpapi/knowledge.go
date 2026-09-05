@@ -110,8 +110,9 @@ type KnowledgeBase struct {
 	HasUnpublishedChanges bool `json:"has_unpublished_changes"`
 
 	// The next three are only meaningful when the request named a workspace.
-	IsMounted        bool `json:"is_mounted"`
-	InstalledVersion int  `json:"installed_version"`
+	IsMounted        bool   `json:"is_mounted"`
+	InstalledVersion int    `json:"installed_version"`
+	SnapshotID       string `json:"snapshot_id,omitempty"`
 	// UpdateAvailable means the workspace installed an older version than the
 	// one now published. Retrieval always uses the latest documents; this is
 	// the owner telling installers that something changed.
@@ -224,7 +225,8 @@ const knowledgeColumns = `
 	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status IN ('pending', 'processing')),
 	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status = 'failed'),
 	(SELECT COUNT(*) FROM knowledge_shares sh WHERE sh.kb_id = kb.id),
-	(SELECT COUNT(*) FROM agent_knowledge_bases ak WHERE ak.kb_id = kb.id)`
+	(SELECT COUNT(*) FROM agent_knowledge_bases ak WHERE ak.kb_id = kb.id),
+	COALESCE((SELECT km.snapshot_id FROM knowledge_mounts km WHERE km.kb_id=kb.id AND km.target_type='workspace' AND km.target_id=$2),'')`
 
 func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 	var item KnowledgeBase
@@ -239,7 +241,7 @@ func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 		&item.CreatedAt, &item.Version,
 		&item.Access, &item.HasUnpublishedChanges, &installed,
 		&item.DocumentCount, &item.ProcessingCount, &item.FailedCount, &item.SharedCount,
-		&item.ReferenceCount)
+		&item.ReferenceCount, &item.SnapshotID)
 	if err != nil {
 		return item, err
 	}
@@ -784,7 +786,23 @@ func (s *Server) mountKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var version int
-	err := s.db.QueryRow(r.Context(), `
+	var input struct {
+		KnowledgeMode string `json:"knowledge_mode"`
+	}
+	if r.ContentLength != 0 && !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.KnowledgeMode != "" && input.KnowledgeMode != "live" && input.KnowledgeMode != "snapshot" {
+		writeError(w, http.StatusBadRequest, "Chế độ KB không hợp lệ.")
+		return
+	}
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, 500, "Không thể cài knowledge base.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	err = tx.QueryRow(r.Context(), `
 		SELECT kb.version FROM knowledge_bases kb
 		WHERE kb.id = $1
 		  AND kb.version > 0
@@ -794,19 +812,43 @@ func (s *Server) mountKnowledge(w http.ResponseWriter, r *http.Request) {
 			OR (kb.visibility = 'selected' AND EXISTS (
 				SELECT 1 FROM knowledge_shares sh WHERE sh.kb_id = kb.id AND sh.workspace_id = $2
 			))
-		  )`, kbID, workspaceID).Scan(&version)
+		  ) FOR SHARE OF kb`, kbID, workspaceID).Scan(&version)
 	if err != nil {
 		s.logger.Warn("knowledge base cannot be installed in workspace", "knowledge_base", kbID, "workspace", workspaceID, "error", err)
 		writeError(w, http.StatusNotFound, "Knowledge base này chưa được chia sẻ tới workspace của bạn.")
 		return
 	}
 
-	if _, err := s.db.Exec(r.Context(), `
-		INSERT INTO knowledge_mounts(kb_id, target_type, target_id, mounted_by, installed_version)
-		VALUES($1, 'workspace', $2, $3, $4)
+	var snapshotID string
+	// An update from an older client preserves the installation's mode.
+	if input.KnowledgeMode == "" {
+		var pinned bool
+		if err := tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM knowledge_mounts WHERE kb_id=$1 AND target_type='workspace' AND target_id=$2 AND snapshot_id IS NOT NULL)`, kbID, workspaceID).Scan(&pinned); err != nil {
+			writeError(w, 500, "Không thể đọc chế độ KB.")
+			return
+		}
+		if pinned {
+			input.KnowledgeMode = "snapshot"
+		} else {
+			input.KnowledgeMode = "live"
+		}
+	}
+	if input.KnowledgeMode == "snapshot" {
+		if err := tx.QueryRow(r.Context(), `SELECT id FROM knowledge_snapshots WHERE kb_id=$1 AND version=$2`, kbID, version).Scan(&snapshotID); err != nil {
+			writeError(w, 409, "Cần publish KB để tạo snapshot trước khi cài.")
+			return
+		}
+	}
+	if _, err := tx.Exec(r.Context(), `
+		INSERT INTO knowledge_mounts(kb_id, target_type, target_id, mounted_by, installed_version,snapshot_id)
+		VALUES($1, 'workspace', $2, $3, $4,NULLIF($5,''))
 		ON CONFLICT (kb_id, target_type, target_id)
-		DO UPDATE SET installed_version = $4`, kbID, workspaceID, user.ID, version); err != nil {
+		DO UPDATE SET installed_version = $4,snapshot_id=NULLIF($5,'')`, kbID, workspaceID, user.ID, version, snapshotID); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể cài knowledge base.")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, 500, "Không thể cài knowledge base.")
 		return
 	}
 	// Filed against the installing workspace rather than the owning one: this
@@ -814,7 +856,7 @@ func (s *Server) mountKnowledge(w http.ResponseWriter, r *http.Request) {
 	_, name := s.knowledgeOwner(r.Context(), kbID)
 	s.audit(r, auditEvent{
 		Action: "knowledge.base.installed", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: name,
-		WorkspaceID: workspaceID, Metadata: map[string]int{"version": version},
+		WorkspaceID: workspaceID, Metadata: map[string]any{"version": version, "knowledge_mode": input.KnowledgeMode, "snapshot_id": snapshotID},
 	})
 	w.WriteHeader(http.StatusNoContent)
 }

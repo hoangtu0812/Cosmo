@@ -772,7 +772,24 @@ export const api = {
   cancelRun: (runID: string) => request<{run: Run}>(`/api/runs/${encodeURIComponent(runID)}/cancel`, {method: 'POST'}),
 };
 
-export type ChatOptions = {model?: string; reasoningEffort?: string};
+export type ChatOptions = {model?: string; reasoningEffort?: string; clientMessageID?: string};
+
+// Only a digest and identity are retained, never the question itself. Keep an
+// uncertain submission across reloads in this tab until a saved answer arrives.
+const pendingChatRequests = new Map<string, string>();
+async function chatRequestIdentity(conversationID: string, payload: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([conversationID, payload])));
+  const key = `cosmo.chat.pending.${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+  let id = pendingChatRequests.get(key);
+  try { id ??= sessionStorage.getItem(key) ?? undefined; } catch { /* storage can be disabled */ }
+  id ??= crypto.randomUUID();
+  pendingChatRequests.set(key, id);
+  try { sessionStorage.setItem(key, id); } catch { /* in-memory retry still works */ }
+  return {id, complete: () => {
+    pendingChatRequests.delete(key);
+    try { sessionStorage.removeItem(key); } catch { /* storage can be disabled */ }
+  }};
+}
 
 export async function streamChat(
   conversationID: string,
@@ -793,11 +810,13 @@ export async function streamChat(
     onDone?: (data: {message: Message}) => void;
   },
 ): Promise<void> {
+  const payload = {content, model: options.model ?? '', reasoning_effort: options.reasoningEffort ?? ''};
+  const identity = options.clientMessageID ? {id: options.clientMessageID, complete: () => undefined} : await chatRequestIdentity(conversationID, JSON.stringify(payload));
   const response = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationID)}/messages`, {
     method: 'POST',
     credentials: 'include',
     headers: {'Content-Type': 'application/json', Accept: 'text/event-stream'},
-    body: JSON.stringify({content, model: options.model ?? '', reasoning_effort: options.reasoningEffort ?? ''}),
+    body: JSON.stringify({...payload, client_message_id: identity.id}),
   });
   if (!response.ok) {
     let body: APIErrorShape = {};
@@ -809,28 +828,38 @@ export async function streamChat(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  while (true) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, {stream: true});
-    const frames = buffer.split('\n\n');
-    buffer = frames.pop() ?? '';
-    for (const frame of frames) {
-      const lines = frame.split('\n');
-      const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
-      const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
-      if (!event || !rawData) continue;
-      const data = JSON.parse(rawData) as Record<string, unknown>;
-      if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; run_id?: string});
-      if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string; detail?: string});
-      if (event === 'tool') handlers.onToolCall?.(data as unknown as MessageToolCall);
-      if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
-      if (event === 'usage') handlers.onUsage?.(data as ChatUsage);
-      if (event === 'title') handlers.onTitle?.(data as {title: string});
-      if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
-      if (event === 'done') handlers.onDone?.(data as {message: Message});
-      if (event === 'error') throw new APIError(String(data.message ?? 'Model Gateway không phản hồi.'), 502);
+  let receivedDone = false;
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() ?? '';
+      for (const frame of frames) {
+        const lines = frame.split('\n');
+        const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
+        const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
+        if (!event || !rawData) continue;
+        const data = JSON.parse(rawData) as Record<string, unknown>;
+        if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; run_id?: string});
+        if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string; detail?: string});
+        if (event === 'tool') handlers.onToolCall?.(data as unknown as MessageToolCall);
+        if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
+        if (event === 'usage') handlers.onUsage?.(data as ChatUsage);
+        if (event === 'title') handlers.onTitle?.(data as {title: string});
+        if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
+        if (event === 'done') {
+          receivedDone = true;
+          identity.complete();
+          handlers.onDone?.(data as {message: Message});
+        }
+        if (event === 'error') throw new APIError(String(data.message ?? 'Model Gateway không phản hồi.'), 502);
+      }
     }
+    if (!receivedDone) throw new APIError('Kết nối bị gián đoạn trước khi nhận đủ câu trả lời. Bạn có thể gửi lại câu hỏi để kiểm tra lượt đã gửi.', 502);
+  } finally {
+    await reader.cancel().catch(() => undefined);
   }
 }
 

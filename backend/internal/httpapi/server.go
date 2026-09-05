@@ -916,11 +916,21 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		Content         string `json:"content"`
 		Model           string `json:"model"`
 		ReasoningEffort string `json:"reasoning_effort"`
+		ClientMessageID string `json:"client_message_id"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
 	input.Content = strings.TrimSpace(input.Content)
+	if len(input.ClientMessageID) > 100 || strings.TrimSpace(input.ClientMessageID) != input.ClientMessageID {
+		writeError(w, http.StatusBadRequest, "ID câu hỏi không hợp lệ.")
+		return
+	}
+	// Legacy callers still work, but must provide a stable key to gain retry
+	// protection. The bundled clients send one for every submission.
+	if input.ClientMessageID == "" {
+		input.ClientMessageID = "legacy_" + randomID(18)
+	}
 	if input.Content == "" || len([]rune(input.Content)) > 12000 {
 		writeError(w, http.StatusBadRequest, "Nội dung câu hỏi không hợp lệ.")
 		return
@@ -944,6 +954,14 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	options := modelgateway.Options{Model: input.Model, ReasoningEffort: input.ReasoningEffort}
+	identity := chatTurnIdentity{ClientMessageID: input.ClientMessageID, RequestHash: chatRequestHash(input.Content, input.Model, input.ReasoningEffort), AssistantID: "msg_" + randomID(18)}
+	if existing, err := lookupChatTurn(r.Context(), s.db, conversationID, identity.ClientMessageID, identity.RequestHash); err != nil {
+		s.writeChatTurnError(w, r, conversationID, err)
+		return
+	} else if existing != nil {
+		s.writeChatTurnError(w, r, conversationID, existing)
+		return
+	}
 	if !models.HasGateway() {
 		writeError(w, http.StatusServiceUnavailable, "Workspace này chưa cấu hình Model Gateway. Vào Cài đặt để thêm Base URL và API key.")
 		return
@@ -1012,12 +1030,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		ResourceVersion: conversationVersionID,
 		Input:           runInput,
 		TraceID:         middleware.GetReqID(r.Context()),
-	}, attachmentIDs)
+	}, attachmentIDs, identity)
 	if err != nil {
 		s.logger.Error("accept chat question", "conversation_id", conversationID, "error", err)
-		writeError(w, http.StatusServiceUnavailable, "Không thể tiếp nhận câu hỏi. Vui lòng thử lại.")
+		s.writeChatTurnError(w, r, conversationID, err)
 		return
 	}
+	defer s.interruptChatTurn(conversationID, identity.ClientMessageID)
 	chatRun, runErr := s.runs.Transition(r.Context(), chatRun.ID, runs.Running, nil, "", "")
 	if runErr != nil {
 		s.logger.Error("start chat run", "conversation_id", conversationID, "error", runErr)
@@ -1045,7 +1064,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
-	assistantID := "msg_" + randomID(18)
+	assistantID := identity.AssistantID
 
 	// What the turn needs, decided before it is done. Searching the documents
 	// for a question that has nothing to do with them produced an answer with
@@ -1282,7 +1301,10 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		usageJSON, _ = json.Marshal(usage)
 		assistantMessage.Usage = &usage
 	}
-	_, err = s.db.Exec(r.Context(), `INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, usage, created_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, usageJSON, assistantMessage.CreatedAt)
+	_, err = s.db.Exec(r.Context(), `WITH saved AS (
+		INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, usage, created_at) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id
+	) UPDATE chat_turns SET status='succeeded',finished_at=NOW()
+	WHERE conversation_id=$2 AND client_message_id=$10 AND assistant_message_id=(SELECT id FROM saved)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, usageJSON, assistantMessage.CreatedAt, identity.ClientMessageID)
 	if err != nil {
 		if runErr == nil {
 			_, _ = s.runs.TransitionStep(context.Background(), generationStep.ID, runs.Failed, nil, "", "history_write", err.Error())

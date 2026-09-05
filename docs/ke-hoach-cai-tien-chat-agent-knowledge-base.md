@@ -479,3 +479,13 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Run repository có `CreateTx` để tham gia transaction của caller; xử lý cạnh tranh idempotency bằng `ON CONFLICT` không làm hỏng transaction.
 - Integration PostgreSQL kiểm tra rollback khi tạo run lỗi, attachment claim thiếu, và commit đầy đủ message/attachment/run event. `go test ./...` đều qua với database integration.
 - Chưa có client message identity, chống execution đồng thời, queue hay recovery sau crash; các phần này tiếp tục ở CHAT-02/RUN-01.
+
+### 2026-09-05 — CHAT-02b: Idempotency và một execution mỗi hội thoại
+
+- Migration 26 thêm `chat_turns`: uniqueness theo conversation/client_message_id, hash payload content/model/reasoning, sequence tăng và liên kết message/run. Unique partial index chặn hai lượt executing trong cùng hội thoại.
+- Cùng ID/payload trả identity và trạng thái lượt cũ; lượt thành công phát lại `meta/done` từ answer đã lưu, không gọi model/tool. Cùng ID khác payload trả 409. Xóa messages không xóa identity nên không làm request cũ chạy lại.
+- Lưu answer và trạng thái succeeded trong cùng PostgreSQL statement. Handler thoát trước đó đánh dấu interrupted và giữ identity; không tự retry execution có kết quả tool chưa xác định.
+- Shared client tạo ID, giữ qua lỗi mạng/EOF và reload cùng tab bằng sessionStorage (chỉ hash và ID), xóa sau `done`. Cả chat thường và agent test dùng chung; refresh transcript để bỏ bản optimistic trùng và khôi phục ô nhập khi gửi lỗi.
+- Client cũ thiếu ID vẫn được nhận bằng ID server sinh, nhưng không có bảo đảm retry. Tệp pending được chụp/claim ở lần tiếp nhận đầu; retry không claim tệp mới. Muốn gửi tệp mới trong lượt mới cần ID mới.
+- Kiểm tra: HTTP integration cho duplicate đang chạy/hoàn thành, payload mismatch, conversation bận, người khác truy cập, xóa transcript; tám writer cùng ID chỉ một winner; interrupted không rerun và sequence lượt mới tăng. Backend suite/PostgreSQL, frontend retry tests, build và TypeScript đều qua.
+- Giới hạn rollout: drain request trên phiên bản cũ trước khi chuyển backend để mọi writer dùng guard mới. Chưa có queue: lượt khác khi đang bận nhận 409 thay vì xếp hàng. Crash tiến trình có thể để lượt executing chặn hội thoại; cần reconciliation/recovery trong RUN-01 trước rollout yêu cầu tự phục hồi. Không tự reset các lượt này vì tool có thể đã tác động hệ thống ngoài.

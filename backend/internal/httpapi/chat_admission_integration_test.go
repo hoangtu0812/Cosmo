@@ -21,6 +21,7 @@ func TestChatAdmissionCommitsQuestionAttachmentAndRunTogether(t *testing.T) {
 	}
 	question := Message{ID: "msg_" + randomID(18), ConversationID: conversation, Role: "user", Content: "Question", CreatedAt: time.Now()}
 	input := runs.NewRun{WorkspaceID: agent.WorkspaceID, ActorUserID: owner.ID, ResourceType: "conversation", ResourceID: conversation}
+	identity := chatTurnIdentity{ClientMessageID: "client_" + randomID(18), RequestHash: chatRequestHash(question.Content, "", ""), AssistantID: "msg_" + randomID(18)}
 	for _, failure := range []string{"run", "attachment"} {
 		t.Run(failure, func(t *testing.T) {
 			bad := input
@@ -30,7 +31,7 @@ func TestChatAdmissionCommitsQuestionAttachmentAndRunTogether(t *testing.T) {
 			} else {
 				ids = append(ids, "missing-attachment")
 			}
-			if _, _, _, err := s.acceptChatQuestion(ctx, question, bad, ids); err == nil {
+			if _, _, _, err := s.acceptChatQuestion(ctx, question, bad, ids, identity); err == nil {
 				t.Fatal("expected admission failure")
 			}
 			var messages, runCount int
@@ -46,7 +47,7 @@ func TestChatAdmissionCommitsQuestionAttachmentAndRunTogether(t *testing.T) {
 			}
 		})
 	}
-	history, run, first, err := s.acceptChatQuestion(ctx, question, input, []string{attachment})
+	history, run, first, err := s.acceptChatQuestion(ctx, question, input, []string{attachment}, identity)
 	if err != nil {
 		t.Fatal(err)
 	}

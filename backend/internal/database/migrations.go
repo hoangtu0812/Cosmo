@@ -54,6 +54,7 @@ var migrations = []Migration{
 	{Version: 23, Name: "tool_oauth_obo_removal", Statements: toolOAuthOBORemovalStatements},
 	{Version: 24, Name: "retrieval_log_message", Statements: retrievalLogMessageStatements},
 	{Version: 25, Name: "drop_platform_model_settings", Statements: dropPlatformModelSettingsStatements},
+	{Version: 26, Name: "chat_turn_identity", Statements: chatTurnStatements},
 }
 
 var runEngineStatements = []string{

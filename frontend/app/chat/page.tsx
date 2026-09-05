@@ -89,6 +89,7 @@ export default function ChatPage() {
   // sets conversationID, the effect refetches, and the refetch overwrites the
   // streaming placeholder so deltas land on an id that no longer exists.
   const hydratedRef = useRef('');
+  const submittingRef = useRef(false);
   const [renaming, setRenaming] = useState<Conversation | null>(null);
   // Files attached to the question being written. They are read on the server
   // as they are attached, so an unreadable file is refused while somebody is
@@ -399,7 +400,9 @@ export default function ChatPage() {
 
   async function submit(content: string) {
     const trimmed = content.trim();
-    if (!trimmed || streaming || !workspace) return;
+    if (!trimmed || streaming || submittingRef.current || !workspace) return;
+    submittingRef.current = true;
+    setStreaming(true);
     const supportedReasoningEffort = reasoningEfforts.includes(reasoningEffort) ? reasoningEffort : '';
     setDraft('');
     setError('');
@@ -411,9 +414,19 @@ export default function ChatPage() {
     setFollowUps([]);
     let targetID = conversationID;
     if (!targetID) {
-      const result = selectedAgentID
-        ? await api.startAgentConversation(selectedAgentID, 'published', workspace.id)
-        : await api.createConversation(workspace.id, trimmed.slice(0, 100));
+      let result: {conversation: Conversation};
+      try {
+        result = selectedAgentID
+          ? await api.startAgentConversation(selectedAgentID, 'published', workspace.id)
+          : await api.createConversation(workspace.id, trimmed.slice(0, 100));
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : t('chat.replyFailed'));
+        setDraft(trimmed);
+        setAttachments(sent);
+        setStreaming(false);
+        submittingRef.current = false;
+        return;
+      }
       targetID = result.conversation.id;
       // The optimistic bubbles below are the freshest view of this
       // conversation, so suppress the history fetch this id would trigger.
@@ -491,10 +504,16 @@ export default function ChatPage() {
       });
       const refreshed = await api.conversations(workspace.id);
       setConversations(refreshed.conversations);
+      const transcript = await api.messages(targetID).catch(() => null);
+      if (transcript) setMessages(transcript.messages);
     } catch (caught) {
       setMessages((current) => current.filter((item) => item.id !== optimisticAssistant.id));
       setError(caught instanceof Error ? caught.message : t('chat.replyFailed'));
+      setDraft(trimmed);
+      const transcript = await api.messages(targetID).catch(() => null);
+      if (transcript) setMessages(transcript.messages);
     } finally {
+      submittingRef.current = false;
       setStreaming(false);
       setStatus('');
       setOrbState('working');

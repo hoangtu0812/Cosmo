@@ -753,8 +753,8 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
     setDraft('');
     setStreamed('');
     setSuggestions([]);
+    let target = conversationID;
     try {
-      let target = conversationID;
       if (!target) {
         const started = await api.startAgentConversation(agent.id, 'draft', workspaceID);
         target = started.conversation.id;
@@ -782,6 +782,8 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
           setLiveToolCalls([]);
         },
       });
+      const transcript = await api.messages(target).catch(() => null);
+      if (transcript) setMessages(transcript.messages);
       // Read after the reply, so inspecting never delays the answer.
       if (runID.current) {
         try {
@@ -794,6 +796,11 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
       }
     } catch (caught) {
       setChatError(caught instanceof Error ? caught.message : t('agent.chatFailed'));
+      setDraft(content);
+      if (target) {
+        const transcript = await api.messages(target).catch(() => null);
+        if (transcript) setMessages(transcript.messages);
+      }
     } finally {
       setIsSending(false);
     }

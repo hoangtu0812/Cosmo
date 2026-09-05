@@ -11,7 +11,7 @@ import (
 // acceptChatQuestion commits the question, attachment claims and run together.
 // No model/tool call runs inside this short transaction. The conversation row
 // orders admission and protects pending attachment claims between writers.
-func (s *Server) acceptChatQuestion(ctx context.Context, question Message, runInput runs.NewRun, attachments []string) ([]modelgateway.Message, runs.Run, bool, error) {
+func (s *Server) acceptChatQuestion(ctx context.Context, question Message, runInput runs.NewRun, attachments []string, identity chatTurnIdentity) ([]modelgateway.Message, runs.Run, bool, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return nil, runs.Run{}, false, err
@@ -20,6 +20,18 @@ func (s *Server) acceptChatQuestion(ctx context.Context, question Message, runIn
 	var id string
 	if err := tx.QueryRow(ctx, `SELECT id FROM conversations WHERE id=$1 AND user_id=$2 FOR UPDATE`, question.ConversationID, runInput.ActorUserID).Scan(&id); err != nil {
 		return nil, runs.Run{}, false, err
+	}
+	if existing, err := lookupChatTurn(ctx, tx, id, identity.ClientMessageID, identity.RequestHash); err != nil {
+		return nil, runs.Run{}, false, err
+	} else if existing != nil {
+		return nil, runs.Run{}, false, existing
+	}
+	var busy bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM chat_turns WHERE conversation_id=$1 AND status='executing')`, id).Scan(&busy); err != nil {
+		return nil, runs.Run{}, false, err
+	}
+	if busy {
+		return nil, runs.Run{}, false, errChatTurnBusy
 	}
 	var first bool
 	if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM messages WHERE conversation_id=$1)`, id).Scan(&first); err != nil {
@@ -47,6 +59,9 @@ func (s *Server) acceptChatQuestion(ctx context.Context, question Message, runIn
 	}
 	if !created {
 		return nil, runs.Run{}, false, fmt.Errorf("run identity already exists")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO chat_turns(conversation_id,client_message_id,request_hash,user_message_id,assistant_message_id,run_id,status) VALUES($1,$2,$3,$4,$5,$6,'executing')`, id, identity.ClientMessageID, identity.RequestHash, question.ID, identity.AssistantID, run.ID); err != nil {
+		return nil, runs.Run{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, runs.Run{}, false, err

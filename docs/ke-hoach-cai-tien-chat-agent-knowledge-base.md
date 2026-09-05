@@ -471,3 +471,11 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Lỗi đọc danh sách KB không còn bị hiểu thành workspace không có KB. Quyền truy cập vẫn được resolve ở retrieval, planner không được chọn hay mở rộng KB ID.
 - Unit tests kiểm tra parser/fallback và giới hạn lịch sử; integration qua chat xác minh câu “quy định đó” nhận chủ thể QT-17 từ lịch sử và query đã rewrite được gửi đến RAG. `go test ./...` với database integration đều qua.
 - Tests dùng gateway giả lập để xác minh contract/đường đi; chưa chứng minh chất lượng rewrite của model thực tế. Còn câu hỏi thành phần, coverage đa nguồn, dedup xuyên KB và đánh giá chất lượng trên bộ câu hỏi thật.
+
+### 2026-09-05 — CHAT-02a: Tiếp nhận câu hỏi trong một transaction
+
+- User message, history snapshot, attachment claim, tiêu đề ban đầu và run/queued event được commit cùng nhau. Lỗi bất kỳ bước nào rollback toàn bộ, không tiếp tục model/tool khi chưa có run.
+- Khóa conversation trong transaction ngắn để thứ tự tiếp nhận và claim tệp không ghi chồng. Không giữ transaction khi gọi model/tool.
+- Run repository có `CreateTx` để tham gia transaction của caller; xử lý cạnh tranh idempotency bằng `ON CONFLICT` không làm hỏng transaction.
+- Integration PostgreSQL kiểm tra rollback khi tạo run lỗi, attachment claim thiếu, và commit đầy đủ message/attachment/run event. `go test ./...` đều qua với database integration.
+- Chưa có client message identity, chống execution đồng thời, queue hay recovery sau crash; các phần này tiếp tục ở CHAT-02/RUN-01.

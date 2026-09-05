@@ -965,14 +965,6 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// Whether this is the opening turn decides whether the conversation gets
-	// named from it. Asked before the message is written, because after it the
-	// count is one either way. An agent conversation starts under the agent's
-	// name rather than the placeholder, so the title cannot answer this.
-	var priorMessages int
-	_ = s.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM messages WHERE conversation_id = $1`, conversationID).Scan(&priorMessages)
-	isFirstTurn := priorMessages == 0
-
 	// Two lists, because they answer different questions. The pending ones are
 	// what this question claims; every attachment in the conversation is what
 	// the model is allowed to read - a file does not stop existing because the
@@ -980,25 +972,17 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	attached, attachErr := s.pendingAttachments(r.Context(), conversationID)
 	if attachErr != nil {
 		s.logger.Error("read attachments", "conversation_id", conversationID, "error", attachErr)
+		writeError(w, http.StatusServiceUnavailable, "Không thể đọc tệp đính kèm.")
+		return
 	}
 	readable, readableErr := s.conversationAttachments(r.Context(), conversationID)
 	if readableErr != nil {
 		s.logger.Error("read conversation attachments", "conversation_id", conversationID, "error", readableErr)
+		writeError(w, http.StatusServiceUnavailable, "Không thể đọc tệp của hội thoại.")
+		return
 	}
 
 	userMessage := Message{ID: "msg_" + randomID(18), ConversationID: conversationID, Role: "user", Content: input.Content, CreatedAt: time.Now()}
-	history, err := s.recordChatQuestion(r.Context(), userMessage)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể lưu câu hỏi.")
-		return
-	}
-	// The opening line stands in as the title until the turn is answered and a
-	// better one can be written from what it was actually about.
-	_, _ = s.db.Exec(r.Context(), `
-		UPDATE conversations
-		SET title = CASE WHEN title = 'Cuộc trò chuyện mới' THEN LEFT($2, 100) ELSE title END,
-		    updated_at = NOW()
-		WHERE id = $1`, conversationID, input.Content)
 
 	// Chat is the first production path recorded through the common run model.
 	// Only identifiers and execution metadata are stored here; the user's text
@@ -1008,18 +992,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// by an agent runs that agent, so the agent is. Either way the other id is
 	// kept in the input, together with the exact published dependencies.
 	runResourceType, runResourceID := "conversation", conversationID
-	if len(attached) > 0 {
-		ids := make([]string, 0, len(attached))
-		for _, file := range attached {
-			ids = append(ids, file.ID)
-		}
-		// Claimed by the question that asked about them: the next turn must not
-		// carry the same files again, and the transcript has to be able to show
-		// which message they arrived with.
-		if _, err := s.db.Exec(r.Context(),
-			`UPDATE conversation_attachments SET message_id = $2 WHERE id = ANY($1)`, ids, userMessage.ID); err != nil {
-			s.logger.Error("claim attachments", "conversation_id", conversationID, "error", err)
-		}
+	attachmentIDs := make([]string, 0, len(attached))
+	for _, file := range attached {
+		attachmentIDs = append(attachmentIDs, file.ID)
 	}
 
 	runInput := map[string]any{"message_id": userMessage.ID, "model": models.ResolveModel(options), "conversation_id": conversationID}
@@ -1028,7 +1003,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		runInput["agent_id"] = conversationAgentID
 		runInput["tool_versions"] = agentToolVersions
 	}
-	chatRun, _, runErr := s.runs.Create(r.Context(), runs.NewRun{
+	history, chatRun, isFirstTurn, err := s.acceptChatQuestion(r.Context(), userMessage, runs.NewRun{
 		WorkspaceID:     conversationWorkspaceID,
 		ActorUserID:     user.ID,
 		TriggerType:     "manual",
@@ -1037,12 +1012,17 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		ResourceVersion: conversationVersionID,
 		Input:           runInput,
 		TraceID:         middleware.GetReqID(r.Context()),
-	})
-	if runErr == nil {
-		chatRun, runErr = s.runs.Transition(r.Context(), chatRun.ID, runs.Running, nil, "", "")
+	}, attachmentIDs)
+	if err != nil {
+		s.logger.Error("accept chat question", "conversation_id", conversationID, "error", err)
+		writeError(w, http.StatusServiceUnavailable, "Không thể tiếp nhận câu hỏi. Vui lòng thử lại.")
+		return
 	}
+	chatRun, runErr := s.runs.Transition(r.Context(), chatRun.ID, runs.Running, nil, "", "")
 	if runErr != nil {
-		s.logger.Warn("chat run telemetry unavailable", "conversation_id", conversationID, "error", runErr)
+		s.logger.Error("start chat run", "conversation_id", conversationID, "error", runErr)
+		writeError(w, http.StatusServiceUnavailable, "Chưa thể bắt đầu trả lời câu hỏi.")
+		return
 	}
 
 	history = withResponsePresentation(history)

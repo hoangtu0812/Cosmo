@@ -35,6 +35,24 @@ func jsonValue(value any) ([]byte, error) {
 }
 
 func (repository *Repository) Create(ctx context.Context, input NewRun) (Run, bool, error) {
+	tx, err := repository.db.Begin(ctx)
+	if err != nil {
+		return Run{}, false, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	run, created, err := repository.CreateTx(ctx, tx, input)
+	if err != nil {
+		return Run{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Run{}, false, err
+	}
+	return run, created, nil
+}
+
+// CreateTx participates in the caller's transaction, including the queued event
+// and optional job. It never commits independently of the owning resource.
+func (repository *Repository) CreateTx(ctx context.Context, tx pgx.Tx, input NewRun) (Run, bool, error) {
 	if strings.TrimSpace(input.WorkspaceID) == "" || strings.TrimSpace(input.ResourceType) == "" || strings.TrimSpace(input.ResourceID) == "" {
 		return Run{}, false, errors.New("workspace, resource type and resource id are required")
 	}
@@ -48,11 +66,6 @@ func (repository *Repository) Create(ctx context.Context, input NewRun) (Run, bo
 	if err != nil {
 		return Run{}, false, err
 	}
-	tx, err := repository.db.Begin(ctx)
-	if err != nil {
-		return Run{}, false, err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 	if input.IdempotencyKey != "" {
 		existing, findErr := getRun(ctx, tx, `SELECT `+runColumns+` FROM runs WHERE workspace_id = $1 AND idempotency_key = $2`, input.WorkspaceID, input.IdempotencyKey)
 		if findErr == nil {
@@ -63,20 +76,19 @@ func (repository *Repository) Create(ctx context.Context, input NewRun) (Run, bo
 		}
 	}
 	runID := newID("run_")
-	_, err = tx.Exec(ctx, `INSERT INTO runs(
+	tag, err := tx.Exec(ctx, `INSERT INTO runs(
 		id, workspace_id, project_id, actor_user_id, trigger_type, resource_type, resource_id,
 		resource_version, input, idempotency_key, trace_id
-	) VALUES($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, $10, $11)`,
+	) VALUES($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, $10, $11)
+	ON CONFLICT (workspace_id, idempotency_key) WHERE idempotency_key <> '' DO NOTHING`,
 		runID, input.WorkspaceID, input.ProjectID, input.ActorUserID, input.TriggerType,
 		input.ResourceType, input.ResourceID, input.ResourceVersion, payload, input.IdempotencyKey, input.TraceID)
 	if err != nil {
-		if input.IdempotencyKey != "" {
-			existing, findErr := repository.GetByIdempotency(ctx, input.WorkspaceID, input.IdempotencyKey)
-			if findErr == nil {
-				return existing, false, nil
-			}
-		}
 		return Run{}, false, err
+	}
+	if tag.RowsAffected() == 0 {
+		existing, err := getRun(ctx, tx, `SELECT `+runColumns+` FROM runs WHERE workspace_id = $1 AND idempotency_key = $2`, input.WorkspaceID, input.IdempotencyKey)
+		return existing, false, err
 	}
 	if _, err = appendEventTx(ctx, tx, runID, "", "run.queued", map[string]any{"trigger_type": input.TriggerType}); err != nil {
 		return Run{}, false, err
@@ -88,9 +100,6 @@ func (repository *Repository) Create(ctx context.Context, input NewRun) (Run, bo
 	}
 	created, err := getRun(ctx, tx, `SELECT `+runColumns+` FROM runs WHERE id = $1`, runID)
 	if err != nil {
-		return Run{}, false, err
-	}
-	if err = tx.Commit(ctx); err != nil {
 		return Run{}, false, err
 	}
 	return created, true, nil

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"cosmo/backend/internal/modelgateway"
+	"github.com/jackc/pgx/v5"
 )
 
 const chatHistoryMessages = 40
@@ -15,7 +16,13 @@ const chatHistoryMessages = 40
 // The inserted question is not visible to the SELECT in that snapshot, so it
 // is appended explicitly, always last and exactly once.
 func (s *Server) recordChatQuestion(ctx context.Context, question Message) ([]modelgateway.Message, error) {
-	rows, err := s.db.Query(ctx, `
+	return recordChatQuestion(ctx, s.db, question)
+}
+
+func recordChatQuestion(ctx context.Context, db interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, question Message) ([]modelgateway.Message, error) {
+	rows, err := db.Query(ctx, `
 		WITH inserted_question AS (
 			INSERT INTO messages(id, conversation_id, role, content, created_at)
 			VALUES ($1, $2, 'user', $3, $4)

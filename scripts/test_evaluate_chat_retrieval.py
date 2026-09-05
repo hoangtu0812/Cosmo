@@ -1,8 +1,22 @@
 import unittest
-from evaluate_chat_retrieval import score, summarize
+import io
+from unittest.mock import patch
+from evaluate_chat_retrieval import evaluate, score, summarize
 
 
 class RetrievalMetricsTest(unittest.TestCase):
+    def test_malformed_response_is_reported_without_aborting_cases(self):
+        with patch('urllib.request.OpenerDirector.open', side_effect=lambda *a, **kw: io.StringIO('{"retrieval_contract":"chat-go-v1","passages":null}')):
+            report = evaluate('http://localhost', 'workspace', [
+                {'id': 'first', 'query': 'q', 'relevant_document_ids': []},
+                {'id': 'second', 'query': 'q', 'relevant_document_ids': []},
+            ], 'dummy')
+        self.assertEqual([r['status'] for r in report], ['failed', 'failed'])
+
+    def test_no_evidence_is_a_valid_response(self):
+        result = score({'relevant_document_ids': []}, {'passages': []})
+        self.assertFalse(result['unexpected_evidence'])
+
     def test_duplicates_do_not_inflate_recall_and_order_matters(self):
         case = {'relevant_document_ids': ['a', 'b'], 'required_kb_ids': ['one', 'two']}
         response = {'passages': [{'document_id': d, 'kb_id': 'one'} for d in ['irrelevant', 'a', 'a']]}

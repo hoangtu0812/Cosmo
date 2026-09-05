@@ -56,7 +56,7 @@ def evaluate(base, workspace, cases, cookie):
             result.update({key: payload[key] for key in ('incomplete', 'duration_ms', 'sources', 'knowledge_mode')})
             result['document_ids'] = list(dict.fromkeys(p['document_id'] for p in payload['passages']))
             result['status'] = 'partial' if payload['incomplete'] else 'ok'
-        except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as error:
+        except (urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError) as error:
             # Never copy URLs, credentials, passages or query text into reports.
             result.update(status='failed', error_type=type(error).__name__)
         results.append(result)

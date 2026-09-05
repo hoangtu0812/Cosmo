@@ -63,3 +63,16 @@ func TestRetrievalAPIUsesChatFusionAndAccessBoundary(t *testing.T) {
 		t.Fatal("nonmember retrieval allowed")
 	}
 }
+
+func TestRetrievalAPIEmptyWorkspaceReturnsArrays(t *testing.T) {
+	s, agent, owner, _ := agentAccessFixture(t)
+	s.knowledge = knowledge.New("http://unused.invalid", time.Second)
+	router := chi.NewRouter()
+	router.Post("/workspaces/{workspaceID}/retrieve", s.testWorkspaceRetrieval)
+	request := httptest.NewRequest("POST", "/workspaces/"+agent.WorkspaceID+"/retrieve", strings.NewReader(`{"query":"No evidence"}`)).WithContext(context.WithValue(context.Background(), userContextKey, owner))
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"passages":[]`) || !strings.Contains(response.Body.String(), `"sources":[]`) {
+		t.Fatalf("empty retrieval contract: %d %s", response.Code, response.Body.String())
+	}
+}

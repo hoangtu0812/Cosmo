@@ -38,5 +38,11 @@ func (s *Server) testWorkspaceRetrieval(w http.ResponseWriter, r *http.Request) 
 		writeError(w, 403, "Quyền truy cập workspace đã thay đổi.")
 		return
 	}
+	if report.Passages == nil {
+		report.Passages = []knowledgePassage{}
+	}
+	if report.Sources == nil {
+		report.Sources = []knowledgeSourceStatus{}
+	}
 	writeJSON(w, 200, map[string]any{"passages": report.Passages, "sources": report.Sources, "incomplete": report.incomplete(), "duration_ms": time.Since(started).Milliseconds(), "retrieval_contract": "chat-go-v1", "knowledge_mode": "live"})
 }

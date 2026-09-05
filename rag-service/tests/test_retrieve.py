@@ -73,11 +73,26 @@ class TestDiversity:
 class TestDeduplication:
     def test_drops_repeated_text(self):
         candidates = [candidate("doc1", "The pump trips on high vibration."),
-                      candidate("doc2", "The  pump trips on high   vibration.")]
+                      candidate("doc1", "The  pump trips on high   vibration.")]
         assert len(retrieve._deduplicate(candidates)) == 1, "whitespace is not a difference"
 
     def test_keeps_distinct_text(self):
         candidates = [candidate("doc1", "Alpha"), candidate("doc2", "Beta")]
+        assert len(retrieve._deduplicate(candidates)) == 2
+
+    def test_keeps_conflicting_tails_after_a_common_prefix(self):
+        prefix = "Common reference text. " * 30
+        candidates = [candidate("doc1", prefix + "Approval is required."),
+                      candidate("doc1", prefix + "Approval is NOT required.")]
+        assert len(retrieve._deduplicate(candidates)) == 2
+
+    def test_keeps_distinct_citation_sources_and_case_sensitive_codes(self):
+        candidates = [candidate("doc1", "ABC", kb_id="one"), candidate("doc2", "ABC", kb_id="one"),
+                      candidate("doc1", "ABC", kb_id="two"), candidate("doc1", "abc", kb_id="one")]
+        assert len(retrieve._deduplicate(candidates)) == 4
+
+    def test_keeps_different_pages_of_the_same_document(self):
+        candidates = [candidate("doc1", "Text", page="1"), candidate("doc1", "Text", page="2")]
         assert len(retrieve._deduplicate(candidates)) == 2
 
 
@@ -101,6 +116,24 @@ class TestAuthority:
 
 
 class TestAccess:
+    def test_unauthorized_text_never_reaches_reranker(self, monkeypatch):
+        from app.models import Encoded, GatewaySettings
+        monkeypatch.setattr(retrieve.store, "require_profile", lambda *args: None)
+        monkeypatch.setattr(retrieve.ml, "encode", lambda *args: [Encoded([1.0, 0.0])])
+        def dense(kbs, *args, **kwargs):
+            if kbs == ["one"]:
+                return [point("bad", kb_id="secret", document_id="secret", text="PRIVATE"),
+                        point("wrong-branch", kb_id="two", document_id="wrong", text="WRONG BRANCH"),
+                        point("ok", kb_id="one", document_id="public", text="Allowed evidence")]
+            return []
+        monkeypatch.setattr(retrieve.store, "search_dense", dense)
+        def rerank(query, texts, gateway):
+            assert texts == ["Allowed evidence"]
+            return [1.0]
+        monkeypatch.setattr(retrieve.ml, "rerank", rerank)
+        results = retrieve.search("query", ["one", "two"], gateway=GatewaySettings("https://gateway.invalid", "", "embed", "rank"), retrieval_mode="semantic")
+        assert len(results) == 1 and results[0]["document_id"] == "public"
+
     def test_no_authorised_kb_returns_nothing(self):
         """An empty allow-list means nothing, never everything."""
         assert retrieve.search("anything", []) == []

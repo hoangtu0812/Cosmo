@@ -589,3 +589,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Đây là heuristic bảo thủ theo byte JSON, không phải tokenizer chính xác hoặc usage tính phí. Phần dự phòng output không đặt giới hạn sinh token của provider. Ngữ cảnh bắt buộc vượt trần trả lỗi rõ cho người dùng và dừng tool round, không fallback generation bỏ qua lỗi ngân sách.
 - Mỗi model_call step lưu budget: input_bytes, limit_bytes, dropped_messages, context_window, output_reserve; không lưu nội dung đã bỏ. Tests kiểm tra giữ tiếng Việt/Unicode, instruction/query/schema, chuỗi tool song song, chặn trước network và HTTP worker trim/failure/accounting. Toàn bộ backend suite/PostgreSQL qua.
 - Còn phân bổ chi tiết memory/file/retrieval/tool output, tokenizer theo model, tóm tắt history có phạm vi, giới hạn output provider và UI hiển thị nội dung ngữ cảnh đã rút gọn; CHAT-01 chưa đóng toàn bộ.
+
+### 2026-09-05 — KB-01c: Không bỏ nhầm bằng chứng và lọc quyền trước rerank
+
+- Dedup dùng SHA-256 của toàn bộ nội dung chuẩn hóa whitespace, giữ phân biệt hoa/thường và vị trí citation (KB/document/section/page). Hai đoạn cùng 400 ký tự đầu nhưng khác điều kiện/kết luận vẫn được giữ.
+- Chưa gộp các nguồn khác nhau thành một passage khi result contract chưa chứa nhiều provenance; tránh đánh mất nguồn trích dẫn do dedup xuyên tài liệu.
+- Lọc từng danh sách retrieval theo đúng KB của nhánh fan-out trước fusion/reranker. Kết quả ngoài allowlist hoặc từ nhánh KB khác không được gửi sang provider rerank; vẫn giữ final ACL check.
+- 111 tests RAG qua, gồm hai kết luận trái nhau sau prefix dài, citation khác trang/tài liệu/KB, mã khác hoa-thường và fixture không cho nội dung ngoài quyền tới reranker.

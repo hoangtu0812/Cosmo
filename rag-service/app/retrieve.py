@@ -15,6 +15,7 @@ Pipeline (§12):
 from __future__ import annotations
 
 import logging
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -117,15 +118,23 @@ def _diversify(candidates: list[Candidate], limit: int, per_document: int) -> li
 
 
 def _deduplicate(candidates: list[Candidate]) -> list[Candidate]:
-    """Drop chunks whose text has already been kept.
+    """Drop exact normalized duplicates from the same citation location.
 
-    Overlapping chunks and documents uploaded twice otherwise spend the
-    model's context on the same sentences.
+    Preserve distinct sources until the response supports multiple citations
+    for one text. A shared prefix, or a case-sensitive code, is not a duplicate.
     """
-    seen: set[str] = set()
+    seen: set[tuple] = set()
     unique: list[Candidate] = []
     for candidate in candidates:
-        fingerprint = " ".join(str(candidate.payload.get("text", "")).split())[:400].lower()
+        # Same prefix is not the same evidence: exceptions and contradictory
+        # requirements often appear at the end of a passage. Keep provenance
+        # distinct until the result contract can carry multiple citations.
+        text = " ".join(str(candidate.payload.get("text", "")).split())
+        fingerprint = (
+            candidate.payload.get("kb_id"), candidate.payload.get("document_id"),
+            candidate.payload.get("section"), candidate.payload.get("page"),
+            hashlib.sha256(text.encode("utf-8")).digest(),
+        )
         if fingerprint in seen:
             continue
         seen.add(fingerprint)
@@ -187,7 +196,17 @@ def search(
         for result in pool.map(retrieve, kb_ids):
             ranked_lists.extend(result)
 
-    candidates = list(_fuse(ranked_lists).values())
+    # Apply defence in depth before any source text leaves for reranking, not
+    # only at the final response boundary. Also reject a KB returned for a
+    # different fan-out branch, even if that KB is allowed elsewhere in the run.
+    filtered = []
+    for source, points in ranked_lists:
+        expected_kb = source.split(":", 1)[1]
+        authorized = [point for point in points if (point.payload or {}).get("kb_id") == expected_kb and expected_kb in allowed]
+        if len(authorized) != len(points):
+            logger.error("dropping results outside retrieval branch access boundary")
+        filtered.append((source, authorized))
+    candidates = list(_fuse(filtered).values())
     if not candidates:
         return []
 

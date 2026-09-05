@@ -544,3 +544,9 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 
 - Run có model_call step riêng cho planning, tool_decision, generation, title, suggestions; ghi model, duration, trạng thái và usage do provider trả. Không lưu prompt hoặc lỗi provider thô trong accounting; usage null khác 0.
 - Unit tests kiểm tra missing/zero/failed và HTTP integration xác minh decision accounting được lưu. Còn tổng hợp toàn lượt, memory/background job, embedding/reranking accounting và hiển thị dashboard; chưa coi toàn bộ OBS-01 hoàn tất.
+
+### 2026-09-05 — EVAL-01a: Harness qua retrieval của chat
+
+- API kiểm thử theo workspace dùng đúng retrieveKnowledge của chat, cùng quyền/mount, fan-out, fusion và trạng thái nguồn; không gọi RAG trực tiếp theo một pipeline khác.
+- CLI nhận JSONL gán nhãn, đo document-level recall/precision/MRR/nDCG, coverage KB, nguồn cấm, partial/failure và latency. Report giữ mẫu số lỗi, không lấy citation model làm đáp án chuẩn; không lưu session/câu hỏi/passage text.
+- Tests kiểm tra endpoint so với retrieval trực tiếp, KB ngoài mount, nonmember, trùng document và mẫu số lỗi. Chưa có bộ câu hỏi nghiệp vụ từ người dùng để chạy baseline/candidate; chưa hoàn tất đánh giá planner/citation/model hoặc snapshot corpus.

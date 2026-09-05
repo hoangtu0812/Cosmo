@@ -693,13 +693,13 @@ func (s *Server) logRetrieval(ctx context.Context, workspaceID, query string, kb
 }
 
 type knowledgePassage struct {
-	KBID       string
-	DocumentID string
-	Title      string
-	Source     string
-	Section    string
-	Page       string
-	Text       string
+	KBID       string `json:"kb_id"`
+	DocumentID string `json:"document_id"`
+	Title      string `json:"title"`
+	Source     string `json:"source"`
+	Section    string `json:"section"`
+	Page       string `json:"page"`
+	Text       string `json:"text"`
 }
 
 // label names a passage the way a citation would, so the model can point at a

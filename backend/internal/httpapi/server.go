@@ -303,6 +303,7 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/knowledge/{kbID}/shares", s.listKnowledgeShares)
 		protected.Get("/api/workspaces/directory", s.workspaceDirectory)
 		protected.Get("/api/workspaces/{workspaceID}/knowledge", s.listWorkspaceKnowledge)
+		protected.Post("/api/workspaces/{workspaceID}/knowledge/retrieve", s.testWorkspaceRetrieval)
 		protected.Put("/api/workspaces/{workspaceID}/knowledge/{kbID}", s.mountKnowledge)
 		protected.Delete("/api/workspaces/{workspaceID}/knowledge/{kbID}", s.unmountKnowledge)
 	})

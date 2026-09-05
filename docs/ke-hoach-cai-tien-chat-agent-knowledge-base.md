@@ -618,3 +618,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Hộp publish dùng RadioList, mặc định theo chế độ của release hiện hành; lịch sử phiên bản hiển thị Live/Snapshot. Có thể publish lại khi cấu hình draft không đổi để lấy snapshot KB mới hoặc đổi chế độ.
 - KB publish yêu cầu mọi tài liệu sẵn sàng; thông báo xóa tài liệu nói rõ tệp gốc/chỉ mục live bị xóa trong khi snapshot giữ đoạn trích. Bản agent hiện hành không tự chuyển chế độ sau triển khai.
 - Kiểm tra TypeScript và production build qua. Bộ backend/PostgreSQL đầy đủ qua, gồm worker chat thực chạy pin và lưu ID snapshot trong run/retrieval trace.
+
+### 2026-09-05 — Rollout KB-06a/b trên server test
+
+- Backend/RAG chạy d54546e, frontend chạy 0a0f0c2; migration 28 áp dụng và các dịch vụ healthy. Đã kiểm tra hàng đợi chat/ingestion không có việc đang chạy, dừng backend và backup PostgreSQL trước migration: .cache/deployments/20260905-kb-snapshots/database.dump, 399540 bytes, pg_restore đọc được 271 dòng TOC. Giữ image cũ với tag before-kb-snapshots-20260905.
+- Smoke có xác thực tạo hai KB tạm trên PostgreSQL/Qdrant thật: publish snapshot, publish agent ghim cả hai, thay nội dung live và publish KB lại; truy vấn snapshot vẫn trả nội dung cũ, live trả nội dung mới; agent release cũ giữ pin và release mới nhận pin mới. Đã dọn user/workspace/agent/KB và các collection tạm. Không tự publish hay đổi chế độ các agent/KB hiện có.
+- Smoke chat qua subscriber disconnect, FIFO queue, idempotent replay, Last-Event-ID, transcript; MCP discovery/rediscovery giữ ID và invocation qua. Gateway thật vẫn truy vấn được đủ ba tài liệu đang phục vụ, đúng KB và không partial. Đây là kiểm tra kết nối/provenance, chưa phải benchmark câu hỏi nghiệp vụ gán nhãn.
+- Có 3 run cũ từ 03/09 còn trạng thái running nhưng không gắn chat_turn; đợt này chỉ đối chiếu, không sửa lịch sử của chúng. Không có chat_turn queued/running lúc rollout. Các giới hạn KB-06a và phần còn lại của kế hoạch vẫn giữ trạng thái mở.

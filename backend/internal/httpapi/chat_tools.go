@@ -102,7 +102,7 @@ func (s *Server) runToolRounds(
 ) ([]modelgateway.Message, []ToolCall, string) {
 	reported := []ToolCall{}
 	for round := 0; round < maxToolRounds; round++ {
-		narration, calls, err := models.Decide(ctx, history, set.definitions, options)
+		narration, calls, err := models.Decide(modelgateway.WithPhase(ctx, "tool_decision"), history, set.definitions, options)
 		if err != nil {
 			// A failed round is not a failed answer: the model can still reply
 			// from what it already has, so this is reported and stepped over.

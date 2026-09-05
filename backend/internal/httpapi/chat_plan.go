@@ -40,7 +40,7 @@ func (s *Server) planTurn(ctx context.Context, models *modelgateway.Client, opti
 	}
 	recent := planningHistory(history, question)
 	payload, _ := json.Marshal(map[string]any{"question": question, "recent_history": recent, "knowledge_bases": topics, "attached_files": attached})
-	answer, err := models.Complete(ctx, []modelgateway.Message{{Role: "system", Content: planInstruction}, {Role: "user", Content: string(payload)}}, planOptions(options))
+	answer, err := models.Complete(modelgateway.WithPhase(ctx, "planning"), []modelgateway.Message{{Role: "system", Content: planInstruction}, {Role: "user", Content: string(payload)}}, planOptions(options))
 	if err != nil {
 		// Never expose gateway errors in the status SSE or silently drop evidence.
 		return fallbackTurnPlan(question, "không lập được kế hoạch; tra cứu bằng câu hỏi gốc")

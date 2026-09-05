@@ -134,7 +134,17 @@ func (c *Client) Stream(ctx context.Context, history []Message, options Options,
 }
 
 // StreamWithUsage is the same call, and hands back what the gateway counted.
-func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options Options, onDelta func(string) error) (Usage, error) {
+func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options Options, onDelta func(string) error) (usage Usage, err error) {
+	started := time.Now()
+	knownUsage := false
+	defer func() {
+		var counted *Usage
+		if knownUsage {
+			snapshot := usage
+			counted = &snapshot
+		}
+		c.observe(ctx, options, started, counted, err)
+	}()
 	if !c.HasGateway() || c.ResolveModel(options) == "" {
 		return Usage{}, ErrNotConfigured
 	}
@@ -179,8 +189,6 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return Usage{}, fmt.Errorf("model gateway returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-
-	var usage Usage
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -228,6 +236,7 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 			}
 		}
 		if chunk.Usage != nil {
+			knownUsage = true
 			usage.PromptTokens = chunk.Usage.PromptTokens
 			usage.CompletionTokens = chunk.Usage.CompletionTokens
 			usage.TotalTokens = chunk.Usage.TotalTokens

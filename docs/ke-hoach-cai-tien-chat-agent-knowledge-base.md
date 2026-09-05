@@ -539,3 +539,8 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 
 - Khi model kết thúc tool decision bằng nội dung trả lời và không yêu cầu tool, dùng nội dung đó cho answer; không gọi generation để viết lại. Trường hợp không có nội dung vẫn giữ fallback generation.
 - HTTP integration qua worker/model fixture xác minh answer lưu đúng từ decision, chỉ một decision và không thêm generation chính. Còn usage toàn lượt và đưa các tác vụ phụ sang job riêng.
+
+### 2026-09-05 — OBS-01b: Accounting từng model call
+
+- Run có model_call step riêng cho planning, tool_decision, generation, title, suggestions; ghi model, duration, trạng thái và usage do provider trả. Không lưu prompt hoặc lỗi provider thô trong accounting; usage null khác 0.
+- Unit tests kiểm tra missing/zero/failed và HTTP integration xác minh decision accounting được lưu. Còn tổng hợp toàn lượt, memory/background job, embedding/reranking accounting và hiển thị dashboard; chưa coi toàn bộ OBS-01 hoàn tất.

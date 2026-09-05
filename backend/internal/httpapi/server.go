@@ -1085,6 +1085,8 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r = r.WithContext(modelgateway.WithObserver(r.Context(), s.observeChatModel(chatRun.ID)))
+	toolCtx = tools.WithCaller(r.Context(), caller)
 	history = withResponsePresentation(history)
 
 	// What the agent remembers about this person joins the conversation before
@@ -1303,7 +1305,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		err = onDelta(decidedAnswer)
 	} else {
-		usage, err = models.StreamWithUsage(r.Context(), history, options, onDelta)
+		usage, err = models.StreamWithUsage(modelgateway.WithPhase(r.Context(), "generation"), history, options, onDelta)
 	}
 	if err != nil {
 		s.logger.Error("model stream failed", "conversation_id", conversationID, "error", err)
@@ -1389,7 +1391,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// reason and with the same tolerance for failure as the suggestions below:
 	// it happens after the answer is saved, so losing it costs nothing.
 	if isFirstTurn && evidenceAnswer == "" {
-		if title := s.agents.SuggestTitle(r.Context(), input.Content, assistantMessage.Content, models, options); title != "" {
+		if title := s.agents.SuggestTitle(modelgateway.WithPhase(r.Context(), "title"), input.Content, assistantMessage.Content, models, options); title != "" {
 			if _, titleErr := s.db.Exec(r.Context(), `UPDATE conversations SET title = $2 WHERE id = $1`, conversationID, title); titleErr == nil {
 				writeSSE(w, "title", map[string]string{"title": title})
 				flusher.Flush()
@@ -1404,7 +1406,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// "tôi có thể vẽ tiếp: biểu đồ theo ban, biểu đồ theo tư vấn viên" - and a
 	// reader has to retype the one they want.
 	if evidenceAnswer == "" && (agentSuggests || conversationAgentID == "") {
-		if followUps := s.agents.SuggestFollowUps(r.Context(), input.Content, assistantMessage.Content, models, options); len(followUps) > 0 {
+		if followUps := s.agents.SuggestFollowUps(modelgateway.WithPhase(r.Context(), "suggestions"), input.Content, assistantMessage.Content, models, options); len(followUps) > 0 {
 			writeSSE(w, "suggestions", map[string]any{"questions": followUps})
 			flusher.Flush()
 		}

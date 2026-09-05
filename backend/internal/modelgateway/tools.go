@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Tool calling is a separate, non-streaming request rather than a variation of
@@ -32,7 +33,10 @@ type ToolCall struct {
 // Decide runs one request offering the given tools. It returns whatever the
 // model said and whatever it wants called; a reply with calls in it is the
 // model asking to be given more before it answers.
-func (c *Client) Decide(ctx context.Context, history []Message, definitions []ToolDefinition, options Options) (string, []ToolCall, error) {
+func (c *Client) Decide(ctx context.Context, history []Message, definitions []ToolDefinition, options Options) (text string, calls []ToolCall, err error) {
+	started := time.Now()
+	var counted *Usage
+	defer func() { c.observe(ctx, options, started, counted, err) }()
 	if !c.HasGateway() || c.ResolveModel(options) == "" {
 		return "", nil, ErrNotConfigured
 	}
@@ -88,6 +92,7 @@ func (c *Client) Decide(ctx context.Context, history []Message, definitions []To
 	}
 
 	var decoded struct {
+		Usage   *Usage `json:"usage"`
 		Choices []struct {
 			Message struct {
 				Content   string `json:"content"`
@@ -104,11 +109,12 @@ func (c *Client) Decide(ctx context.Context, history []Message, definitions []To
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
 		return "", nil, fmt.Errorf("decode model reply: %w", err)
 	}
+	counted = decoded.Usage
 	if len(decoded.Choices) == 0 {
 		return "", nil, nil
 	}
 
-	calls := make([]ToolCall, 0, len(decoded.Choices[0].Message.ToolCalls))
+	calls = make([]ToolCall, 0, len(decoded.Choices[0].Message.ToolCalls))
 	for _, raw := range decoded.Choices[0].Message.ToolCalls {
 		calls = append(calls, ToolCall{ID: raw.ID, Name: raw.Function.Name, Arguments: raw.Function.Arguments})
 	}

@@ -661,3 +661,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - ID của lần thử bị bỏ được đưa vào cleanup outbox, chờ ít nhất một giờ trước dọn; xóa KB cũng đưa attempt dang dở vào outbox. RAG kiểm tra deadline trước mỗi lô ghi, mỗi bản sao tệp và trước trả kết quả; bản hết hạn được dọn, không báo thành công.
 - Backend/PostgreSQL đầy đủ, 120 RAG tests qua; integration mô phỏng lease hết hạn, worker cũ trả kết quả muộn, audit đúng một lần, manifest đổi/quyền bị thu hồi, hết lượt thử, subscriber HTTP ngắt trước khi worker chạy nhưng job vẫn hoàn thành.
 - Phục hồi hiện dựng lại toàn bộ attempt từ manifest đã lưu, chưa checkpoint theo trang Qdrant hoặc từng tệp. Job admission mới được theo dõi đầy đủ; tài nguyên mồ côi có trước migration 33 vẫn cần đối soát riêng. Idempotency hiện áp dụng cho job đang hoạt động; bấm publish sau khi job đã hoàn thành là yêu cầu phiên bản mới.
+
+### 2026-09-05 — Rollout và thử crash snapshot worker
+
+- Deploy backend/RAG 016681b, frontend 66d55c6; migration 33 đã áp dụng. Trước migration dừng backend khi chat/ingestion không hoạt động, backup .cache/deployments/20260905-snapshot-jobs/database.dump: 407653 bytes, pg_restore đọc được 286 dòng TOC. Giữ image before-snapshot-jobs-20260905.
+- Smoke tạo hai KB và tệp tạm trên PostgreSQL/Qdrant/MinIO thật. Pause RAG để giữ copy đang chạy, gửi publish có xác thực, SIGKILL backend sau khi job đã nhận lease, unpause RAG rồi khởi động backend. Rút ngắn duy nhất lease của job thử thay vì chờ 6 phút. Job phục hồi ở attempt 2, ID snapshot mới, đúng một version/audit; attempt cũ vào cleanup outbox.
+- Kiểm tra lại nhiều KB Live/Snapshot, pin release cũ/mới, tệp gốc sau khi xóa Live, retention chỉ dọn bản không tham chiếu đều qua. Client theo dõi endpoint trạng thái khi HTTP wait hết hạn; TypeScript/build frontend qua.
+- Regression chat FIFO/reconnect/replay/transcript, MCP discovery/rediscovery/invocation và gateway thật truy vấn ba tài liệu hiện có đều qua. Frontend HTTP 200. Đã dọn dữ liệu thử; riêng hạn cleanup của attempt bị kill được đẩy sớm để dọn xong trong buổi thử, cấu hình thực vẫn giữ thời gian chờ một giờ.

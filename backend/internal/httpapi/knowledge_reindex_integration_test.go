@@ -60,7 +60,7 @@ func TestReindexRetainsIndexAndAtomicallyAdmitsDocuments(t *testing.T) {
 		return w
 	}
 	// Fail on the second document after updating the first: everything rolls back.
-	constraint := "test_reindex_" + randomID(8)
+	constraint := fmt.Sprintf("test_reindex_%x", []byte(randomID(8)))
 	if _, err := s.db.Exec(ctx, fmt.Sprintf(`ALTER TABLE knowledge_document_events ADD CONSTRAINT %s CHECK(document_id <> '%s' OR stage <> 'reindex') NOT VALID`, constraint, docs[1])); err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -24,6 +25,38 @@ const (
 )
 
 var ErrMCPDiscoveryIncomplete = errors.New("Danh sách MCP chưa đầy đủ hoặc có contract không hợp lệ; giữ nguyên các action hiện tại.")
+
+const maxMCPResponseBytes int64 = 8 << 20
+
+var ErrMCPResponseTooLarge = errors.New("Phản hồi MCP vượt giới hạn 8 MiB.")
+
+// Bound the decoded HTTP body before the SDK parses JSON or SSE. Truncation
+// must be an error, never a successful EOF that could accept a partial catalog.
+type mcpResponseBody struct {
+	io.ReadCloser
+	remaining int64
+}
+
+func (body *mcpResponseBody) Read(buffer []byte) (int, error) {
+	if len(buffer) == 0 {
+		return 0, nil
+	}
+	if body.remaining == 0 {
+		var probe [1]byte
+		n, err := body.ReadCloser.Read(probe[:])
+		if n > 0 {
+			_ = body.Close()
+			return 0, ErrMCPResponseTooLarge
+		}
+		return 0, err
+	}
+	if int64(len(buffer)) > body.remaining {
+		buffer = buffer[:body.remaining]
+	}
+	n, err := body.ReadCloser.Read(buffer)
+	body.remaining -= int64(n)
+	return n, err
+}
 
 // mcpAuthorisingTransport attaches the credential configured for this Cosmo
 // tool to every HTTP request made by the MCP SDK. This preserves Cosmo's
@@ -55,6 +88,11 @@ func (transport *mcpAuthorisingTransport) RoundTrip(request *http.Request) (*htt
 		response.Body.Close()
 		return nil, challenge
 	}
+	if response.ContentLength > maxMCPResponseBytes {
+		response.Body.Close()
+		return nil, ErrMCPResponseTooLarge
+	}
+	response.Body = &mcpResponseBody{ReadCloser: response.Body, remaining: maxMCPResponseBytes}
 	return response, nil
 }
 

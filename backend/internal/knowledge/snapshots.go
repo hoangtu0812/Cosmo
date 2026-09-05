@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 type SnapshotResult struct {
@@ -23,7 +24,11 @@ type SnapshotOriginal struct {
 
 func (c *Client) CreateSnapshot(ctx context.Context, id, kbID string, documents map[string]int, originals map[string]SnapshotOriginal, settings ModelSettings) (SnapshotResult, error) {
 	var result SnapshotResult
-	err := c.call(ctx, http.MethodPost, "/snapshots", map[string]any{"snapshot_id": id, "kb_id": kbID, "embedding_model": settings.EmbeddingModel, "documents": documents, "originals": originals}, &result, &settings)
+	deadline := time.Now().Add(5 * time.Minute)
+	if caller, ok := ctx.Deadline(); ok && caller.Before(deadline) {
+		deadline = caller
+	}
+	err := c.call(ctx, http.MethodPost, "/snapshots", map[string]any{"snapshot_id": id, "kb_id": kbID, "embedding_model": settings.EmbeddingModel, "documents": documents, "originals": originals, "deadline_epoch": deadline.Unix()}, &result, &settings)
 	return result, err
 }
 

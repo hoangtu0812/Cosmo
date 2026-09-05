@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -666,14 +667,23 @@ func (s *Server) publishKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5*time.Minute + 10*time.Second))
-	snapshotID, version, err := s.publishKnowledgeSnapshot(ctx, kbID)
+	jobID, err := s.enqueueSnapshot(ctx, kbID, user.ID)
 	if err != nil {
+		writeSnapshotError(w, err)
+		return
+	}
+	w.Header().Set("X-Cosmo-Snapshot-Job", jobID)
+	job, err := s.waitSnapshotJob(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			writeJSON(w, http.StatusAccepted, map[string]any{"snapshot_job": job})
+			return
+		}
 		s.logger.Error("knowledge snapshot publication failed", "kb_id", kbID, "error", err)
 		writeSnapshotError(w, err)
 		return
 	}
-	workspaceID, name := s.knowledgeOwner(r.Context(), kbID)
-	s.audit(r, auditEvent{Action: "knowledge.base.published", TargetType: "knowledge_base", TargetID: kbID, TargetLabel: name, WorkspaceID: workspaceID, Metadata: map[string]any{"version": version, "snapshot_id": snapshotID}})
+	// Success and audit commit in the worker even if this subscriber disconnects.
 	s.writeKnowledgeBase(w, r, kbID, http.StatusOK)
 }
 

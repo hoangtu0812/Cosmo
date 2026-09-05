@@ -48,6 +48,8 @@ func main() {
 	var chatWorkers sync.WaitGroup
 	chatWorkers.Add(1)
 	go func() { defer chatWorkers.Done(); api.RunKnowledgeSnapshotCleanup(workerCtx) }()
+	chatWorkers.Add(1)
+	go func() { defer chatWorkers.Done(); api.RunKnowledgeSnapshotWorker(workerCtx) }()
 	for i := 0; i < cfg.ChatWorkers; i++ {
 		chatWorkers.Add(1)
 		go func() {

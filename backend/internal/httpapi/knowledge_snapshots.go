@@ -58,6 +58,10 @@ func snapshotManifest(ctx context.Context, db snapshotReader, kbID string) (stri
 }
 
 func (s *Server) publishKnowledgeSnapshot(ctx context.Context, kbID string) (id string, version int, err error) {
+	return s.buildKnowledgeSnapshot(ctx, kbID, nil)
+}
+
+func (s *Server) buildKnowledgeSnapshot(ctx context.Context, kbID string, job *snapshotJob) (id string, version int, err error) {
 	if s.knowledge == nil {
 		return "", 0, fmt.Errorf("knowledge service is not configured")
 	}
@@ -65,17 +69,23 @@ func (s *Server) publishKnowledgeSnapshot(ctx context.Context, kbID string) (id 
 	if err != nil {
 		return "", 0, err
 	}
+	if job != nil && job.Manifest != before {
+		return "", 0, errSnapshotChanged
+	}
 	settings, err := s.knowledgeModelSettingsForKB(ctx, kbID)
 	if err != nil {
 		return "", 0, err
 	}
 	hash := sha256.Sum256([]byte(randomID(32)))
 	id = "kbs_" + hex.EncodeToString(hash[:16])
+	if job != nil {
+		id = job.AttemptID
+	}
 	// Cleanup is best effort after any failed/uncertain copy. Only this fresh ID
 	// is eligible; never delete a previously published snapshot on a retry.
 	committed := false
 	defer func() {
-		if !committed {
+		if !committed && job == nil {
 			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			// Resolve an uncertain commit before cleanup. If DB is unavailable,
@@ -133,6 +143,18 @@ func (s *Server) publishKnowledgeSnapshot(ctx context.Context, kbID string) (id 
 	if err = tx.QueryRow(ctx, `SELECT version FROM knowledge_bases WHERE id=$1 FOR UPDATE`, kbID).Scan(&version); err != nil {
 		return id, 0, err
 	}
+	if job != nil {
+		var owned bool
+		if err := tx.QueryRow(ctx, `SELECT status='running' AND lease_owner=$2 AND attempt_id=$3 AND lease_expires_at>NOW() FROM knowledge_snapshot_jobs WHERE id=$1 FOR UPDATE`, job.ID, job.Owner, job.AttemptID).Scan(&owned); err != nil || !owned {
+			return id, 0, errSnapshotLeaseLost
+		}
+		var allowed bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM knowledge_bases kb JOIN users u ON u.id=$2 WHERE kb.id=$1 AND (u.role='admin' OR EXISTS(SELECT 1 FROM workspace_memberships m WHERE m.workspace_id=kb.owner_workspace_id AND m.user_id=u.id AND m.role IN ('owner','admin'))))`, kbID, job.RequestedBy).Scan(&allowed); err != nil {
+			return id, 0, err
+		} else if !allowed {
+			return id, 0, errSnapshotPermission
+		}
+	}
 	after, _, err := snapshotManifest(ctx, tx, kbID)
 	if err != nil || after != before {
 		return id, 0, errSnapshotChanged
@@ -148,6 +170,16 @@ func (s *Server) publishKnowledgeSnapshot(ctx context.Context, kbID string) (id 
 	}
 	if _, err = tx.Exec(ctx, `UPDATE knowledge_bases SET version=$2,published_at=NOW(),updated_at=NOW() WHERE id=$1`, kbID, version); err != nil {
 		return id, 0, err
+	}
+	if job != nil {
+		if _, err = tx.Exec(ctx, `UPDATE knowledge_snapshot_jobs SET status='succeeded',snapshot_id=$2,version=$3,finished_at=NOW(),lease_expires_at=NULL WHERE id=$1`, job.ID, id, version); err != nil {
+			return id, 0, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_user_id,actor_email,actor_name,action,target_type,target_id,target_label,workspace_id,workspace_name,outcome,metadata)
+		SELECT u.id,u.email,u.name,'knowledge.base.published','knowledge_base',kb.id,kb.name,kb.owner_workspace_id,w.name,'success',jsonb_build_object('version',$3::integer,'snapshot_id',$4::text,'job_id',$5::text)
+		FROM knowledge_bases kb JOIN workspaces w ON w.id=kb.owner_workspace_id JOIN users u ON u.id=$2 WHERE kb.id=$1`, kbID, job.RequestedBy, version, id, job.ID); err != nil {
+			return id, 0, err
+		}
 	}
 	err = tx.Commit(ctx)
 	committed = err == nil

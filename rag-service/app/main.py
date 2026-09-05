@@ -190,6 +190,7 @@ class SnapshotRequest(BaseModel):
     embedding_model: str
     documents: dict[str, int]
     originals: dict[str, dict] | None = None
+    deadline_epoch: float | None = None
 
 
 @app.post("/snapshots")
@@ -197,7 +198,7 @@ def create_snapshot(request: SnapshotRequest,
                     gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
                     embedding_scope: str | None = Header(default=None, alias="X-Cosmo-Embedding-Scope")) -> dict:
     gateway = ml.gateway_settings(request.embedding_model, None, gateway_base_url, None, embedding_scope)
-    return snapshots.create(request.snapshot_id, request.kb_id, gateway, request.documents, request.originals)
+    return snapshots.create(request.snapshot_id, request.kb_id, gateway, request.documents, request.originals, request.deadline_epoch)
 
 
 @app.delete("/snapshots/{snapshot_id}")

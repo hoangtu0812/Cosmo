@@ -652,3 +652,12 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Smoke trên PostgreSQL/Qdrant/MinIO thật tạo hai KB, mỗi KB bốn snapshot. Worker loại phiên bản 3 quá 30 ngày không có tham chiếu và dọn đúng cả vector/tệp, giữ bản 1/2 có mount hoặc agent tham chiếu và bản 4 hiện hành. Xóa KB ghi hàng đợi dọn storage; retry khi khởi động xử lý nốt outbox.
 - Endpoint retrieval có xác thực trộn một KB Snapshot với một KB Live trả đúng nội dung của từng chế độ. Sau khi xóa cả hai tài liệu Live, route tải snapshot vẫn trả đúng bytes tệp gốc trước cập nhật. Các user/workspace/agent/KB/collection/tệp tạm được dọn.
 - Regression smoke queue, subscriber disconnect, replay, transcript, MCP discovery/rediscovery/invocation qua. Gateway thật truy vấn đủ ba tài liệu sẵn có, đúng KB và không partial. Frontend HTTP 200; không tự publish/cài snapshot cho dữ liệu hiện có.
+
+### 2026-09-05 — KB-06f: Tạo snapshot qua durable worker
+
+- Migration 33 lưu yêu cầu publish và manifest trước khi worker gọi RAG. Một KB chỉ có một job queued/running; thao tác lặp khi đang xử lý nối vào cùng job. Mất kết nối HTTP không hủy công việc; endpoint trạng thái chỉ trả cho người còn quyền quản trị KB.
+- Worker nhận lease 6 phút, mỗi lần thử tối đa 5 phút, tối đa 3 lần. Lease hết được nhận lại sau restart; mỗi lần thử có snapshot ID mới. Worker cũ bị chặn ở transaction publish bằng owner/attempt/lease. Snapshot metadata, con trỏ KB, trạng thái job thành công và audit commit nguyên tử.
+- Manifest hoặc cấu hình thay đổi sau admission trả lỗi cần publish lại, không tự xuất bản nội dung mới hơn yêu cầu ban đầu. Kiểm tra quyền người yêu cầu trước copy và trước commit; không lưu API key trong job. Lỗi tạm retry sau 10 giây; hết lượt thử giữ release trước.
+- ID của lần thử bị bỏ được đưa vào cleanup outbox, chờ ít nhất một giờ trước dọn; xóa KB cũng đưa attempt dang dở vào outbox. RAG kiểm tra deadline trước mỗi lô ghi, mỗi bản sao tệp và trước trả kết quả; bản hết hạn được dọn, không báo thành công.
+- Backend/PostgreSQL đầy đủ, 120 RAG tests qua; integration mô phỏng lease hết hạn, worker cũ trả kết quả muộn, audit đúng một lần, manifest đổi/quyền bị thu hồi, hết lượt thử, subscriber HTTP ngắt trước khi worker chạy nhưng job vẫn hoàn thành.
+- Phục hồi hiện dựng lại toàn bộ attempt từ manifest đã lưu, chưa checkpoint theo trang Qdrant hoặc từng tệp. Job admission mới được theo dõi đầy đủ; tài nguyên mồ côi có trước migration 33 vẫn cần đối soát riêng. Idempotency hiện áp dụng cho job đang hoạt động; bấm publish sau khi job đã hoàn thành là yêu cầu phiên bản mới.

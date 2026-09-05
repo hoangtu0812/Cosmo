@@ -97,3 +97,20 @@ def test_missing_original_prevents_publication_and_cleans(index, monkeypatch):
         snapshots.create(SNAPSHOT, "kb", GATEWAY, {"doc": 1}, {"doc": {"storage_key": "missing"}})
     assert cleaned == [f"knowledge-snapshots/{SNAPSHOT}/"]
     assert not index.collection_exists(snapshots.collection_name(SNAPSHOT))
+
+
+def test_expired_worker_cannot_continue_writing(index, monkeypatch):
+    with pytest.raises(TimeoutError):
+        snapshots.create(SNAPSHOT, "kb", GATEWAY, {"doc": 1}, deadline_epoch=0)
+    assert not index.collection_exists(snapshots.collection_name(SNAPSHOT))
+    clock = [100.]
+    monkeypatch.setattr(snapshots.time, "time", lambda: clock[0])
+    original_upsert = index.upsert
+    def finish_after_deadline(**kwargs):
+        result = original_upsert(**kwargs)
+        clock[0] = 102.
+        return result
+    monkeypatch.setattr(index, "upsert", finish_after_deadline)
+    with pytest.raises(TimeoutError):
+        snapshots.create(SNAPSHOT, "kb", GATEWAY, {"doc": 1}, deadline_epoch=101.)
+    assert not index.collection_exists(snapshots.collection_name(SNAPSHOT))

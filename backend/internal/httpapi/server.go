@@ -301,6 +301,7 @@ func (s *Server) Router() http.Handler {
 		protected.Get("/api/knowledge/{kbID}/documents/{documentID}/events", s.listKnowledgeDocumentEvents)
 		protected.Get("/api/knowledge/{kbID}/documents/{documentID}/stream", s.streamKnowledgeDocumentEvents)
 		protected.Post("/api/knowledge/{kbID}/publish", s.publishKnowledgeBase)
+		protected.Get("/api/knowledge/{kbID}/snapshot-jobs/{jobID}", s.getSnapshotJob)
 		protected.Get("/api/knowledge/{kbID}/shares", s.listKnowledgeShares)
 		protected.Get("/api/workspaces/directory", s.workspaceDirectory)
 		protected.Get("/api/workspaces/{workspaceID}/knowledge", s.listWorkspaceKnowledge)

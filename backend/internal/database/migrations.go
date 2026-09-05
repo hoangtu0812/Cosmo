@@ -72,6 +72,13 @@ var migrations = []Migration{
 		`CREATE INDEX run_snapshot_references ON runs USING GIN ((input->'knowledge_snapshots') jsonb_path_ops)`,
 		`CREATE INDEX message_snapshot_references ON messages USING GIN (citations jsonb_path_ops)`,
 	}},
+	{Version: 33, Name: "durable_snapshot_builds", Statements: []string{
+		`CREATE TABLE knowledge_snapshot_jobs(id TEXT PRIMARY KEY,kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE, requested_by TEXT REFERENCES users(id) ON DELETE SET NULL,manifest TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','running','succeeded','failed')),attempts INTEGER NOT NULL DEFAULT 0,attempt_id TEXT NOT NULL DEFAULT '',lease_owner TEXT NOT NULL DEFAULT '',lease_expires_at TIMESTAMPTZ,next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),snapshot_id TEXT NOT NULL DEFAULT '',version INTEGER NOT NULL DEFAULT 0,error_code TEXT NOT NULL DEFAULT '',created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),finished_at TIMESTAMPTZ)`,
+		`CREATE UNIQUE INDEX active_snapshot_job ON knowledge_snapshot_jobs(kb_id) WHERE status IN ('queued','running')`,
+		`CREATE INDEX snapshot_job_queue ON knowledge_snapshot_jobs(next_attempt_at,created_at) WHERE status IN ('queued','running')`,
+		`CREATE FUNCTION cleanup_snapshot_job_attempt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.attempt_id<>'' AND OLD.status<>'succeeded' THEN INSERT INTO knowledge_snapshot_cleanup(snapshot_id,next_attempt_at) VALUES(OLD.attempt_id,NOW()+INTERVAL '1 hour') ON CONFLICT DO NOTHING; END IF; RETURN OLD; END $$`,
+		`CREATE TRIGGER cleanup_snapshot_job_attempt BEFORE DELETE ON knowledge_snapshot_jobs FOR EACH ROW EXECUTE FUNCTION cleanup_snapshot_job_attempt()`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

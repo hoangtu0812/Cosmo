@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+import time
 from urllib.parse import quote
 
 from . import store, objects
@@ -14,7 +15,12 @@ def collection_name(snapshot_id: str) -> str:
     return store.settings.collection + "__s1_" + snapshot_id[4:]
 
 
-def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: dict[str, int], originals: dict | None = None) -> dict:
+def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: dict[str, int], originals: dict | None = None, deadline_epoch: float | None = None) -> dict:
+    deadline = min(deadline_epoch if deadline_epoch is not None else time.time() + 300, time.time() + 300)
+    def check_deadline():
+        if time.time() >= deadline:
+            raise TimeoutError("snapshot copy deadline exceeded")
+    check_deadline()
     if not documents or len(documents) > 10000 or any(n <= 0 for n in documents.values()):
         raise ValueError("snapshot requires a bounded manifest of indexed documents")
     source = store.profile_collection(gateway)
@@ -31,6 +37,7 @@ def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: di
             if set(originals) != set(documents):
                 raise ValueError("snapshot originals do not match document manifest")
             for doc, original in originals.items():
+                check_deadline()
                 target_key = f"knowledge-snapshots/{snapshot_id}/{quote(doc, safe='')}"
                 stored = objects.copy_original(original["storage_key"], target_key)
                 if stored["size_bytes"] != original["size_bytes"]:
@@ -40,6 +47,7 @@ def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: di
         digest = hashlib.sha256()
         offset = None
         while True:
+            check_deadline()
             points, offset = qdrant.scroll(collection_name=source, scroll_filter=store._authorized_filter([kb_id]),
                                            offset=offset, limit=128, with_payload=True, with_vectors=True)
             copied = []
@@ -57,13 +65,16 @@ def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: di
                 digest.update(json.dumps([str(point.id), payload], sort_keys=True, ensure_ascii=False).encode())
                 copied.append(store.models.PointStruct(id=point.id, payload=payload, vector=point.vector))
             if copied:
+                check_deadline()
                 qdrant.upsert(collection_name=target, points=copied, wait=True)
             if offset is None:
                 break
         if counts != documents:
             raise ValueError("snapshot corpus is incomplete")
         for field in ("kb_id", "document_id", "status"):
+            check_deadline()
             qdrant.create_payload_index(collection_name=target, field_name=field, field_schema=store.models.PayloadSchemaType.KEYWORD)
+        check_deadline()
         return {"snapshot_id": snapshot_id, "chunks": sum(counts.values()), "digest": digest.hexdigest(), "originals": copied_originals}
     except Exception:
         qdrant.delete_collection(collection_name=target)

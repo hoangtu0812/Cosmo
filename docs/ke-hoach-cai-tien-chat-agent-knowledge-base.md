@@ -645,3 +645,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Migration 31/32 thêm outbox xóa storage và indexes. Trigger ghi outbox cùng transaction xóa snapshot, kể cả cascade khi xóa KB/workspace. Worker xóa Qdrant và MinIO sau commit; lỗi storage giữ hàng đợi và retry sau một giờ. Advisory lock tránh nhiều worker dọn trùng, KB row lock phối hợp với publish/mount, không giữ transaction khi gọi storage.
 - PostgreSQL integration kiểm tra giữ current/recent/mount/agent/run/citation, chỉ loại snapshot đủ điều kiện, lỗi upstream giữ retry rồi thành công, xóa KB vẫn ghi đủ cleanup. Toàn bộ backend suite qua.
 - Giới hạn còn lại: build snapshot vẫn đồng bộ; crash trước khi có snapshot metadata có thể để lại tài nguyên mồ côi chưa được collector này tự nhận diện. Retention không xóa các bản còn tham chiếu và không phải chính sách xóa lịch sử chat/run.
+
+### 2026-09-05 — Rollout workspace pin, tệp gốc và retention
+
+- Deploy backend từ 66ba5fe, frontend/RAG có thay đổi 7ade06a; migration tới 32. Trước migration đã dừng backend khi không có chat_turn/ingestion đang chạy; backup .cache/deployments/20260905-kb-retention/database.dump: 402690 bytes, pg_restore đọc được 276 dòng TOC. Giữ image before-kb-retention-20260905.
+- Smoke trên PostgreSQL/Qdrant/MinIO thật tạo hai KB, mỗi KB bốn snapshot. Worker loại phiên bản 3 quá 30 ngày không có tham chiếu và dọn đúng cả vector/tệp, giữ bản 1/2 có mount hoặc agent tham chiếu và bản 4 hiện hành. Xóa KB ghi hàng đợi dọn storage; retry khi khởi động xử lý nốt outbox.
+- Endpoint retrieval có xác thực trộn một KB Snapshot với một KB Live trả đúng nội dung của từng chế độ. Sau khi xóa cả hai tài liệu Live, route tải snapshot vẫn trả đúng bytes tệp gốc trước cập nhật. Các user/workspace/agent/KB/collection/tệp tạm được dọn.
+- Regression smoke queue, subscriber disconnect, replay, transcript, MCP discovery/rediscovery/invocation qua. Gateway thật truy vấn đủ ba tài liệu sẵn có, đúng KB và không partial. Frontend HTTP 200; không tự publish/cài snapshot cho dữ liệu hiện có.

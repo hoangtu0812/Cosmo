@@ -953,42 +953,23 @@ func (s *Server) deleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var role string
-	var createdAt time.Time
-	if err := s.db.QueryRow(r.Context(),
-		`SELECT role, created_at FROM messages WHERE id = $1 AND conversation_id = $2`,
-		messageID, conversationID).Scan(&role, &createdAt); err != nil {
-		writeError(w, http.StatusNotFound, "Không tìm thấy tin nhắn.")
-		return
-	}
-
-	// The partner is the nearest message of the other role on the right side
-	// of this one in time: after it for a question, before it for an answer.
-	partner := `
-		SELECT id FROM messages
-		WHERE conversation_id = $1 AND role = 'assistant' AND created_at >= $2 AND id <> $3
-		ORDER BY created_at ASC LIMIT 1`
-	if role == "assistant" {
-		partner = `
-			SELECT id FROM messages
-			WHERE conversation_id = $1 AND role = 'user' AND created_at <= $2 AND id <> $3
-			ORDER BY created_at DESC LIMIT 1`
-	}
-	var partnerID string
-	_ = s.db.QueryRow(r.Context(), partner, conversationID, createdAt, messageID).Scan(&partnerID)
-
-	if _, err := s.db.Exec(r.Context(),
-		`DELETE FROM messages WHERE conversation_id = $1 AND (id = $2 OR ($3 <> '' AND id = $3))`,
-		conversationID, messageID, partnerID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Không thể xoá tin nhắn.")
+	deleted, role, err := s.deleteChatMessages(r.Context(), user.ID, conversationID, messageID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "Không tìm thấy tin nhắn.")
+		} else if errors.Is(err, errChatTurnBusy) {
+			writeError(w, http.StatusConflict, "Hội thoại đang trả lời. Vui lòng chờ trước khi xóa tin nhắn.")
+		} else {
+			writeError(w, http.StatusInternalServerError, "Không thể xoá tin nhắn.")
+		}
 		return
 	}
 	s.audit(r, auditEvent{
 		Action: "conversation.message.deleted", TargetType: "conversation", TargetID: conversationID,
 		WorkspaceID: s.conversationWorkspace(r.Context(), conversationID),
-		Metadata:    map[string]any{"role": role, "deleted": removedIDs(messageID, partnerID)},
+		Metadata:    map[string]any{"role": role, "deleted": deleted},
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": removedIDs(messageID, partnerID)})
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": deleted})
 }
 
 // conversationWorkspace is where a conversation lives, for the audit rows that
@@ -997,13 +978,6 @@ func (s *Server) conversationWorkspace(ctx context.Context, conversationID strin
 	var workspaceID string
 	_ = s.db.QueryRow(ctx, `SELECT workspace_id FROM conversations WHERE id = $1`, conversationID).Scan(&workspaceID)
 	return workspaceID
-}
-
-func removedIDs(messageID, partnerID string) []string {
-	if partnerID == "" {
-		return []string{messageID}
-	}
-	return []string{messageID, partnerID}
 }
 
 // ------------------------------------------------------- workspace identity

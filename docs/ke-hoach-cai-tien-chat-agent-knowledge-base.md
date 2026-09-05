@@ -489,3 +489,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Client cũ thiếu ID vẫn được nhận bằng ID server sinh, nhưng không có bảo đảm retry. Tệp pending được chụp/claim ở lần tiếp nhận đầu; retry không claim tệp mới. Muốn gửi tệp mới trong lượt mới cần ID mới.
 - Kiểm tra: HTTP integration cho duplicate đang chạy/hoàn thành, payload mismatch, conversation bận, người khác truy cập, xóa transcript; tám writer cùng ID chỉ một winner; interrupted không rerun và sequence lượt mới tăng. Backend suite/PostgreSQL, frontend retry tests, build và TypeScript đều qua.
 - Giới hạn rollout: drain request trên phiên bản cũ trước khi chuyển backend để mọi writer dùng guard mới. Chưa có queue: lượt khác khi đang bận nhận 409 thay vì xếp hàng. Crash tiến trình có thể để lượt executing chặn hội thoại; cần reconciliation/recovery trong RUN-01 trước rollout yêu cầu tự phục hồi. Không tự reset các lượt này vì tool có thể đã tác động hệ thống ngoài.
+
+### 2026-09-05 — CHAT-02c: Xóa đúng cặp message của lượt
+
+- Xóa message dùng liên kết user/assistant trong `chat_turns`; câu hỏi interrupted chưa có answer không lấy nhầm answer của lượt kế tiếp.
+- Legacy chưa có identity vẫn dùng heuristic thời gian, nhưng không ghép với message thuộc lượt đã có identity. Trả/audit đúng các ID thực sự được xóa.
+- Khóa conversation trong transaction ngắn và từ chối xóa khi có lượt executing. Giữ turn identity sau xóa để retry không chạy lại tool/model.
+- Integration PostgreSQL kiểm tra interrupted, legacy cạnh lượt mới, quyền owner, chặn đang chạy và giữ tombstone. `go test ./...` đều qua với database integration.

@@ -249,6 +249,7 @@ export type Agent = {
   // 0 while the agent has never been published.
   published_version: number;
   published_version_id: string;
+  published_knowledge_mode: 'live' | 'snapshot';
   has_unpublished_changes: boolean;
   created_at: string;
   updated_at: string;
@@ -275,6 +276,8 @@ export type ToolVersion = {
 };
 
 export type AgentVersion = {
+  knowledge_mode: 'live' | 'snapshot';
+  knowledge_snapshots: Record<string, string>;
   id: string;
   agent_id: string;
   version_number: number;
@@ -693,8 +696,8 @@ export const api = {
     request<{version: ToolVersion}>(`/api/tools/${encodeURIComponent(toolID)}/publish${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({changelog})}),
   toolVersions: (toolID: string, workspaceID?: string) =>
     request<{versions: ToolVersion[]}>(`/api/tools/${encodeURIComponent(toolID)}/versions${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
-  publishAgent: (agentID: string, changelog: string, workspaceID?: string) =>
-    request<{agent: Agent}>(`/api/agents/${encodeURIComponent(agentID)}/publish${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({changelog})}),
+  publishAgent: (agentID: string, changelog: string, workspaceID?: string, knowledgeMode: 'live' | 'snapshot' = 'live') =>
+    request<{agent: Agent}>(`/api/agents/${encodeURIComponent(agentID)}/publish${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'POST', body: JSON.stringify({changelog, knowledge_mode: knowledgeMode})}),
   agentVersions: (agentID: string, workspaceID?: string) =>
     request<{versions: AgentVersion[]}>(`/api/agents/${encodeURIComponent(agentID)}/versions${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
   deleteAgent: (agentID: string, workspaceID?: string) =>

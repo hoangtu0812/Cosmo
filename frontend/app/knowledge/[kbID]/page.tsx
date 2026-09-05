@@ -137,9 +137,8 @@ export default function KnowledgeDetailPage() {
     }
   }
 
-  // Publishing does not change what chat retrieves — that always reads the
-  // latest documents. It is the owner saying the base is ready, which is what
-  // lets installers see a new version and decide to take it.
+  // Publishing captures indexed passages for snapshot releases. Live queries
+  // continue reading the mutable index.
   async function publish() {
     setPublishing(true);
     setError('');
@@ -274,7 +273,7 @@ export default function KnowledgeDetailPage() {
                       variant={base && base.version > 0 ? 'neutral' : 'warning'}
                     />
                     <Button
-                      isDisabled={publishing || !documents.some((item) => item.status === 'ready')}
+                      isDisabled={publishing || documents.length === 0 || documents.some((item) => item.status !== 'ready')}
                       isLoading={publishing}
                       label={base && base.version > 0 ? t('kb.republish') : t('kb.publish')}
                       onClick={() => void publish()}

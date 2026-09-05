@@ -11,6 +11,7 @@ import {IconButton} from '@astryxdesign/core/IconButton';
 import {Dialog, DialogHeader} from '@astryxdesign/core/Dialog';
 import {HStack, Layout, LayoutContent, LayoutFooter, LayoutHeader, VStack} from '@astryxdesign/core/Layout';
 import {Selector} from '@astryxdesign/core/Selector';
+import {RadioList, RadioListItem} from '@astryxdesign/core/RadioList';
 import {Switch} from '@astryxdesign/core/Switch';
 import {SegmentedControl, SegmentedControlItem} from '@astryxdesign/core/SegmentedControl';
 import {Tab, TabList} from '@astryxdesign/core/TabList';
@@ -83,6 +84,7 @@ function AgentEditorView() {
   const [isDirty, setIsDirty] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isPublishOpen, setIsPublishOpen] = useState(false);
+  const [knowledgeMode, setKnowledgeMode] = useState<'live' | 'snapshot'>('live');
   const [workspaceTools, setWorkspaceTools] = useState<Tool[]>([]);
   const [attachedToolIDs, setAttachedToolIDs] = useState<string[]>([]);
   const [changelog, setChangelog] = useState('');
@@ -196,11 +198,12 @@ function AgentEditorView() {
       // Anything unsent is written first, so what gets frozen is what is on
       // screen rather than the last autosave.
       if (isDirty) await saveDraft();
-      const result = await api.publishAgent(agent.id, changelog.trim(), workspaceID);
+      const result = await api.publishAgent(agent.id, changelog.trim(), workspaceID, knowledgeMode);
       setAgent((live) => live ? {
         ...live,
         published_version: result.agent.published_version,
         published_version_id: result.agent.published_version_id,
+        published_knowledge_mode: result.agent.published_knowledge_mode,
         has_unpublished_changes: result.agent.has_unpublished_changes,
       } : live);
       setIsPublishOpen(false);
@@ -255,10 +258,13 @@ function AgentEditorView() {
                       : t('agent.publishedVersion', {version: String(agent.published_version)})}
                   </Text>
                   <Button
-                    isDisabled={!agent.has_unpublished_changes || isStale}
+                    isDisabled={isStale || isSaving}
                     isLoading={isPublishing}
                     label={t('agent.publish')}
-                    onClick={() => setIsPublishOpen(true)}
+                    onClick={() => {
+                      setKnowledgeMode(agent.published_knowledge_mode ?? 'live');
+                      setIsPublishOpen(true);
+                    }}
                     size="sm"
                     variant="primary"
                   />
@@ -587,7 +593,7 @@ function AgentEditorView() {
                 {versions.map((version) => (
                   <Item
                     as="li"
-                    description={`${version.changelog || t('agent.versionNoChangelog')} · ${new Date(version.created_at).toLocaleString()}`}
+                    description={`${t(version.knowledge_mode === 'snapshot' ? 'agent.knowledgeSnapshot' : 'agent.knowledgeLive')} · ${version.changelog || t('agent.versionNoChangelog')} · ${new Date(version.created_at).toLocaleString()}`}
                     endContent={version.id === agent.published_version_id
                       ? <StatusLabel label={t('agent.versionCurrent')} variant="success" />
                       : undefined}
@@ -613,6 +619,12 @@ function AgentEditorView() {
                   ? t('agent.publishFrom', {version: String(agent.published_version)})
                   : t('agent.publishFirst')}
               </Text>
+              <RadioList label={t('agent.knowledgeMode')} value={knowledgeMode}
+                isDisabled={isPublishing}
+                onChange={(value) => setKnowledgeMode(value === 'snapshot' ? 'snapshot' : 'live')}>
+                <RadioListItem value="live" label={t('agent.knowledgeLive')} description={t('agent.knowledgeLiveDescription')} />
+                <RadioListItem value="snapshot" label={t('agent.knowledgeSnapshot')} description={t('agent.knowledgeSnapshotDescription')} />
+              </RadioList>
               <TextArea
                 label={t('agent.changelog')}
                 maxLength={500}

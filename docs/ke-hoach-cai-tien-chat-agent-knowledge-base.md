@@ -612,3 +612,9 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Snapshot giữ đoạn trích và vector, chưa lưu bản sao tệp gốc. Xóa tài liệu gỡ tệp/chỉ mục live nhưng snapshot vẫn có đoạn trích; link tải bản gốc có thể không còn. Xóa KB thu hồi mọi quyền và dọn snapshot của KB. Live index vẫn chưa có generation swap nguyên tử.
 - Kiểm thử: copy/ghi đè/xóa live không đổi snapshot, profile/KB sai bị chặn, copy thiếu/lỗi được dọn; publish khi manifest thay đổi không đổi version; release cũ giữ pin, worker chat truyền đúng pin và ghi provenance; quyền bị thu hồi giữa truy vấn không trả passages. Bộ RAG gồm 117 ca.
 - Phần còn mở của KB-06: ghim snapshot ở workspace installation/plain chat; retention/GC và job snapshot bền vững; snapshot tệp gốc. Copy hiện đồng bộ với deadline 5 phút, tiến trình bị dừng đột ngột có thể để lại collection mồ côi cần đối soát. Model deployment phía gateway phải giữ nguyên ý nghĩa của model ID để tái lập embedding.
+
+### 2026-09-05 — KB-06b: Chọn Live/Snapshot khi publish agent
+
+- Hộp publish dùng RadioList, mặc định theo chế độ của release hiện hành; lịch sử phiên bản hiển thị Live/Snapshot. Có thể publish lại khi cấu hình draft không đổi để lấy snapshot KB mới hoặc đổi chế độ.
+- KB publish yêu cầu mọi tài liệu sẵn sàng; thông báo xóa tài liệu nói rõ tệp gốc/chỉ mục live bị xóa trong khi snapshot giữ đoạn trích. Bản agent hiện hành không tự chuyển chế độ sau triển khai.
+- Kiểm tra TypeScript và production build qua. Bộ backend/PostgreSQL đầy đủ qua, gồm worker chat thực chạy pin và lưu ID snapshot trong run/retrieval trace.

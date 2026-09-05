@@ -596,3 +596,9 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Chưa gộp các nguồn khác nhau thành một passage khi result contract chưa chứa nhiều provenance; tránh đánh mất nguồn trích dẫn do dedup xuyên tài liệu.
 - Lọc từng danh sách retrieval theo đúng KB của nhánh fan-out trước fusion/reranker. Kết quả ngoài allowlist hoặc từ nhánh KB khác không được gửi sang provider rerank; vẫn giữ final ACL check.
 - 111 tests RAG qua, gồm hai kết luận trái nhau sau prefix dài, citation khác trang/tài liệu/KB, mã khác hoa-thường và fixture không cho nội dung ngoài quyền tới reranker.
+
+### 2026-09-05 — Rollout CHAT-01b / KB-01c và kiểm tra nhiều profile
+
+- Backend chạy 8752433, RAG chạy thay đổi c4a270c; hai dịch vụ healthy. Smoke HTTP sau cập nhật backend qua queue/replay/SSE, MCP discovery/rediscovery và invocation; sau cập nhật RAG, truy vấn cả 3 tài liệu bằng gateway thật qua endpoint retrieval vẫn có đúng nguồn, không partial.
+- Qdrant thực kiểm tra ba profile tạm có chiều 2, 2 và 3: ghi/tìm đúng profile; truy vấn profile cùng chiều nhưng KB khác không trả bằng chứng ngoài nguồn. Đã dọn tất cả collection tạm.
+- Toàn bộ backend tests/PostgreSQL, 111 RAG tests, TypeScript và build frontend đều qua trong đợt này. Giữ nguyên giới hạn chưa nghiệm thu chất lượng nghiệp vụ và các phần mở đã ghi ở CHAT-01/KB-05.

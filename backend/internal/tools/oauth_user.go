@@ -572,6 +572,10 @@ func (repository *Repository) storeOAuthUserToken(ctx context.Context, toolID, u
 }
 
 func (repository *Repository) oauthUserAccessToken(ctx context.Context, toolID, storedRegistration string) (string, error) {
+	return repository.oauthUserAccessTokenLocked(ctx, toolID, storedRegistration, false)
+}
+
+func (repository *Repository) oauthUserAccessTokenLocked(ctx context.Context, toolID, storedRegistration string, locked bool) (string, error) {
 	caller, ok := CallerFrom(ctx)
 	if !ok {
 		return "", ErrOAuthConnection
@@ -582,8 +586,12 @@ func (repository *Repository) oauthUserAccessToken(ctx context.Context, toolID, 
 	}
 	var sealed []byte
 	var expiresAt time.Time
+	query := `SELECT token_secret, expires_at FROM tool_oauth_tokens WHERE tool_id = $1 AND user_id = $2`
+	if locked {
+		query += ` FOR UPDATE`
+	}
 	err := repository.db.QueryRow(ctx,
-		`SELECT token_secret, expires_at FROM tool_oauth_tokens WHERE tool_id = $1 AND user_id = $2`,
+		query,
 		toolID, caller.UserID).Scan(&sealed, &expiresAt)
 	if err != nil {
 		return "", ErrOAuthConnection
@@ -598,6 +606,23 @@ func (repository *Repository) oauthUserAccessToken(ctx context.Context, toolID, 
 	}
 	if time.Until(expiresAt) > oauthRefreshMargin {
 		return saved.AccessToken, nil
+	}
+	if !locked {
+		// Lock and re-read only at refresh time. PostgreSQL serializes rotation
+		// across processes; the waiting caller uses the newly committed token.
+		refreshCtx, cancel := context.WithTimeout(ctx, CallTimeout)
+		defer cancel()
+		tx, err := repository.db.Begin(refreshCtx)
+		if err != nil {
+			return "", ErrOAuthToken
+		}
+		defer tx.Rollback(context.Background())
+		worker := &Repository{db: tx, secrets: repository.secrets, egress: repository.egress}
+		access, refreshErr := worker.oauthUserAccessTokenLocked(refreshCtx, toolID, storedRegistration, true)
+		if err = tx.Commit(refreshCtx); err != nil {
+			return "", ErrOAuthToken
+		}
+		return access, refreshErr
 	}
 	if saved.RefreshToken == "" {
 		_, _ = repository.db.Exec(ctx, `DELETE FROM tool_oauth_tokens WHERE tool_id = $1 AND user_id = $2`, toolID, caller.UserID)
@@ -616,8 +641,13 @@ func (repository *Repository) oauthUserAccessToken(ctx context.Context, toolID, 
 	oauthContext := context.WithValue(ctx, oauth2.HTTPClient, repository.client())
 	refreshed, err := configuration.TokenSource(oauthContext, old).Token()
 	if err != nil || refreshed.AccessToken == "" {
-		_, _ = repository.db.Exec(ctx, `DELETE FROM tool_oauth_tokens WHERE tool_id = $1 AND user_id = $2`, toolID, caller.UserID)
-		return "", ErrOAuthConnection
+		var rejected *oauth2.RetrieveError
+		if errors.As(err, &rejected) && rejected.ErrorCode == "invalid_grant" {
+			_, _ = repository.db.Exec(ctx, `DELETE FROM tool_oauth_tokens WHERE tool_id = $1 AND user_id = $2 AND token_secret=$3`, toolID, caller.UserID, sealed)
+			return "", ErrOAuthConnection
+		}
+		// Timeout, cancellation and upstream 5xx do not revoke a connection.
+		return "", ErrOAuthToken
 	}
 	if refreshed.RefreshToken == "" {
 		refreshed.RefreshToken = saved.RefreshToken

@@ -107,3 +107,5 @@ Mỗi phần cần regression test phù hợp, commit riêng và kiểm tra lạ
 - MCP-REV-01: Chặn redirect khác origin trước khi gửi request; MCP kiểm tra origin trước khi đọc/gắn credential. Áp dụng cùng HTTP client cho custom header và OAuth token exchange. Tests kiểm tra 302/307/308, khác hostname/port, downgrade và guard trước đọc secret; tools suite qua.
 
 - MCP-REV-02/03: Discovery từ chối danh sách thiếu, cursor lặp, quá giới hạn hoặc contract lỗi; projection cắt mô tả hiển thị nhưng giữ schema gốc. Thay registry trong transaction, giữ ID theo remote name và kiểm tra revision; Save/Delete action và Publish dùng cùng khóa tool. Tests PostgreSQL kiểm tra rollback khi insert thứ hai lỗi, revision cũ, publish cạnh tranh; toàn bộ backend suite qua.
+
+- MCP-REV-04: Token gần hết hạn được đọc lại dưới row lock PostgreSQL trước refresh; sáu caller qua các repository riêng chỉ gọi provider một lần. Chỉ invalid_grant xóa token đang khóa; 5xx/cancellation giữ kết nối. Tests rotation, lỗi tạm thời, invalid_grant và hủy đều qua với database riêng.

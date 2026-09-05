@@ -21,9 +21,16 @@ export function useToolWriteControl(toolID: string, actionID: string, workspaceI
   const [networkUnknown, setNetworkUnknown] = useState(false);
   const intentStorage = `cosmo.tool-write.${workspaceID}.${toolID}.${actionID}`;
 
+  function recoverIntent(records: ToolWriteOperation[]) {
+    const key = sessionStorage.getItem(intentStorage);
+    if (key && records.some((item) => item.idempotency_key === key && ['succeeded', 'reconciled_succeeded', 'reconciled_no_effect'].includes(item.status))) {
+      sessionStorage.removeItem(intentStorage);
+    }
+  }
   async function refresh() {
     const [review, records] = await Promise.all([api.toolActionPolicy(toolID, actionID, workspaceID), api.toolWriteOperations(toolID, workspaceID)]);
     setPolicy(review);
+    recoverIntent(records.operations);
     const latest = records.operations.find((item) => item.action_id === actionID) ?? null;
     setOperation(latest);
     setNetworkUnknown(false);
@@ -33,7 +40,7 @@ export function useToolWriteControl(toolID: string, actionID: string, workspaceI
     if (!isEditable) return;
     let active = true;
     Promise.all([api.toolActionPolicy(toolID, actionID, workspaceID), api.toolWriteOperations(toolID, workspaceID)])
-      .then(([review, records]) => {if (active) {setPolicy(review);setOperation(records.operations.find((item) => item.action_id === actionID) ?? null);}})
+      .then(([review, records]) => {if (active) {recoverIntent(records.operations);setPolicy(review);setOperation(records.operations.find((item) => item.action_id === actionID) ?? null);}})
       .catch((error: Error) => {if (active) onFailure(error.message);});
     return () => {active = false;};
     // Callback identities change with the editor; scope changes own this fetch.

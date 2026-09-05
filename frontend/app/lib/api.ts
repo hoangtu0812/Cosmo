@@ -108,7 +108,7 @@ export type ToolParameter = {
 };
 
 export type ToolActionPolicy = {effect: 'read' | 'approval' | 'blocked'; definition: string; destination: string; action: string; method: string; path: string; parameters: ToolParameter[]};
-export type ToolWriteOperation = {id: string; action_id: string; status: string; result: ToolCallResult; created_at: string; reconciliation_note: string; request: Record<string, unknown>};
+export type ToolWriteOperation = {id: string; idempotency_key: string; action_id: string; status: string; result: ToolCallResult; created_at: string; reconciliation_note: string; request: Record<string, unknown>};
 
 export type ToolAction = {
   id: string;

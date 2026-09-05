@@ -171,8 +171,12 @@ func TestInterruptedWriteBecomesReviewableWithoutDispatch(t *testing.T) {
 	if _, err := repo.db.Exec(ctx, `INSERT INTO tool_write_operations(id,tool_id,action_id,actor_id,workspace_id,idempotency_key,request_hash,status,created_at) VALUES($1,$2,$3,$4,$5,'test-key','hash','executing',NOW()-INTERVAL '2 minutes')`, id, tool.ID, action.ID, caller.UserID, caller.WorkspaceID); err != nil {
 		t.Fatal(err)
 	}
+	// Newer completed calls must not push an unresolved intent off the review page.
+	if _, err := repo.db.Exec(ctx, `INSERT INTO tool_write_operations(id,tool_id,action_id,actor_id,workspace_id,idempotency_key,request_hash,status) SELECT $1||i,$2,$3,$4,$5,'done-'||i,'hash','succeeded' FROM generate_series(1,55) AS i`, id, tool.ID, action.ID, caller.UserID, caller.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
 	list, err := repo.WriteOperations(ctx, tool.ID, caller.UserID, caller.WorkspaceID)
-	if err != nil || len(list) != 1 || list[0].Status != "uncertain" {
+	if err != nil || len(list) != 50 || list[0].ID != id || list[0].Key != "test-key" || list[0].Status != "uncertain" {
 		t.Fatal("interrupted write not reviewable")
 	}
 	if err = repo.ReconcileWrite(ctx, tool.ID, caller.UserID, caller.WorkspaceID, id, "reconciled_succeeded", "Verified target transaction ID 123"); err != nil {

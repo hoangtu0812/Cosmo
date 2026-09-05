@@ -107,6 +107,7 @@ func (repository *Repository) invokeAutomatic(ctx context.Context, tool Tool, ac
 
 type WriteOperation struct {
 	ID        string         `json:"id"`
+	Key       string         `json:"idempotency_key"`
 	ActionID  string         `json:"action_id"`
 	Status    string         `json:"status"`
 	Result    CallResult     `json:"result"`
@@ -150,7 +151,7 @@ func (repository *Repository) InvokeConfirmed(ctx context.Context, tool Tool, ac
 	}
 	digest := sha256.Sum256(append([]byte(definitionHash(tool, action)), encoded...))
 	hash := hex.EncodeToString(digest[:])
-	operation := WriteOperation{ID: newID("two_"), ActionID: action.ID, Status: "executing"}
+	operation := WriteOperation{ID: newID("two_"), Key: key, ActionID: action.ID, Status: "executing"}
 	operation.Request = map[string]any{"destination": tool.BaseURL, "action": action.Name, "method": action.Method, "path": action.Path, "arguments": args, "parameters": action.Parameters, "definition": expectedDefinition}
 	reviewPayload, err := json.Marshal(operation.Request)
 	if err != nil {
@@ -246,7 +247,7 @@ func (repository *Repository) PolicyReview(tool Tool, action Action) string {
 }
 
 func (repository *Repository) WriteOperations(ctx context.Context, toolID, userID, workspaceID string) ([]WriteOperation, error) {
-	rows, err := repository.db.Query(ctx, `SELECT id,action_id,CASE WHEN status='executing' AND created_at<NOW()-INTERVAL '1 minute' THEN 'uncertain' ELSE status END,result,created_at,reconciliation_note,request FROM tool_write_operations WHERE tool_id=$1 AND actor_id=$2 AND workspace_id=$3 ORDER BY created_at DESC LIMIT 50`, toolID, userID, workspaceID)
+	rows, err := repository.db.Query(ctx, `SELECT id,idempotency_key,action_id,CASE WHEN status='executing' AND created_at<NOW()-INTERVAL '1 minute' THEN 'uncertain' ELSE status END,result,created_at,reconciliation_note,request FROM tool_write_operations WHERE tool_id=$1 AND actor_id=$2 AND workspace_id=$3 ORDER BY (status IN ('executing','uncertain')) DESC,created_at DESC LIMIT 50`, toolID, userID, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +257,7 @@ func (repository *Repository) WriteOperations(ctx context.Context, toolID, userI
 		var op WriteOperation
 		var raw []byte
 		var request []byte
-		if err = rows.Scan(&op.ID, &op.ActionID, &op.Status, &raw, &op.CreatedAt, &op.Note, &request); err != nil {
+		if err = rows.Scan(&op.ID, &op.Key, &op.ActionID, &op.Status, &raw, &op.CreatedAt, &op.Note, &request); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(raw, &op.Result); err != nil {

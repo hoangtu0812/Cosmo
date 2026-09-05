@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from typing import Iterable, Sequence
 
@@ -97,8 +98,19 @@ def point_id(document_id: str, chunk_index: int) -> str:
 
 
 def upsert(chunks: Sequence[dict], encoded: Sequence[Encoded]) -> None:
-    if not encoded:
-        return
+    # Validate the complete replacement before touching the existing document.
+    # zip() alone would silently accept missing embeddings and prune good data.
+    if not chunks or len(chunks) != len(encoded):
+        raise ValueError("a document replacement requires one embedding per chunk")
+    document_id = chunks[0]["document_id"]
+    kb_id = chunks[0]["kb_id"]
+    indices = [chunk["chunk_index"] for chunk in chunks]
+    if (not document_id or not kb_id or len(set(indices)) != len(indices)
+            or any(chunk["document_id"] != document_id or chunk["kb_id"] != kb_id for chunk in chunks)):
+        raise ValueError("a replacement must contain unique chunks from one document and KB")
+    dimension = len(encoded[0].dense)
+    if not dimension or any(len(vector.dense) != dimension or not all(math.isfinite(v) for v in vector.dense) for vector in encoded):
+        raise ValueError("document embeddings must have one dimension and finite values")
     ensure_collection(client(), len(encoded[0].dense))
     lexical_supported = has_lexical()
     points = []
@@ -118,6 +130,21 @@ def upsert(chunks: Sequence[dict], encoded: Sequence[Encoded]) -> None:
             )
         )
     client().upsert(collection_name=settings.collection, points=points, wait=True)
+    # Only prune obsolete chunks after the new vectors have been acknowledged.
+    # A failed write must never be preceded by deleting the searchable document.
+    # Stable IDs make retry after a failed cleanup safe. This is not a snapshot
+    # swap: readers may observe old/new chunks during the replacement.
+    client().delete(
+        collection_name=settings.collection,
+        points_selector=models.FilterSelector(filter=models.Filter(
+            must=[
+                models.FieldCondition(key="document_id", match=models.MatchValue(value=document_id)),
+                models.FieldCondition(key="kb_id", match=models.MatchValue(value=kb_id)),
+            ],
+            must_not=[models.HasIdCondition(has_id=[point.id for point in points])],
+        )),
+        wait=True,
+    )
 
 
 def delete_document(document_id: str) -> None:

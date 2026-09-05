@@ -113,6 +113,12 @@ class TestReindex:
         events = run(storage_key="kb_1/doc_1.md")
         assert events[-1]["stage"] == "done"
 
+    def test_existing_vectors_are_not_deleted_before_replacement(self, stub, monkeypatch):
+        def fail(*args, **kwargs):
+            raise AssertionError("must not delete searchable vectors first")
+        monkeypatch.setattr(pipeline.store, "delete_document", fail)
+        assert run(storage_key="kb_1/doc_1.md")[-1]["stage"] == "done"
+
     def test_the_original_keeps_its_key(self, stub, monkeypatch):
         monkeypatch.setattr(pipeline.objects, "put", lambda *args, **kwargs: None)
         events = run(storage_key="kb_1/doc_1.md")

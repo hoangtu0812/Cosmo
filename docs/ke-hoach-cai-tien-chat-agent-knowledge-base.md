@@ -550,3 +550,9 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - API kiểm thử theo workspace dùng đúng retrieveKnowledge của chat, cùng quyền/mount, fan-out, fusion và trạng thái nguồn; không gọi RAG trực tiếp theo một pipeline khác.
 - CLI nhận JSONL gán nhãn, đo document-level recall/precision/MRR/nDCG, coverage KB, nguồn cấm, partial/failure và latency. Report giữ mẫu số lỗi, không lấy citation model làm đáp án chuẩn; không lưu session/câu hỏi/passage text.
 - Tests kiểm tra endpoint so với retrieval trực tiếp, KB ngoài mount, nonmember, trùng document và mẫu số lỗi. Chưa có bộ câu hỏi nghiệp vụ từ người dùng để chạy baseline/candidate; chưa hoàn tất đánh giá planner/citation/model hoặc snapshot corpus.
+
+### 2026-09-05 — KB-05a: Bảo vệ tài liệu khi ghi lại vector
+
+- Reindex từng tài liệu kiểm tra đủ embedding, chiều vector, giá trị hữu hạn và chunk duy nhất trước khi ghi. Không xóa tài liệu trước upsert; chỉ dọn chunk cũ sau khi Qdrant xác nhận ghi thành công.
+- Lỗi ghi không chạy cleanup; lỗi cleanup báo ingestion error và có thể retry với ID ổn định. Kiểm thử Qdrant local xác minh tài liệu khác được giữ nguyên, replacement ngắn hơn không còn chunk thừa và embedding sai không phá bản cũ. Toàn bộ 99 tests RAG qua trong image runtime.
+- Đây chưa phải chuyển snapshot nguyên tử: trong lúc upsert/cleanup có thể thấy dữ liệu cũ và mới; lỗi ghi một phần vẫn cần generation/snapshot để rollback trọn vẹn. Reindex toàn hệ thống hiện vẫn reset collection và chưa hỗ trợ đồng thời nhiều embedding profile; KB-05 chưa hoàn tất.

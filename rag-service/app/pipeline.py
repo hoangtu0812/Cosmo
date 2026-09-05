@@ -110,9 +110,7 @@ def run(
             )
 
         yield _event("indexing", "Writing vectors to the index")
-        # Replace rather than append, so re-ingesting a document cannot leave
-        # chunks of the previous version behind to be retrieved later.
-        store.delete_document(document_id)
+        # The store writes the replacement first, then prunes obsolete chunks.
         store.upsert(chunks, encoded)
 
         elapsed = time.time() - started

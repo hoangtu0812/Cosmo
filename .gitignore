@@ -17,6 +17,7 @@ enterprise_ai_platform_implementation_plan.md
 ui.md
 
 # Generated files
+__pycache__/
 .cache/
 frontend/node_modules/
 frontend/.next/

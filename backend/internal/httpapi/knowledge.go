@@ -20,6 +20,33 @@ import (
 // gateway owned by its workspace. API keys never move into the knowledge base
 // row; they are decrypted only for the outbound data-plane request.
 func (s *Server) knowledgeModelSettingsForKB(ctx context.Context, kbID string) (knowledge.ModelSettings, error) {
+	current, err := s.configuredKnowledgeModelSettings(ctx, kbID)
+	if err != nil {
+		return current, err
+	}
+	var id string
+	var raw []byte
+	if err := s.db.QueryRow(ctx, `SELECT live_index_id,live_index_settings FROM knowledge_bases WHERE id=$1`, kbID).Scan(&id, &raw); err != nil {
+		return current, err
+	}
+	if id == "" {
+		current.KBID = kbID
+		return current, nil
+	}
+	var indexed knowledge.ModelSettings
+	if err := json.Unmarshal(raw, &indexed); err != nil {
+		return indexed, err
+	}
+	if indexed.EmbeddingScope != current.EmbeddingScope || strings.TrimRight(indexed.GatewayBaseURL, "/") != strings.TrimRight(current.GatewayBaseURL, "/") {
+		return indexed, fmt.Errorf("live index gateway changed; reindex required")
+	}
+	indexed.GatewayAPIKey = current.GatewayAPIKey
+	indexed.LiveIndexID = id
+	indexed.KBID = kbID
+	return indexed, nil
+}
+
+func (s *Server) configuredKnowledgeModelSettings(ctx context.Context, kbID string) (knowledge.ModelSettings, error) {
 	var workspaceID string
 	var settings knowledge.ModelSettings
 	err := s.db.QueryRow(ctx, `

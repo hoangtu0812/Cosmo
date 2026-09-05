@@ -34,6 +34,8 @@ async def profile_not_indexed(_request, error):
 
 
 class IngestRequest(BaseModel):
+    target_snapshot_id: str | None = Field(default=None, pattern=r"^kbs_[0-9a-f]{32}$")
+    deadline_epoch: float | None = Field(default=None, allow_inf_nan=False)
     kb_id: str
     document_id: str
     filename: str
@@ -158,10 +160,31 @@ def ingest_document(
             gateway=gateway,
             chunk_size=request.chunk_size,
             chunk_overlap=request.chunk_overlap,
+            target_snapshot_id=request.target_snapshot_id,
+            deadline_epoch=request.deadline_epoch,
         ):
             yield json.dumps(event, ensure_ascii=False) + "\n"
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+class OriginalUpload(BaseModel):
+    document_id: str = Field(pattern=r"^doc_[A-Za-z0-9_-]{8,80}$")
+    content_base64: str = Field(max_length=89478488)
+    content_type: str = Field(default="application/octet-stream", max_length=256)
+
+
+@app.post("/originals")
+def store_original(request: OriginalUpload) -> dict:
+    try:
+        content = base64.b64decode(request.content_base64, validate=True)
+    except ValueError as error:
+        raise HTTPException(400, "invalid original encoding") from error
+    if not content or len(content) > 64 * 1024 * 1024:
+        raise HTTPException(400, "invalid original size")
+    key = "knowledge-uploads/" + request.document_id
+    objects.put(key, content, request.content_type)
+    return {"storage_key": key, "size_bytes": len(content)}
 
 
 @app.post("/search", response_model=SearchResponse)
@@ -185,6 +208,7 @@ def search(
 
 
 class SnapshotRequest(BaseModel):
+    source_snapshot_id: str | None = Field(default=None, pattern=r"^kbs_[0-9a-f]{32}$")
     snapshot_id: str = Field(pattern=r"^kbs_[0-9a-f]{32}$")
     kb_id: str
     embedding_model: str
@@ -198,7 +222,7 @@ def create_snapshot(request: SnapshotRequest,
                     gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
                     embedding_scope: str | None = Header(default=None, alias="X-Cosmo-Embedding-Scope")) -> dict:
     gateway = ml.gateway_settings(request.embedding_model, None, gateway_base_url, None, embedding_scope)
-    return snapshots.create(request.snapshot_id, request.kb_id, gateway, request.documents, request.originals, request.deadline_epoch)
+    return snapshots.create(request.snapshot_id, request.kb_id, gateway, request.documents, request.originals, request.deadline_epoch, request.source_snapshot_id)
 
 
 @app.delete("/snapshots/{snapshot_id}")
@@ -242,7 +266,11 @@ def reset_collection() -> dict:
 
 
 @app.delete("/documents/{document_id}")
-def delete_document(document_id: str, storage_key: str | None = None) -> dict:
+def delete_document(document_id: str, storage_key: str | None = None, snapshot_id: str | None = None) -> dict:
+    if snapshot_id:
+        collection = snapshots.collection_name(snapshot_id)
+        store.client().delete(collection_name=collection, points_selector=store.models.FilterSelector(
+            filter=store.models.Filter(must=[store.models.FieldCondition(key="document_id", match=store.models.MatchValue(value=document_id))])), wait=True)
     store.delete_document(document_id)
     if storage_key:
         try:
@@ -256,11 +284,15 @@ def delete_document(document_id: str, storage_key: str | None = None) -> dict:
 def inspect_document(
     document_id: str,
     embedding_model: str,
+    snapshot_id: str | None = None,
+    kb_id: str | None = None,
     gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
     embedding_scope: str | None = Header(default=None, alias="X-Cosmo-Embedding-Scope"),
 ) -> dict:
     gateway = ml.gateway_settings(embedding_model, None, gateway_base_url, None, embedding_scope)
     collection = store.profile_collection(gateway) if settings.profile_reads else settings.collection
+    if snapshot_id:
+        collection = snapshots.resolve(snapshot_id, [kb_id], gateway)
     return store.inspect_document(document_id, collection=collection)
 
 

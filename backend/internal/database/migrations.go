@@ -79,6 +79,7 @@ var migrations = []Migration{
 		`CREATE FUNCTION cleanup_snapshot_job_attempt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.attempt_id<>'' AND OLD.status<>'succeeded' THEN INSERT INTO knowledge_snapshot_cleanup(snapshot_id,next_attempt_at) VALUES(OLD.attempt_id,NOW()+INTERVAL '1 hour') ON CONFLICT DO NOTHING; END IF; RETURN OLD; END $$`,
 		`CREATE TRIGGER cleanup_snapshot_job_attempt BEFORE DELETE ON knowledge_snapshot_jobs FOR EACH ROW EXECUTE FUNCTION cleanup_snapshot_job_attempt()`,
 	}},
+	{Version: 34, Name: "durable_knowledge_ingestion", Statements: knowledgeIngestionStatements},
 }
 
 var knowledgeSnapshotStatements = []string{

@@ -76,6 +76,20 @@ class TestEventStream:
 
 
 class TestFailure:
+    def test_expired_attempt_cannot_store_or_index(self, stub):
+        events = run(deadline_epoch=0, target_snapshot_id='kbs_' + 'b' * 32)
+        assert events[-1]['stage'] == 'error'
+        assert not stub['stored'] and not stub['upserted']
+
+    def test_attempt_targets_isolated_collection_with_profile_binding(self, stub, monkeypatch):
+        writes = []
+        monkeypatch.setattr(pipeline.store, 'upsert', lambda chunks, encoded, **kw: writes.append((chunks, kw)))
+        target = 'kbs_' + 'b' * 32
+        assert run(target_snapshot_id=target)[-1]['stage'] == 'done'
+        chunks, kwargs = writes[0]
+        assert kwargs['collection'] == pipeline.snapshots.collection_name(target)
+        assert all(c['snapshot_id'] == target and '__p1_' in c['snapshot_profile'] for c in chunks)
+
     def test_unreadable_document_ends_with_error(self, stub):
         events = run(content=b"   \n\n  ", filename="empty.txt")
         assert events[-1]["stage"] == "error"

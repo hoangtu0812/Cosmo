@@ -3,10 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"strings"
-	"sync"
 	"time"
-
-	"cosmo/backend/internal/knowledge"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -177,6 +174,24 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	lockedRows, err := tx.Query(r.Context(), `SELECT id FROM knowledge_bases ORDER BY id FOR UPDATE`)
+	if err != nil {
+		writeError(w, 500, "Không thể khóa Knowledge Base.")
+		return
+	}
+	for lockedRows.Next() {
+		var id string
+		if err := lockedRows.Scan(&id); err != nil {
+			lockedRows.Close()
+			writeError(w, 500, "Không thể đọc Knowledge Base.")
+			return
+		}
+	}
+	lockedRows.Close()
+	if lockedRows.Err() != nil {
+		writeError(w, 500, "Không thể đọc Knowledge Base.")
+		return
+	}
 	rows, err := tx.Query(r.Context(), `
 		SELECT id, kb_id, title, filename, content_type, version, storage_key
 		FROM knowledge_documents
@@ -205,6 +220,16 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	kbIDs := map[string]bool{}
+	for _, document := range documents {
+		kbIDs[document.KBID] = true
+	}
+	for kbID := range kbIDs {
+		if _, err := enqueueIngestion(r.Context(), tx, kbID, currentUser(r.Context()).ID, "queued"); err != nil {
+			writeError(w, 500, "Không thể ghi hàng đợi re-index.")
+			return
+		}
+	}
 	for _, document := range documents {
 		if _, err := tx.Exec(r.Context(), `
 			UPDATE knowledge_documents
@@ -228,55 +253,8 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 		Action: "admin.system.knowledge_reindex_started", TargetType: "system", TargetID: "knowledge_index",
 		Metadata: map[string]int{"documents": len(documents)},
 	})
-	go s.runKnowledgeReindex(documents)
+	// Workers consume the committed durable queue.
 	writeJSON(w, http.StatusAccepted, map[string]int{"queued": len(documents)})
-}
-
-// runKnowledgeReindex rebuilds the index, several documents at a time.
-//
-// Re-indexing is the slow path an administrator waits on after changing the
-// embedding model, and one document at a time makes it cost the sum of every
-// parse and every gateway round trip. The pool is bounded rather than
-// unbounded: each worker holds a document and keeps the gateway busy, so the
-// point is to overlap the waiting, not to flood the service with it.
-//
-// Nothing is read here any more. Each job names the original by its object
-// key and the knowledge service reads it directly, which keeps a full copy of
-// every document from travelling to the control plane and back.
-func (s *Server) runKnowledgeReindex(documents []reindexDocument) {
-	started := time.Now()
-	workers := max(1, s.cfg.ReindexWorkers)
-	if workers > len(documents) {
-		workers = len(documents)
-	}
-
-	jobs := make(chan reindexDocument)
-	var wait sync.WaitGroup
-	for worker := 0; worker < workers; worker++ {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			for document := range jobs {
-				s.ingestDocument(knowledge.IngestJob{
-					KBID:        document.KBID,
-					DocumentID:  document.ID,
-					Filename:    document.Filename,
-					ContentType: document.ContentType,
-					Title:       document.Title,
-					Version:     document.Version,
-					StorageKey:  document.StorageKey,
-				})
-			}
-		}()
-	}
-	for _, document := range documents {
-		jobs <- document
-	}
-	close(jobs)
-	wait.Wait()
-
-	s.logger.Info("knowledge re-index finished",
-		"documents", len(documents), "workers", workers, "seconds", int(time.Since(started).Seconds()))
 }
 
 // KnowledgeIndexStatus is how far the index has got, counted from the document

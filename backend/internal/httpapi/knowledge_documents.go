@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"fmt"
 	"io"
@@ -206,6 +207,7 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "Tệp tải lên không hợp lệ hoặc quá lớn.")
 		return
 	}
+	defer r.MultipartForm.RemoveAll()
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -240,12 +242,50 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 	}
 
 	documentID := "doc_" + randomID(18)
-	_, err = s.db.Exec(r.Context(), `
-		INSERT INTO knowledge_documents(id, kb_id, title, filename, content_type, size_bytes, status, uploaded_by)
-		VALUES($1, $2, $3, $4, $5, $6, 'processing', $7)`,
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, 500, "Không thể chuẩn bị tải tài liệu.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(716042901)`); err != nil {
+		writeError(w, 500, "Không thể khóa hàng đợi.")
+		return
+	}
+	var locked string
+	if err = tx.QueryRow(r.Context(), `SELECT id FROM knowledge_bases WHERE id=$1 FOR UPDATE`, kbID).Scan(&locked); err != nil {
+		writeError(w, 404, "Không tìm thấy Knowledge Base.")
+		return
+	}
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO knowledge_documents(id, kb_id, title, filename, content_type, size_bytes, status, uploaded_by,storage_key)
+		VALUES($1, $2, $3, $4, $5, $6, 'processing', $7,'knowledge-uploads/' || $1)`,
 		documentID, kbID, title, header.Filename, header.Header.Get("Content-Type"), len(content), user.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể lưu tài liệu.")
+		return
+	}
+	jobID, err := enqueueIngestion(r.Context(), tx, kbID, user.ID, "uploading")
+	if err != nil {
+		code := 500
+		if errors.Is(err, errIngestionBusy) {
+			code = 409
+		}
+		writeError(w, code, "Không thể xếp hàng tài liệu: "+err.Error())
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeError(w, 500, "Không thể lưu hàng đợi tài liệu.")
+		return
+	}
+	// The durable intent and original key exist before the remote write. If the
+	// process dies after storage succeeds, the worker resumes the same job.
+	if err = s.knowledge.StoreOriginal(r.Context(), documentID, header.Header.Get("Content-Type"), content); err != nil {
+		writeError(w, 502, "Chưa xác nhận lưu tệp gốc. Tác vụ sẽ kiểm tra và thử lại; xem trạng thái tài liệu trước khi tải lại.")
+		return
+	}
+	if _, err = s.db.Exec(r.Context(), `UPDATE knowledge_ingestion_jobs SET status='queued',next_attempt_at=NOW() WHERE id=$1 AND status='uploading'`, jobID); err != nil {
+		writeError(w, 503, "Đã lưu tệp; tác vụ sẽ tiếp tục khi dịch vụ phục hồi.")
 		return
 	}
 
@@ -257,19 +297,6 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 			"knowledge_base": kbName, "kb_id": kbID,
 			"filename": header.Filename, "bytes": len(content), "content_type": header.Header.Get("Content-Type"),
 		},
-	})
-
-	// Parsing and embedding a large manual takes minutes, far longer than a
-	// browser will wait. The row is returned immediately as "processing" and
-	// the ingestion runs on its own context so it survives the response.
-	go s.ingestDocument(knowledge.IngestJob{
-		KBID:        kbID,
-		DocumentID:  documentID,
-		Filename:    header.Filename,
-		ContentType: header.Header.Get("Content-Type"),
-		Title:       title,
-		Version:     1,
-		Content:     content,
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"document": KnowledgeDocument{
@@ -286,66 +313,6 @@ func (s *Server) uploadKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 	}})
 }
 
-// ingestDocument sends one document through the knowledge service, recording
-// each stage as it arrives and the outcome at the end.
-//
-// The stages are written to the database rather than only streamed, so the log
-// survives a page reload and is readable by someone who was not watching while
-// it ran. A failure is recorded on the row too, not merely logged, so the
-// person who uploaded the file can see what became of it.
-func (s *Server) ingestDocument(job knowledge.IngestJob) {
-	documentID := job.DocumentID
-	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.RAGTimeout)
-	defer cancel()
-
-	record := func(event knowledge.Event) {
-		if _, err := s.db.Exec(context.Background(), `
-			INSERT INTO knowledge_document_events(document_id, stage, message, done, total)
-			VALUES($1, $2, $3, $4, $5)`,
-			documentID, event.Stage, event.Message, event.Done, event.Total); err != nil {
-			slog.Error("could not record ingestion event", "document", documentID, "error", err)
-		}
-	}
-
-	record(knowledge.Event{Stage: "queued", Message: "Queued for ingestion"})
-
-	// Read at ingestion time rather than passed in: a setting changed between
-	// upload and re-index takes effect without a second plumbing route.
-	if err := s.db.QueryRow(ctx, `SELECT layout_mode FROM knowledge_bases WHERE id = $1`, job.KBID).Scan(&job.LayoutMode); err != nil {
-		slog.Error("could not read knowledge base layout mode", "kb", job.KBID, "error", err)
-	}
-
-	models, settingsErr := s.knowledgeModelSettingsForKB(ctx, job.KBID)
-	if settingsErr != nil {
-		message := ingestionErrorMessage(settingsErr)
-		slog.Error("could not load workspace knowledge settings", "document", documentID, "error", settingsErr)
-		record(knowledge.Event{Stage: "error", Message: message})
-		_, _ = s.db.Exec(context.Background(), `UPDATE knowledge_documents SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`, documentID, message)
-		return
-	}
-	result, err := s.knowledge.Ingest(ctx, job, models, record)
-	if err != nil {
-		slog.Error("document ingestion failed", "document", documentID, "error", err)
-		message := ingestionErrorMessage(err)
-		// The terminal event is as important as the row status: the browser's
-		// live log only knows an ingestion finished when this line arrives.
-		record(knowledge.Event{Stage: "error", Message: message})
-		if _, dbErr := s.db.Exec(context.Background(), `
-			UPDATE knowledge_documents SET status = 'failed', error = $2, updated_at = NOW() WHERE id = $1`,
-			documentID, message); dbErr != nil {
-			slog.Error("could not record ingestion failure", "document", documentID, "error", dbErr)
-		}
-		return
-	}
-
-	if _, err := s.db.Exec(context.Background(), `
-		UPDATE knowledge_documents
-		SET status = 'ready', chunk_count = $2, storage_key = $3, error = '', updated_at = NOW()
-		WHERE id = $1`, documentID, result.Chunks, result.StorageKey); err != nil {
-		slog.Error("could not record ingestion result", "document", documentID, "error", err)
-	}
-}
-
 // recoverInterruptedIngestions closes out documents left mid-flight by a
 // restart, so the person who uploaded one sees what became of it instead of a
 // spinner that never resolves.
@@ -353,7 +320,7 @@ func (s *Server) recoverInterruptedIngestions(ctx context.Context) error {
 	const message = "Quá trình xử lý bị gián đoạn khi dịch vụ khởi động lại."
 	tag, err := s.db.Exec(ctx, `
 		UPDATE knowledge_documents SET status = 'failed', error = $1, updated_at = NOW()
-		WHERE status IN ('pending', 'processing')`, message)
+		WHERE status IN ('pending', 'processing') AND NOT EXISTS(SELECT 1 FROM knowledge_ingestion_jobs j WHERE j.kb_id=knowledge_documents.kb_id AND j.status IN ('uploading','queued','running'))`, message)
 	if err != nil {
 		return err
 	}
@@ -495,9 +462,31 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusForbidden, "Bạn không có quyền xoá tài liệu trong knowledge base này.")
 		return
 	}
+	// Coordinate with admission and generation publication. The bounded storage
+	// deletion completes before releasing this KB lock.
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, 500, "Không thể chuẩn bị xóa tài liệu.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var liveIndex string
+	if err = tx.QueryRow(r.Context(), `SELECT live_index_id FROM knowledge_bases WHERE id=$1 FOR UPDATE`, kbID).Scan(&liveIndex); err != nil {
+		writeError(w, 404, "Không tìm thấy Knowledge Base.")
+		return
+	}
+	var active bool
+	if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM knowledge_ingestion_jobs WHERE kb_id=$1 AND status IN ('uploading','queued','running'))`, kbID).Scan(&active); err != nil {
+		writeError(w, 500, "Không thể kiểm tra tác vụ.")
+		return
+	}
+	if active {
+		writeError(w, 409, errIngestionBusy.Error())
+		return
+	}
 
 	var storageKey, title, filename string
-	err := s.db.QueryRow(r.Context(), `
+	err = tx.QueryRow(r.Context(), `
 		SELECT storage_key, title, filename FROM knowledge_documents WHERE id = $1 AND kb_id = $2`,
 		documentID, kbID).Scan(&storageKey, &title, &filename)
 	if err != nil {
@@ -509,15 +498,22 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 	// inconsistency; chunks without a row are retrievable content nobody can
 	// see or delete, which is worse.
 	if s.knowledge != nil {
-		if err := s.knowledge.DeleteDocument(r.Context(), documentID, storageKey); err != nil {
+		deleteCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		err := s.knowledge.DeleteDocument(deleteCtx, documentID, storageKey, liveIndex)
+		cancel()
+		if err != nil {
 			slog.Error("could not remove document from knowledge service", "document", documentID, "error", err)
 			writeError(w, http.StatusBadGateway, "Không thể xoá tài liệu khỏi dịch vụ tri thức.")
 			return
 		}
 	}
 
-	if _, err := s.db.Exec(r.Context(), `DELETE FROM knowledge_documents WHERE id = $1`, documentID); err != nil {
+	if _, err := tx.Exec(r.Context(), `DELETE FROM knowledge_documents WHERE id = $1`, documentID); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể xoá tài liệu.")
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeError(w, 500, "Không thể lưu kết quả xóa tài liệu.")
 		return
 	}
 	kbWorkspaceID, kbName := s.knowledgeOwner(r.Context(), kbID)
@@ -641,6 +637,15 @@ func (s *Server) retrieveKnowledgeSelection(ctx context.Context, workspaceID, qu
 		}
 		if settingsErr != nil {
 			return nil, settingsErr
+		}
+		if models.LiveIndexID != "" && models.SnapshotID == "" {
+			var populated bool
+			if err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM knowledge_documents WHERE kb_id=$1)`, kbID).Scan(&populated); err != nil {
+				return nil, err
+			}
+			if !populated {
+				return nil, nil
+			}
 		}
 		limit := models.TopK
 		if limit <= 0 {

@@ -15,7 +15,7 @@ def collection_name(snapshot_id: str) -> str:
     return store.settings.collection + "__s1_" + snapshot_id[4:]
 
 
-def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: dict[str, int], originals: dict | None = None, deadline_epoch: float | None = None) -> dict:
+def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: dict[str, int], originals: dict | None = None, deadline_epoch: float | None = None, source_snapshot_id: str | None = None) -> dict:
     deadline = min(deadline_epoch if deadline_epoch is not None else time.time() + 300, time.time() + 300)
     def check_deadline():
         if time.time() >= deadline:
@@ -23,7 +23,7 @@ def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: di
     check_deadline()
     if not documents or len(documents) > 10000 or any(n <= 0 for n in documents.values()):
         raise ValueError("snapshot requires a bounded manifest of indexed documents")
-    source = store.profile_collection(gateway)
+    source = resolve(source_snapshot_id, [kb_id], gateway) if source_snapshot_id else store.profile_collection(gateway)
     store.require_profile(source, [kb_id])
     target = collection_name(snapshot_id)
     qdrant = store.client()
@@ -61,7 +61,7 @@ def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: di
                     raise ValueError("snapshot chunk count exceeds document manifest")
                 payload["snapshot_id"] = snapshot_id
                 # Keep the profile binding inside every immutable payload.
-                payload["snapshot_profile"] = source
+                payload["snapshot_profile"] = store.profile_collection(gateway)
                 digest.update(json.dumps([str(point.id), payload], sort_keys=True, ensure_ascii=False).encode())
                 copied.append(store.models.PointStruct(id=point.id, payload=payload, vector=point.vector))
             if copied:

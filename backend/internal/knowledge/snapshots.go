@@ -28,7 +28,11 @@ func (c *Client) CreateSnapshot(ctx context.Context, id, kbID string, documents 
 	if caller, ok := ctx.Deadline(); ok && caller.Before(deadline) {
 		deadline = caller
 	}
-	err := c.call(ctx, http.MethodPost, "/snapshots", map[string]any{"snapshot_id": id, "kb_id": kbID, "embedding_model": settings.EmbeddingModel, "documents": documents, "originals": originals, "deadline_epoch": deadline.Unix()}, &result, &settings)
+	body := map[string]any{"snapshot_id": id, "kb_id": kbID, "embedding_model": settings.EmbeddingModel, "documents": documents, "originals": originals, "deadline_epoch": deadline.Unix()}
+	if settings.LiveIndexID != "" {
+		body["source_snapshot_id"] = settings.LiveIndexID
+	}
+	err := c.call(ctx, http.MethodPost, "/snapshots", body, &result, &settings)
 	return result, err
 }
 

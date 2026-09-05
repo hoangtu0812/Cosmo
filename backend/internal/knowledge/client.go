@@ -40,26 +40,30 @@ func New(baseURL string, timeout time.Duration) *Client {
 }
 
 type IngestRequest struct {
-	KBID            string `json:"kb_id"`
-	DocumentID      string `json:"document_id"`
-	Filename        string `json:"filename"`
-	ContentType     string `json:"content_type"`
-	ContentBase64   string `json:"content_base64,omitempty"`
-	StorageKey      string `json:"storage_key,omitempty"`
-	Title           string `json:"title"`
-	DocumentVersion int    `json:"document_version"`
-	EffectiveDate   string `json:"effective_date,omitempty"`
-	LayoutMode      string `json:"layout_mode,omitempty"`
-	EmbeddingModel  string `json:"embedding_model,omitempty"`
-	RerankerModel   string `json:"reranker_model,omitempty"`
-	ChunkSize       int    `json:"chunk_size,omitempty"`
-	ChunkOverlap    int    `json:"chunk_overlap,omitempty"`
+	TargetSnapshotID string `json:"target_snapshot_id,omitempty"`
+	DeadlineEpoch    int64  `json:"deadline_epoch,omitempty"`
+	KBID             string `json:"kb_id"`
+	DocumentID       string `json:"document_id"`
+	Filename         string `json:"filename"`
+	ContentType      string `json:"content_type"`
+	ContentBase64    string `json:"content_base64,omitempty"`
+	StorageKey       string `json:"storage_key,omitempty"`
+	Title            string `json:"title"`
+	DocumentVersion  int    `json:"document_version"`
+	EffectiveDate    string `json:"effective_date,omitempty"`
+	LayoutMode       string `json:"layout_mode,omitempty"`
+	EmbeddingModel   string `json:"embedding_model,omitempty"`
+	RerankerModel    string `json:"reranker_model,omitempty"`
+	ChunkSize        int    `json:"chunk_size,omitempty"`
+	ChunkOverlap     int    `json:"chunk_overlap,omitempty"`
 }
 
 // ModelSettings selects the models used for an individual knowledge job. The
 // control plane supplies it from the platform configuration, so the data
 // service never has to hold database credentials or read deployment env vars.
 type ModelSettings struct {
+	LiveIndexID    string `json:"-"`
+	KBID           string `json:"-"`
 	SnapshotID     string `json:"-"`
 	EmbeddingScope string
 	EmbeddingModel string
@@ -90,15 +94,16 @@ func (m ModelSettings) applyGatewayHeaders(request *http.Request) {
 // reading it here only to encode it back to the service that stored it costs a
 // full copy of every document in both directions.
 type IngestJob struct {
-	KBID        string
-	DocumentID  string
-	Filename    string
-	ContentType string
-	Title       string
-	LayoutMode  string
-	Version     int
-	Content     []byte
-	StorageKey  string
+	TargetSnapshotID string
+	KBID             string
+	DocumentID       string
+	Filename         string
+	ContentType      string
+	Title            string
+	LayoutMode       string
+	Version          int
+	Content          []byte
+	StorageKey       string
 }
 
 type IngestResult struct {
@@ -168,18 +173,22 @@ type DocumentInspection struct {
 // uploaded the file staring at nothing, unable to tell slow from stuck.
 func (c *Client) Ingest(ctx context.Context, job IngestJob, models ModelSettings, onEvent func(Event)) (IngestResult, error) {
 	body := IngestRequest{
-		KBID:            job.KBID,
-		DocumentID:      job.DocumentID,
-		Filename:        job.Filename,
-		ContentType:     job.ContentType,
-		StorageKey:      job.StorageKey,
-		Title:           job.Title,
-		LayoutMode:      job.LayoutMode,
-		DocumentVersion: job.Version,
-		EmbeddingModel:  models.EmbeddingModel,
-		RerankerModel:   models.RerankerModel,
-		ChunkSize:       models.ChunkSize,
-		ChunkOverlap:    models.ChunkOverlap,
+		TargetSnapshotID: job.TargetSnapshotID,
+		KBID:             job.KBID,
+		DocumentID:       job.DocumentID,
+		Filename:         job.Filename,
+		ContentType:      job.ContentType,
+		StorageKey:       job.StorageKey,
+		Title:            job.Title,
+		LayoutMode:       job.LayoutMode,
+		DocumentVersion:  job.Version,
+		EmbeddingModel:   models.EmbeddingModel,
+		RerankerModel:    models.RerankerModel,
+		ChunkSize:        models.ChunkSize,
+		ChunkOverlap:     models.ChunkOverlap,
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		body.DeadlineEpoch = deadline.Unix()
 	}
 	if job.StorageKey == "" {
 		body.ContentBase64 = base64.StdEncoding.EncodeToString(job.Content)
@@ -257,6 +266,8 @@ func (c *Client) Search(ctx context.Context, query string, kbIDs []string, limit
 	}
 	if models.SnapshotID != "" {
 		body["snapshot_id"] = models.SnapshotID
+	} else if models.LiveIndexID != "" {
+		body["snapshot_id"] = models.LiveIndexID
 	}
 	if models.TopK > 0 {
 		body["limit"] = models.TopK
@@ -273,10 +284,17 @@ func (c *Client) Search(ctx context.Context, query string, kbIDs []string, limit
 	return result.Results, nil
 }
 
-func (c *Client) DeleteDocument(ctx context.Context, documentID, storageKey string) error {
+func (c *Client) DeleteDocument(ctx context.Context, documentID, storageKey string, liveIndex ...string) error {
 	path := "/documents/" + url.PathEscape(documentID)
+	params := url.Values{}
 	if storageKey != "" {
-		path += "?storage_key=" + url.QueryEscape(storageKey)
+		params.Set("storage_key", storageKey)
+	}
+	if len(liveIndex) > 0 && liveIndex[0] != "" {
+		params.Set("snapshot_id", liveIndex[0])
+	}
+	if len(params) > 0 {
+		path += "?" + params.Encode()
 	}
 	return c.call(ctx, http.MethodDelete, path, nil, nil, nil)
 }
@@ -284,6 +302,9 @@ func (c *Client) DeleteDocument(ctx context.Context, documentID, storageKey stri
 func (c *Client) InspectDocument(ctx context.Context, documentID string, models ModelSettings) (DocumentInspection, error) {
 	var inspection DocumentInspection
 	path := "/documents/" + url.PathEscape(documentID) + "/inspection?embedding_model=" + url.QueryEscape(models.EmbeddingModel)
+	if models.LiveIndexID != "" {
+		path += "&snapshot_id=" + url.QueryEscape(models.LiveIndexID) + "&kb_id=" + url.QueryEscape(models.KBID)
+	}
 	if err := c.call(ctx, http.MethodGet, path, nil, &inspection, &models); err != nil {
 		return DocumentInspection{}, err
 	}

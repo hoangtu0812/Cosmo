@@ -86,6 +86,10 @@ func TestReindexRetainsIndexAndAtomicallyAdmitsDocuments(t *testing.T) {
 	if w := request(); w.Code != 202 {
 		t.Fatalf("admission: %d %s", w.Code, w.Body.String())
 	}
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); s.RunKnowledgeIngestionWorker(workerCtx) }()
+	defer func() { stopWorker(); closeIfOpen(release); <-stopped }()
 	select {
 	case <-started:
 	case <-time.After(3 * time.Second):
@@ -116,5 +120,13 @@ func TestReindexRetainsIndexAndAtomicallyAdmitsDocuments(t *testing.T) {
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("reindex made %d calls", calls.Load())
+	}
+}
+
+func closeIfOpen(ch chan struct{}) {
+	select {
+	case <-ch:
+	default:
+		close(ch)
 	}
 }

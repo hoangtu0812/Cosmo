@@ -12,7 +12,7 @@ import logging
 import time
 from typing import Iterator
 
-from . import ingest, objects, store
+from . import ingest, objects, store, snapshots
 from . import models as ml
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,8 @@ def run(
     storage_key: str | None = None,
     chunk_size: int | None = None,
     chunk_overlap: int | None = None,
+    target_snapshot_id: str | None = None,
+    deadline_epoch: float | None = None,
 ) -> Iterator[dict]:
     """Ingest one document, yielding an event per stage.
 
@@ -62,8 +64,12 @@ def run(
     stream ended on purpose rather than by a dropped connection.
     """
     started = time.time()
+    def check_deadline():
+        if deadline_epoch is not None and time.time() >= deadline_epoch:
+            raise TimeoutError("ingestion attempt deadline exceeded")
 
     try:
+        check_deadline()
         yield _event("received", f"Received {filename} ({len(content):,} bytes)")
 
         if storage_key:
@@ -90,6 +96,7 @@ def run(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
         ))
+        check_deadline()
         if not chunks:
             yield _event("error", "No readable text found in the document")
             return
@@ -99,6 +106,7 @@ def run(
 
         encoded = []
         for start in range(0, len(chunks), EMBED_BATCH):
+            check_deadline()
             batch = chunks[start : start + EMBED_BATCH]
             encoded.extend(ml.encode([chunk["text"] for chunk in batch], gateway))
             done = len(encoded)
@@ -110,8 +118,17 @@ def run(
             )
 
         yield _event("indexing", "Writing vectors to the index")
-        # The store writes the replacement first, then prunes obsolete chunks.
-        store.upsert(chunks, encoded, collection=store.profile_collection(gateway))
+        check_deadline()
+        collection = store.profile_collection(gateway)
+        if target_snapshot_id:
+            collection = snapshots.collection_name(target_snapshot_id)
+            for chunk in chunks:
+                chunk['snapshot_id'] = target_snapshot_id
+                chunk['snapshot_profile'] = store.profile_collection(gateway)
+        # A durable worker publishes this isolated attempt only after every
+        # document succeeds. Legacy callers retain their existing profile path.
+        store.upsert(chunks, encoded, collection=collection)
+        check_deadline()
 
         elapsed = time.time() - started
         yield _event(

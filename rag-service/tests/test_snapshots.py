@@ -53,6 +53,15 @@ def test_snapshot_cannot_be_overwritten_or_used_with_other_profile(index):
             snapshots.resolve(SNAPSHOT, kb_ids, gateway)
 
 
+def test_publication_copies_active_generation_instead_of_obsolete_profile(index):
+    generation = 'kbs_' + 'b' * 32
+    snapshots.create(generation, 'kb', GATEWAY, {'doc': 1})
+    write('obsolete profile changed')
+    snapshots.create(SNAPSHOT, 'kb', GATEWAY, {'doc': 1}, source_snapshot_id=generation)
+    found = retrieve.search('evidence', ['kb'], gateway=GATEWAY, snapshot_id=SNAPSHOT, rerank_enabled=False)
+    assert found[0]['text'] == 'original evidence'
+
+
 @pytest.mark.parametrize("manifest", [{"doc": 2}, {"other": 1}, {"doc": 1, "missing": 1}])
 def test_incomplete_copy_is_removed(index, manifest):
     with pytest.raises(ValueError):

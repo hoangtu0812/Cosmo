@@ -50,6 +50,10 @@ func main() {
 	go func() { defer chatWorkers.Done(); api.RunKnowledgeSnapshotCleanup(workerCtx) }()
 	chatWorkers.Add(1)
 	go func() { defer chatWorkers.Done(); api.RunKnowledgeSnapshotWorker(workerCtx) }()
+	for i := 0; i < min(16, max(1, cfg.ReindexWorkers)); i++ {
+		chatWorkers.Add(1)
+		go func() { defer chatWorkers.Done(); api.RunKnowledgeIngestionWorker(workerCtx) }()
+	}
 	for i := 0; i < cfg.ChatWorkers; i++ {
 		chatWorkers.Add(1)
 		go func() {

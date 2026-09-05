@@ -38,7 +38,7 @@ func (registration oauthUserRegistration) isComplete() bool {
 func (registration oauthUserRegistration) fingerprint() string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		strings.TrimSpace(registration.ClientID), registration.ClientSecret,
-		strings.TrimSpace(registration.Scope), strings.TrimRight(strings.TrimSpace(registration.AuthorizationServer), "/"),
+		strings.TrimSpace(registration.Scope), strings.TrimSpace(registration.AuthorizationServer),
 	}, "\x00")))
 	return hex.EncodeToString(sum[:])
 }
@@ -74,6 +74,7 @@ type protectedResource struct {
 	ResourceName         string   `json:"resource_name,omitempty"`
 	AuthorizationServers []string `json:"authorization_servers"`
 	ScopesSupported      []string `json:"scopes_supported,omitempty"`
+	ChallengeScopes      []string `json:"-"`
 }
 
 // OAuthConnection discovers the resource and authorization servers and adds
@@ -125,7 +126,7 @@ func (repository *Repository) discoverOAuth(ctx context.Context, resourceURL str
 	if err := repository.egress.CheckEgress(resourceURL); err != nil {
 		return protectedResource{}, nil, err
 	}
-	metadataURLs := repository.protectedResourceMetadataURLs(ctx, resourceURL)
+	metadataURLs, challengeScopes := repository.protectedResourceMetadataURLs(ctx, resourceURL)
 	var resource protectedResource
 	var found bool
 	for _, metadataURL := range metadataURLs {
@@ -138,6 +139,7 @@ func (repository *Repository) discoverOAuth(ctx context.Context, resourceURL str
 	if !found || resource.Resource == "" || len(resource.AuthorizationServers) == 0 {
 		return protectedResource{}, nil, ErrOAuthDiscovery
 	}
+	resource.ChallengeScopes = challengeScopes
 
 	servers := make([]OAuthAuthorizationServer, 0, len(resource.AuthorizationServers))
 	for _, issuer := range resource.AuthorizationServers {
@@ -232,8 +234,9 @@ func authorizationServerMetadataURLs(issuer string) []string {
 
 // protectedResourceMetadataURLs prefers the resource_metadata challenge and
 // then tries the two RFC 9728 well-known locations required by MCP.
-func (repository *Repository) protectedResourceMetadataURLs(ctx context.Context, resourceURL string) []string {
+func (repository *Repository) protectedResourceMetadataURLs(ctx context.Context, resourceURL string) ([]string, []string) {
 	urls := []string{}
+	var scopes []string
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, resourceURL, nil)
 	if err == nil {
 		request.Header.Set("Accept", "application/json")
@@ -241,15 +244,20 @@ func (repository *Repository) protectedResourceMetadataURLs(ctx context.Context,
 			challenges, _ := oauthex.ParseWWWAuthenticate(response.Header.Values("WWW-Authenticate"))
 			response.Body.Close()
 			for _, challenge := range challenges {
-				if challenge.Scheme == "bearer" && challenge.Params["resource_metadata"] != "" {
-					urls = append(urls, challenge.Params["resource_metadata"])
+				if strings.EqualFold(challenge.Scheme, "bearer") {
+					if challenge.Params["resource_metadata"] != "" {
+						urls = append(urls, challenge.Params["resource_metadata"])
+					}
+					if response.StatusCode == http.StatusUnauthorized {
+						scopes = append(scopes, boundedOAuthScopes(challenge.Params["scope"])...)
+					}
 				}
 			}
 		}
 	}
 	parsed, err := url.Parse(resourceURL)
 	if err != nil {
-		return urls
+		return urls, scopes
 	}
 	path := strings.TrimLeft(parsed.Path, "/")
 	withPath := *parsed
@@ -260,7 +268,7 @@ func (repository *Repository) protectedResourceMetadataURLs(ctx context.Context,
 	root.RawQuery, root.Fragment, root.RawPath = "", "", ""
 	root.Path = "/.well-known/oauth-protected-resource"
 	urls = appendUnique(urls, root.String())
-	return urls
+	return urls, scopes
 }
 
 func appendUnique(values []string, value string) []string {
@@ -337,7 +345,7 @@ func (repository *Repository) oauthUserRegistration(ctx context.Context, toolID 
 	}
 	registration.ClientID = strings.TrimSpace(registration.ClientID)
 	registration.Scope = strings.TrimSpace(registration.Scope)
-	registration.AuthorizationServer = strings.TrimRight(strings.TrimSpace(registration.AuthorizationServer), "/")
+	registration.AuthorizationServer = strings.TrimSpace(registration.AuthorizationServer)
 	return registration, nil
 }
 
@@ -390,7 +398,13 @@ func (repository *Repository) BeginOAuthAuthorization(ctx context.Context, tool 
 	}
 
 	scopes := strings.Fields(registration.Scope)
-	if len(scopes) == 0 {
+	if len(resource.ChallengeScopes) > 0 {
+		// Explicit provider scopes (for example offline_access) remain useful,
+		// but the resource challenge must not be silently omitted.
+		for _, scope := range resource.ChallengeScopes {
+			scopes = appendUnique(scopes, scope)
+		}
+	} else if len(scopes) == 0 {
 		scopes = append([]string(nil), resource.ScopesSupported...)
 	}
 	verifier := oauth2.GenerateVerifier()
@@ -470,7 +484,7 @@ func stateDigest(state string) string {
 }
 
 func equalIssuer(first, second string) bool {
-	return strings.TrimRight(first, "/") == strings.TrimRight(second, "/")
+	return first == second
 }
 
 type OAuthCallbackResult struct {
@@ -512,14 +526,14 @@ func (repository *Repository) CompleteOAuthAuthorization(ctx context.Context, us
 	if json.Unmarshal([]byte(opened), &saved) != nil {
 		return result, ErrOAuthState
 	}
-	if providerError != "" || strings.TrimSpace(code) == "" {
-		return result, ErrOAuthConnection
-	}
 	if saved.RequireIssuerResponse && responseIssuer == "" {
 		return result, ErrOAuthState
 	}
 	if responseIssuer != "" && !equalIssuer(responseIssuer, saved.Issuer) {
 		return result, ErrOAuthState
+	}
+	if providerError != "" || strings.TrimSpace(code) == "" {
+		return result, ErrOAuthConnection
 	}
 	registration, err := repository.oauthUserRegistration(ctx, result.ToolID)
 	if err != nil || registration.fingerprint() != saved.RegistrationFingerprint {

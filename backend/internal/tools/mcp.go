@@ -51,8 +51,9 @@ func (transport *mcpAuthorisingTransport) RoundTrip(request *http.Request) (*htt
 		return nil, err
 	}
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		challenge := mcpAuthorizationChallenge(response)
 		response.Body.Close()
-		return nil, ErrToolUnauthorized
+		return nil, challenge
 	}
 	return response, nil
 }
@@ -92,7 +93,7 @@ func (repository *Repository) openMCP(ctx context.Context, tool Tool) (*mcpsdk.C
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
 		if errors.Is(err, ErrToolUnauthorized) {
-			return nil, ErrToolUnauthorized
+			return nil, err
 		}
 		return nil, err
 	}
@@ -120,7 +121,7 @@ func (repository *Repository) DiscoverMCP(ctx context.Context, tool Tool) ([]Act
 		listed, err := session.ListTools(ctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 		if err != nil {
 			if errors.Is(err, ErrToolUnauthorized) {
-				return nil, ErrToolUnauthorized
+				return nil, err
 			}
 			return nil, err
 		}
@@ -344,7 +345,7 @@ func (repository *Repository) invokeMCP(ctx context.Context, tool Tool, action A
 	})
 	if err != nil {
 		if errors.Is(err, ErrToolUnauthorized) {
-			return CallResult{}, ErrToolUnauthorized
+			return CallResult{}, err
 		}
 		return CallResult{}, err
 	}

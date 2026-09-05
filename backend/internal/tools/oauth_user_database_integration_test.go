@@ -30,7 +30,7 @@ func TestOAuthUserDatabaseRoundTrip(t *testing.T) {
 	provider = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/mcp":
-			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+provider.URL+`/resource-meta"`)
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+provider.URL+`/resource-meta", scope="orders.export"`)
 			w.WriteHeader(http.StatusUnauthorized)
 		case "/resource-meta":
 			writeTestJSON(t, w, map[string]any{
@@ -100,6 +100,9 @@ func TestOAuthUserDatabaseRoundTrip(t *testing.T) {
 	}
 	authorizationURL, _ := url.Parse(started.AuthorizationURL)
 	state := authorizationURL.Query().Get("state")
+	if !strings.Contains(authorizationURL.Query().Get("scope"), "orders.export") {
+		t.Fatal("authoritative challenge scope omitted")
+	}
 	if state == "" || authorizationURL.Query().Get("code_challenge_method") != "S256" || authorizationURL.Query().Get("resource") != provider.URL+"/mcp" {
 		t.Fatalf("authorization request lacks state, PKCE or resource: %s", started.AuthorizationURL)
 	}

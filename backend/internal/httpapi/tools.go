@@ -17,6 +17,11 @@ import (
 // writeToolError maps a domain error onto a status. The wording lives with the
 // rule in the tools package, so it is never restated here.
 func writeToolError(w http.ResponseWriter, err error) {
+	var challenge *tools.MCPAuthorizationError
+	if errors.As(err, &challenge) {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": map[string]any{"message": challenge.Error(), "code": "mcp_authorization_required", "required_scopes": challenge.RequiredScopes, "upstream_status": challenge.Status}})
+		return
+	}
 	switch {
 	case errors.Is(err, tools.ErrNotOffered), errors.Is(err, tools.ErrNotInstalled),
 		errors.Is(err, tools.ErrKeyedAutoCall), errors.Is(err, tools.ErrNoActions):

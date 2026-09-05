@@ -327,6 +327,9 @@ func (repository *Repository) InvokeNamed(ctx context.Context, agentID, name, ra
 // that set - reaches nothing, which is the same guarantee as before now stated
 // against the set rather than against an agent.
 func (repository *Repository) InvokeInSet(ctx context.Context, list []Tool, actions map[string][]Action, name, rawArguments string) (CallResult, error) {
+	if len(rawArguments) > MaxArgumentBytes {
+		return CallResult{}, ErrArguments
+	}
 	arguments := map[string]any{}
 	if strings.TrimSpace(rawArguments) != "" {
 		if err := json.Unmarshal([]byte(rawArguments), &arguments); err != nil {
@@ -365,6 +368,9 @@ func (repository *Repository) InvokeAction(ctx context.Context, userID, workspac
 	result, err := repository.Invoke(ctx, tool, action, arguments)
 	if err != nil {
 		return "", err
+	}
+	if result.Status < 200 || result.Status >= 300 {
+		return "", ErrCallFailed
 	}
 	return result.Body, nil
 }

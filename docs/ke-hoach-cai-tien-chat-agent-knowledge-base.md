@@ -528,3 +528,9 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 
 - Model Gateway chỉ coi stream thành công khi nhận DONE; EOF, JSON lỗi, upstream error và finish_reason length/filter trả lỗi an toàn. Nhận DONE kết thúc ngay, không chờ socket đóng.
 - Unit tests kiểm tra stream lỗi/giới hạn/kết thúc; HTTP integration qua worker xác minh stream bị cắt không lưu assistant message hoặc phát done. Backend suite/PostgreSQL qua.
+
+### 2026-09-05 — TOOL-01a: Schema MCP và trạng thái invocation
+
+- Kiểm tra inputSchema gốc (required, nested types, enum, bounds) trước MCP transport, giới hạn arguments 64 KiB; không tải remote schema refs. Legacy action chưa có MCP contract giữ tương thích.
+- Chat không gọi tool nếu không tạo/chuyển running được execution step. HTTP ngoài 2xx và MCP isError được ghi failed và hiện error; workflow InvokeAction cũng từ chối kết quả lỗi.
+- Tests schema trước kết nối và HTTP/DB kiểm tra tool 503, lỗi tạo step; backend suite/PostgreSQL qua. Chưa hoàn tất policy action ghi, approval/idempotency/reconciliation.

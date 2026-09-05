@@ -163,6 +163,9 @@ func (repository *Repository) Invoke(ctx context.Context, tool Tool, action Acti
 	case KindBuiltin:
 		return repository.invokeBuiltin(ctx, action, arguments)
 	case KindMCP:
+		if err := validateMCPArguments(action, arguments); err != nil {
+			return CallResult{}, err
+		}
 		return repository.invokeMCP(ctx, tool, action, arguments)
 	}
 

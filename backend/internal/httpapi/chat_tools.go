@@ -175,13 +175,26 @@ func (s *Server) runToolRounds(
 			if err := s.checkChatExecution(ctx); err != nil {
 				return history, reported
 			}
-			result, callErr := s.tools.InvokeInSet(ctx, set.tools, set.actions, call.Name, call.Arguments)
+			var result tools.CallResult
+			var callErr error
+			if stepErr != nil {
+				// Never perform an external action without a persisted execution step.
+				callErr = fmt.Errorf("Không thể ghi nhận bước thực thi tool")
+			} else {
+				result, callErr = s.tools.InvokeInSet(ctx, set.tools, set.actions, call.Name, call.Arguments)
+				if callErr == nil && (result.Status < 200 || result.Status >= 300) {
+					callErr = fmt.Errorf("Tool trả trạng thái lỗi %d", result.Status)
+				}
+			}
 			content := result.Body
 			if callErr != nil {
 				// The failure is handed to the model rather than hidden: told
 				// what went wrong, it can try different arguments or say it
 				// could not find out, which is better than inventing an answer.
 				content = "Tool call failed: " + callErr.Error()
+				if result.Body != "" {
+					content += "\n" + result.Body
+				}
 				if stepErr == nil {
 					_, _ = s.runs.TransitionStep(ctx, step.ID, runs.Failed, nil, "", "tool_failed", callErr.Error())
 				}

@@ -508,3 +508,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - SSE được lưu trước khi phát; subscriber/retry đọc lại cùng lượt, hỗ trợ `Last-Event-ID`. Đóng kết nối không hủy worker. Xóa transcript bị chặn khi còn queued/executing.
 - Tests PostgreSQL/HTTP qua worker thật trong process kiểm tra FIFO, nhiều subscriber, lịch sử/transcript đúng thứ tự, ngắt subscriber, membership bị thu hồi, cấu hình thay đổi, cancellation tới gateway, replay cursor. Mô phỏng worker chết bằng lease hết hạn xác minh worker cũ bị chặn ghi và worker mới nhận lượt chờ; chưa chạy bài chaos kill container ngoài môi trường test.
 - `go test ./...` với database integration qua. Rollout cần drain backend cũ trước migrate/start phiên bản này. Còn resume từng checkpoint model/tool, reconciliation action ghi, retention/compaction sự kiện và giới hạn backlog toàn hệ thống; không tuyên bố exactly-once cho tác động bên ngoài.
+
+### 2026-09-05 — RUN-01b: Client tự nối lại SSE
+
+- Shared chat client giữ client_message_id và cursor trong suốt lần gửi; lỗi mạng/EOF tự nối lại tối đa 3 lần, gửi `Last-Event-ID` và bỏ qua sự kiện đã nhận để không nối trùng delta/tool.
+- Dừng ngay khi nhận done; lỗi HTTP hoặc error event từ execution được hiển thị thay vì retry tác động nghiệp vụ. Sau khi hết số lần nối lại, ID vẫn được giữ để người dùng kiểm tra lại cùng lượt.
+- Unit tests giả lập stream đứt, phát lại event cũ, continuation từ cursor, HTTP conflict và ID qua retry. Frontend retry tests, TypeScript và build đều qua.
+- Cursor dùng cho nối lại trong cùng lần gửi. Sau reload tab, retry dùng ID đã lưu và đọc lại từ đầu; tự resume màn hình sau reload không cần người dùng gửi lại còn là phần UX tiếp theo.

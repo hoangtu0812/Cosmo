@@ -812,54 +812,66 @@ export async function streamChat(
 ): Promise<void> {
   const payload = {content, model: options.model ?? '', reasoning_effort: options.reasoningEffort ?? ''};
   const identity = options.clientMessageID ? {id: options.clientMessageID, complete: () => undefined} : await chatRequestIdentity(conversationID, JSON.stringify(payload));
-  const response = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationID)}/messages`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {'Content-Type': 'application/json', Accept: 'text/event-stream'},
-    body: JSON.stringify({...payload, client_message_id: identity.id}),
-  });
-  if (!response.ok) {
-    let body: APIErrorShape = {};
-    try { body = await response.json() as APIErrorShape; } catch { /* ignore invalid error body */ }
-    throw new APIError(body.error?.message ?? 'Không thể gửi câu hỏi.', response.status);
-  }
-  if (!response.body) throw new APIError('Trình duyệt không hỗ trợ nhận dữ liệu streaming.', 500);
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let receivedDone = false;
-  try {
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, {stream: true});
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() ?? '';
-      for (const frame of frames) {
-        const lines = frame.split('\n');
-        const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
-        const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
-        if (!event || !rawData) continue;
-        const data = JSON.parse(rawData) as Record<string, unknown>;
-        if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; run_id?: string});
-        if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string; detail?: string});
-        if (event === 'tool') handlers.onToolCall?.(data as unknown as MessageToolCall);
-        if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
-        if (event === 'usage') handlers.onUsage?.(data as ChatUsage);
-        if (event === 'title') handlers.onTitle?.(data as {title: string});
-        if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
-        if (event === 'done') {
-          receivedDone = true;
-          identity.complete();
-          handlers.onDone?.(data as {message: Message});
-        }
-        if (event === 'error') throw new APIError(String(data.message ?? 'Model Gateway không phản hồi.'), 502);
+  let cursor = '';
+  let reconnects = 0;
+  for (;;) {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const response = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationID)}/messages`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {'Content-Type': 'application/json', Accept: 'text/event-stream', ...(cursor ? {'Last-Event-ID': cursor} : {})},
+        body: JSON.stringify({...payload, client_message_id: identity.id}),
+      });
+      if (!response.ok) {
+        let body: APIErrorShape = {};
+        try { body = await response.json() as APIErrorShape; } catch { /* ignore invalid error body */ }
+        throw new APIError(body.error?.message ?? 'Không thể gửi câu hỏi.', response.status);
       }
+      if (!response.body) throw new APIError('Trình duyệt không hỗ trợ nhận dữ liệu streaming.', 500);
+
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, {stream: true});
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          const lines = frame.split('\n');
+          const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
+          const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
+          if (!event || !rawData) continue;
+          const id = lines.find((line) => line.startsWith('id:'))?.slice(3).trim();
+          if (id && /^\d+$/.test(id) && cursor && BigInt(id) <= BigInt(cursor)) continue;
+          const data = JSON.parse(rawData) as Record<string, unknown>;
+          if (event === 'meta') handlers.onMeta?.(data as {assistant_message_id: string; model: string; run_id?: string});
+          if (event === 'status') handlers.onStatus?.(data as {stage: string; message: string; detail?: string});
+          if (event === 'tool') handlers.onToolCall?.(data as unknown as MessageToolCall);
+          if (event === 'suggestions') handlers.onSuggestions?.(data as {questions: string[]});
+          if (event === 'usage') handlers.onUsage?.(data as ChatUsage);
+          if (event === 'title') handlers.onTitle?.(data as {title: string});
+          if (event === 'delta') handlers.onDelta(String(data.content ?? ''));
+          if (event === 'done') {
+            identity.complete();
+            handlers.onDone?.(data as {message: Message});
+            return;
+          }
+          if (event === 'error') throw new APIError(String(data.message ?? 'Model Gateway không phản hồi.'), 502);
+          if (id && /^\d+$/.test(id)) cursor = id;
+        }
+      }
+      throw new Error('Kết nối bị gián đoạn trước khi nhận đủ câu trả lời. Bạn có thể gửi lại câu hỏi để kiểm tra lượt đã gửi.');
+    } catch (caught) {
+      if (caught instanceof APIError || caught instanceof SyntaxError || reconnects >= 3) throw caught;
+      reconnects++;
+      handlers.onStatus?.({stage: 'reconnecting', message: 'Đang kết nối lại…'});
+      await new Promise((resolve) => setTimeout(resolve, 250 * reconnects));
+    } finally {
+      await reader?.cancel().catch(() => undefined);
     }
-    if (!receivedDone) throw new APIError('Kết nối bị gián đoạn trước khi nhận đủ câu trả lời. Bạn có thể gửi lại câu hỏi để kiểm tra lượt đã gửi.', 502);
-  } finally {
-    await reader.cancel().catch(() => undefined);
   }
 }
 

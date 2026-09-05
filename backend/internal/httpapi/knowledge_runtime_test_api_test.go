@@ -12,6 +12,25 @@ import (
 	"time"
 )
 
+func TestRetrievalKnowledgeModeIncludesEmptyAndFailedSources(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sources []knowledgeSourceStatus
+		want    string
+	}{
+		{"none", nil, "live"},
+		{"live", []knowledgeSourceStatus{{KBID: "one", Status: "ready"}}, "live"},
+		{"empty snapshot", []knowledgeSourceStatus{{KBID: "one", SnapshotID: "pin", Status: "empty"}}, "snapshot"},
+		{"mixed failure", []knowledgeSourceStatus{{KBID: "one", Status: "ready"}, {KBID: "two", SnapshotID: "pin", Status: "failed"}}, "mixed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := retrievalKnowledgeMode(tc.sources); got != tc.want {
+				t.Fatalf("mode %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRetrievalAPIUsesChatFusionAndAccessBoundary(t *testing.T) {
 	s, agent, owner, outsider := agentAccessFixture(t)
 	ctx := context.Background()
@@ -53,6 +72,24 @@ func TestRetrievalAPIUsesChatFusionAndAccessBoundary(t *testing.T) {
 	direct, err := s.retrieveKnowledge(ctx, agent.WorkspaceID, "Question", []string{first, second, hidden})
 	if err != nil || len(decoded.Passages) != 2 || len(decoded.Sources) != 2 || decoded.Passages[0].KBID != direct.Passages[0].KBID {
 		t.Fatal("evaluation diverges from chat retrieval")
+	}
+	settings, err := s.knowledgeModelSettingsForKB(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settingsJSON, _ := json.Marshal(settings)
+	pin := "kbs_" + randomID(16)
+	if _, err := s.db.Exec(ctx, `INSERT INTO knowledge_snapshots(id,kb_id,version,manifest,model_settings,chunks,digest) VALUES($1,$2,1,'{}',$3,1,'digest')`, pin, second, string(settingsJSON)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(ctx, `UPDATE knowledge_mounts SET snapshot_id=$1 WHERE kb_id=$2 AND target_id=$3`, pin, second, agent.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest("POST", "/workspaces/"+agent.WorkspaceID+"/retrieve", strings.NewReader(string(body))).WithContext(context.WithValue(ctx, userContextKey, owner))
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), `"knowledge_mode":"mixed"`) || !strings.Contains(response.Body.String(), `"snapshot_id":"`+pin+`"`) {
+		t.Fatalf("mixed provenance missing: %d %s", response.Code, response.Body.String())
 	}
 	// Explicitly remove fixture membership before checking denial.
 	s.db.Exec(ctx, `DELETE FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2`, agent.WorkspaceID, outsider.ID)

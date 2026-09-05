@@ -44,5 +44,25 @@ func (s *Server) testWorkspaceRetrieval(w http.ResponseWriter, r *http.Request) 
 	if report.Sources == nil {
 		report.Sources = []knowledgeSourceStatus{}
 	}
-	writeJSON(w, 200, map[string]any{"passages": report.Passages, "sources": report.Sources, "incomplete": report.incomplete(), "duration_ms": time.Since(started).Milliseconds(), "retrieval_contract": "chat-go-v1", "knowledge_mode": "live"})
+	writeJSON(w, 200, map[string]any{"passages": report.Passages, "sources": report.Sources, "incomplete": report.incomplete(), "duration_ms": time.Since(started).Milliseconds(), "retrieval_contract": "chat-go-v1", "knowledge_mode": retrievalKnowledgeMode(report.Sources)})
+}
+
+// Report the selection actually searched, including unsuccessful branches.
+// Looking at passages alone would mislabel an empty snapshot as Live.
+func retrievalKnowledgeMode(sources []knowledgeSourceStatus) string {
+	live, snapshot := false, false
+	for _, source := range sources {
+		if source.SnapshotID == "" {
+			live = true
+		} else {
+			snapshot = true
+		}
+	}
+	if live && snapshot {
+		return "mixed"
+	}
+	if snapshot {
+		return "snapshot"
+	}
+	return "live"
 }

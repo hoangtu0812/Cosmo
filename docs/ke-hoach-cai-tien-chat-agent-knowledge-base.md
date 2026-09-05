@@ -668,3 +668,11 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Smoke tạo hai KB và tệp tạm trên PostgreSQL/Qdrant/MinIO thật. Pause RAG để giữ copy đang chạy, gửi publish có xác thực, SIGKILL backend sau khi job đã nhận lease, unpause RAG rồi khởi động backend. Rút ngắn duy nhất lease của job thử thay vì chờ 6 phút. Job phục hồi ở attempt 2, ID snapshot mới, đúng một version/audit; attempt cũ vào cleanup outbox.
 - Kiểm tra lại nhiều KB Live/Snapshot, pin release cũ/mới, tệp gốc sau khi xóa Live, retention chỉ dọn bản không tham chiếu đều qua. Client theo dõi endpoint trạng thái khi HTTP wait hết hạn; TypeScript/build frontend qua.
 - Regression chat FIFO/reconnect/replay/transcript, MCP discovery/rediscovery/invocation và gateway thật truy vấn ba tài liệu hiện có đều qua. Frontend HTTP 200. Đã dọn dữ liệu thử; riêng hạn cleanup của attempt bị kill được đẩy sớm để dọn xong trong buổi thử, cấu hình thực vẫn giữ thời gian chờ một giờ.
+
+### 2026-09-06 — EVAL-02: Ưu tiên đánh giá nhiều KB trước ingest/tool ghi
+
+- Thứ tự theo yêu cầu: (2) đánh giá chất lượng nhiều KB → (3) ingest/reindex bền vững và chuyển Live index nguyên tử → (1) policy/approval/idempotency/reconciliation cho tool ghi.
+- Endpoint đánh giá báo đúng Live/Snapshot/mixed theo nguồn đã truy vấn, kể cả nguồn rỗng/lỗi. Report v2 lưu fingerprint nhãn và KB/snapshot; kiểm tra provenance trước chấm, không chứa câu hỏi/passages/session.
+- Thêm evidence_groups/evidence_coverage, nhóm single_source/multi_source/conflict/unanswerable/access_boundary, ngưỡng chất lượng từng câu và so sánh baseline từng câu. Từ chối baseline đổi nhãn/corpus, nguồn Live hoặc kết quả lỗi; không tự thay baseline. Ngưỡng chỉ áp khi người chạy cung cấp, chưa tự đặt chuẩn nghiệp vụ.
+- Kiểm thử: 9 Python tests và toàn bộ backend/PostgreSQL qua; có ca mất một phía mâu thuẫn dù đủ hai KB, điểm trung bình không đổi nhưng một câu giảm, pin sai, thay corpus/nhãn, ngưỡng không có nhãn, endpoint thật trộn Live/Snapshot.
+- Đã có mẫu gán nhãn tại docs/evaluation-chat-retrieval-labeling.md. Chưa có câu hỏi/đáp án nghiệp vụ được duyệt; không coi tests giả lập là baseline. Planner theo lịch sử và độ đúng của đáp án/citation cuối còn cần đánh giá riêng.

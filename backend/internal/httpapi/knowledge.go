@@ -46,6 +46,7 @@ func (s *Server) knowledgeModelSettingsForKB(ctx context.Context, kbID string) (
 		return settings, fmt.Errorf("knowledge base %s has no reranker model", kbID)
 	}
 	settings.GatewayBaseURL = baseURL
+	settings.EmbeddingScope = workspaceID
 	settings.GatewayAPIKey = apiKey
 	return settings, nil
 }

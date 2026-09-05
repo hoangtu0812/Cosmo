@@ -8,6 +8,7 @@ from dataclasses import dataclass
 class Settings:
     qdrant_url: str
     collection: str
+    profile_reads: bool
 
     minio_endpoint: str
     minio_access_key: str
@@ -43,6 +44,9 @@ def load() -> Settings:
     return Settings(
         qdrant_url=os.environ.get("QDRANT_URL", "http://qdrant:6333"),
         collection=os.environ.get("QDRANT_COLLECTION", "cosmo_knowledge"),
+        # Temporary rollout switch: legacy reads while profiles are backfilled.
+        # New ingestions always write to profiles, never the legacy collection.
+        profile_reads=os.environ.get("KNOWLEDGE_PROFILE_READS", "true").lower() == "true",
         minio_endpoint=os.environ.get("MINIO_ENDPOINT", "minio:9000"),
         minio_access_key=os.environ.get("MINIO_ACCESS_KEY", "cosmo"),
         minio_secret_key=os.environ.get("MINIO_SECRET_KEY", "cosmo-secret"),

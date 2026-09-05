@@ -19,6 +19,10 @@ class EmptyQdrant:
     def collection_exists(self, _collection):
         return False
 
+    def get_collections(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(collections=[])
+
     def delete(self, **_kwargs):
         self.deleted = True
 

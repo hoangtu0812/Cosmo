@@ -155,8 +155,20 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusServiceUnavailable, "Dịch vụ tri thức chưa được cấu hình.")
 		return
 	}
+	// Serialize admission of global rebuilds, then commit the complete queue
+	// together. A failed preparation must not strand half the corpus processing.
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể chuẩn bị re-index.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(716042901)`); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể khóa hàng đợi re-index.")
+		return
+	}
 	var activeCount int
-	if err := s.db.QueryRow(r.Context(), `SELECT COUNT(*) FROM knowledge_documents WHERE status IN ('pending', 'processing')`).Scan(&activeCount); err != nil {
+	if err := tx.QueryRow(r.Context(), `SELECT COUNT(*) FROM knowledge_documents WHERE status IN ('pending', 'processing')`).Scan(&activeCount); err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể kiểm tra trạng thái tài liệu.")
 		return
 	}
@@ -165,11 +177,11 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rows, err := s.db.Query(r.Context(), `
+	rows, err := tx.Query(r.Context(), `
 		SELECT id, kb_id, title, filename, content_type, version, storage_key
 		FROM knowledge_documents
 		WHERE storage_key <> ''
-		ORDER BY created_at ASC`)
+		ORDER BY created_at ASC FOR UPDATE`)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Không thể tải danh sách tài liệu để re-index.")
 		return
@@ -193,24 +205,24 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := s.knowledge.ResetIndex(r.Context()); err != nil {
-		s.logger.Error("could not reset knowledge index", "error", err)
-		writeError(w, http.StatusBadGateway, "Không thể làm mới knowledge index.")
-		return
-	}
 	for _, document := range documents {
-		if _, err := s.db.Exec(r.Context(), `
+		if _, err := tx.Exec(r.Context(), `
 			UPDATE knowledge_documents
-			SET status = 'processing', chunk_count = 0, error = '', updated_at = NOW()
+			SET status = 'processing', error = '', updated_at = NOW()
 			WHERE id = $1`, document.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể chuẩn bị tài liệu để re-index.")
 			return
 		}
-		if _, err := s.db.Exec(r.Context(), `
+		if _, err := tx.Exec(r.Context(), `
 			INSERT INTO knowledge_document_events(document_id, stage, message, done, total)
 			VALUES($1, 'reindex', 'Queued for re-index', 0, 0)`, document.ID); err != nil {
-			s.logger.Warn("could not record re-index event", "document", document.ID, "error", err)
+			writeError(w, http.StatusInternalServerError, "Không thể ghi hàng đợi re-index.")
+			return
 		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "Không thể lưu hàng đợi re-index.")
+		return
 	}
 	s.audit(r, auditEvent{
 		Action: "admin.system.knowledge_reindex_started", TargetType: "system", TargetID: "knowledge_index",
@@ -233,7 +245,7 @@ func (s *Server) reindexKnowledgeDocuments(w http.ResponseWriter, r *http.Reques
 // every document from travelling to the control plane and back.
 func (s *Server) runKnowledgeReindex(documents []reindexDocument) {
 	started := time.Now()
-	workers := s.cfg.ReindexWorkers
+	workers := max(1, s.cfg.ReindexWorkers)
 	if workers > len(documents) {
 		workers = len(documents)
 	}

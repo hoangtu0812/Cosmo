@@ -108,7 +108,13 @@ func (s *Server) getKnowledgeDocumentDetail(w http.ResponseWriter, r *http.Reque
 	}
 	detail := KnowledgeDocumentDetail{Document: document, Events: events}
 	if s.knowledge != nil && document.Status == "ready" {
-		inspection, inspectionErr := s.knowledge.InspectDocument(r.Context(), documentID)
+		models, settingsErr := s.knowledgeModelSettingsForKB(r.Context(), kbID)
+		if settingsErr != nil {
+			detail.IndexError = "Không thể đọc cấu hình chỉ mục của Knowledge Base."
+			writeJSON(w, http.StatusOK, detail)
+			return
+		}
+		inspection, inspectionErr := s.knowledge.InspectDocument(r.Context(), documentID, models)
 		if inspectionErr != nil {
 			slog.Error("could not inspect knowledge document", "document", documentID, "error", inspectionErr)
 			detail.IndexError = "Không thể đọc dữ liệu Qdrant của tài liệu."

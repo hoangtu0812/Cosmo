@@ -21,6 +21,7 @@ class GatewaySettings:
     api_key: str
     embedding_model: str
     reranker_model: str
+    embedding_scope: str = ""
 
 
 def gateway_settings(
@@ -28,6 +29,7 @@ def gateway_settings(
     reranker_model: str | None,
     gateway_base_url: str | None,
     gateway_api_key: str | None,
+    embedding_scope: str | None = None,
 ) -> GatewaySettings:
     """Validate and return one trusted workspace gateway configuration."""
     settings = GatewaySettings(
@@ -35,6 +37,7 @@ def gateway_settings(
         api_key=gateway_api_key or "",
         embedding_model=embedding_model or "",
         reranker_model=reranker_model or "",
+        embedding_scope=embedding_scope or "",
     )
     if not settings.base_url:
         raise RuntimeError("Workspace Model Gateway is not configured")

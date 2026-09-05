@@ -111,7 +111,7 @@ def run(
 
         yield _event("indexing", "Writing vectors to the index")
         # The store writes the replacement first, then prunes obsolete chunks.
-        store.upsert(chunks, encoded)
+        store.upsert(chunks, encoded, collection=store.profile_collection(gateway))
 
         elapsed = time.time() - started
         yield _event(

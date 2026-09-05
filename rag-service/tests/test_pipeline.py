@@ -23,7 +23,7 @@ def stub(monkeypatch):
 
     monkeypatch.setattr(pipeline.objects, "put", lambda key, content, ct: stored.update(key=key))
     monkeypatch.setattr(pipeline.store, "delete_document", lambda document_id: None)
-    monkeypatch.setattr(pipeline.store, "upsert", lambda chunks, encoded: upserted.update(n=len(chunks)))
+    monkeypatch.setattr(pipeline.store, "upsert", lambda chunks, encoded, **kwargs: upserted.update(n=len(chunks)))
     monkeypatch.setattr(pipeline.ml, "is_cold", lambda: False)
     monkeypatch.setattr(pipeline.ml, "encode", lambda texts, gateway: [object() for _ in texts])
     return {"stored": stored, "upserted": upserted}

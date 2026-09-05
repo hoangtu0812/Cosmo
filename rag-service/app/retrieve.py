@@ -157,6 +157,10 @@ def search(
     limit = limit or settings.rerank_output
     allowed = set(kb_ids)
 
+    collection = store.profile_collection(gateway) if settings.profile_reads else settings.collection
+    if settings.profile_reads:
+        store.require_profile(collection, kb_ids)
+
     use_dense = retrieval_mode in {"semantic", "hybrid"}
     use_sparse = retrieval_mode in {"keyword", "hybrid"}
     encoded = ml.encode([query], gateway)[0] if use_dense else None
@@ -172,9 +176,10 @@ def search(
         if use_dense and encoded is not None:
             found.append((f"dense:{kb_id}", store.search_dense(
                 [kb_id], encoded.dense, settings.candidates_per_kb, score_threshold,
+                collection=collection,
             )))
         if use_sparse and terms:
-            found.append((f"sparse:{kb_id}", store.search_sparse([kb_id], terms, settings.candidates_per_kb)))
+            found.append((f"sparse:{kb_id}", store.search_sparse([kb_id], terms, settings.candidates_per_kb, collection=collection)))
         return found
 
     ranked_lists: list[tuple[str, list]] = []

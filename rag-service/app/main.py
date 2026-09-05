@@ -14,7 +14,7 @@ import logging
 import os
 
 from fastapi import Body, FastAPI, Header, HTTPException
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import ingest, objects, pipeline, retrieve, store
@@ -25,6 +25,11 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Cosmo Knowledge Service", docs_url=None, redoc_url=None)
+
+
+@app.exception_handler(store.ProfileNotIndexed)
+async def profile_not_indexed(_request, error):
+    return JSONResponse(status_code=503, content={"detail": str(error), "code": "embedding_profile_not_indexed"})
 
 
 class IngestRequest(BaseModel):
@@ -90,7 +95,7 @@ def health() -> dict:
     minutes to download, and a health probe that waits for them would keep the
     service out of rotation long after it is able to serve.
     """
-    return {"status": "ok", "collection": settings.collection}
+    return {"status": "ok", "collection": settings.collection, "profile_reads": settings.profile_reads}
 
 
 @app.get("/ready")
@@ -109,6 +114,7 @@ def ingest_document(
     request: IngestRequest = Body(...),
     gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
     gateway_api_key: str | None = Header(default=None, alias="X-Cosmo-Gateway-API-Key"),
+    embedding_scope: str | None = Header(default=None, alias="X-Cosmo-Embedding-Scope"),
 ):
     """Ingest a document, streaming one JSON event per line as it progresses.
 
@@ -116,7 +122,7 @@ def ingest_document(
     happening during the minutes this takes, and a stream lets it forward each
     stage without holding the whole pipeline in memory.
     """
-    gateway = ml.gateway_settings(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
+    gateway = ml.gateway_settings(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key, embedding_scope)
 
     if request.storage_key:
         # A re-index names the original rather than resending it: the control
@@ -161,8 +167,9 @@ def search(
     request: SearchRequest = Body(...),
     gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
     gateway_api_key: str | None = Header(default=None, alias="X-Cosmo-Gateway-API-Key"),
+    embedding_scope: str | None = Header(default=None, alias="X-Cosmo-Embedding-Scope"),
 ) -> SearchResponse:
-    gateway = ml.gateway_settings(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key)
+    gateway = ml.gateway_settings(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key, embedding_scope)
     return SearchResponse(results=retrieve.search(
         request.query,
         request.kb_ids,
@@ -204,9 +211,8 @@ def extract(request: ExtractRequest = Body(...)) -> ExtractResponse:
 
 @app.post("/collections/reset")
 def reset_collection() -> dict:
-    """Drop the derived vector collection before a control-plane re-index."""
-    store.reset_collection()
-    return {"reset": True}
+    """A rebuild must retain existing profiles, including the legacy index."""
+    raise HTTPException(status_code=410, detail="Global index reset is retired; reindex documents into embedding profiles")
 
 
 @app.delete("/documents/{document_id}")
@@ -221,8 +227,15 @@ def delete_document(document_id: str, storage_key: str | None = None) -> dict:
 
 
 @app.get("/documents/{document_id}/inspection")
-def inspect_document(document_id: str) -> dict:
-    return store.inspect_document(document_id)
+def inspect_document(
+    document_id: str,
+    embedding_model: str,
+    gateway_base_url: str | None = Header(default=None, alias="X-Cosmo-Gateway-Base-URL"),
+    embedding_scope: str | None = Header(default=None, alias="X-Cosmo-Embedding-Scope"),
+) -> dict:
+    gateway = ml.gateway_settings(embedding_model, None, gateway_base_url, None, embedding_scope)
+    collection = store.profile_collection(gateway) if settings.profile_reads else settings.collection
+    return store.inspect_document(document_id, collection=collection)
 
 
 @app.get("/documents/{document_id}/original")

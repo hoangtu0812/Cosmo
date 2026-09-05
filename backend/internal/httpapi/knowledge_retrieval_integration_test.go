@@ -58,13 +58,15 @@ func TestMultiKBRetrievalKeepsOwnerProfilesAndEnforcesAccessBeforeSearchAndLog(t
 		calls = append(calls, id)
 		mu.Unlock()
 		wantModel, wantGateway := "embed-a", "https://gateway-a.invalid"
+		wantScope := first.WorkspaceID
 		if id == b {
 			wantModel, wantGateway = "embed-b", "https://gateway-b.invalid"
+			wantScope = second.WorkspaceID
 		}
 		if id != a && id != b {
 			t.Errorf("searched disallowed KB: %s", id)
 		}
-		if input.Embedding != wantModel || r.Header.Get("X-Cosmo-Gateway-Base-URL") != wantGateway || input.Limit > 2 {
+		if input.Embedding != wantModel || r.Header.Get("X-Cosmo-Gateway-Base-URL") != wantGateway || r.Header.Get("X-Cosmo-Embedding-Scope") != wantScope || input.Limit > 2 {
 			t.Errorf("wrong profile/budget: %+v %s", input, r.Header.Get("X-Cosmo-Gateway-Base-URL"))
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"results": []knowledge.Passage{{KBID: private, DocumentID: "secret-document", Text: "SECRET"}, {KBID: id, DocumentID: "doc-" + id, Text: "Allowed evidence", Score: 1}}})

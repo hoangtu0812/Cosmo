@@ -196,9 +196,9 @@ def _guard_dimensions(gateway: ml.GatewaySettings) -> None:
     except Exception as error:  # noqa: BLE001 - a traceback helps nobody here
         raise SystemExit(f"could not reach the model gateway: {error}") from error
     qdrant = store.client()
-    if not qdrant.collection_exists(store.settings.collection):
-        raise SystemExit(f"collection {store.settings.collection} does not exist; ingest documents first")
-    vectors = qdrant.get_collection(store.settings.collection).config.params.vectors
+    if not qdrant.collection_exists(store.profile_collection(gateway)):
+        raise SystemExit(f"collection {store.profile_collection(gateway)} does not exist; ingest documents first")
+    vectors = qdrant.get_collection(store.profile_collection(gateway)).config.params.vectors
     indexed = getattr(vectors.get(store.DENSE) if isinstance(vectors, dict) else None, "size", None)
     if indexed != len(probe.dense):
         raise SystemExit(
@@ -216,6 +216,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--gateway-base-url", default=os.environ.get("GATEWAY_BASE_URL", ""))
     parser.add_argument("--gateway-api-key", default=os.environ.get("GATEWAY_API_KEY", ""))
     parser.add_argument("--embedding-model", default=os.environ.get("EMBEDDING_MODEL", ""))
+    parser.add_argument("--embedding-scope", default=os.environ.get("EMBEDDING_SCOPE", ""), help="owning workspace ID")
     parser.add_argument("--reranker-model", default=os.environ.get("RERANKER_MODEL", ""))
     arguments = parser.parse_args(argv)
 
@@ -230,6 +231,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         arguments.reranker_model,
         arguments.gateway_base_url,
         arguments.gateway_api_key,
+        arguments.embedding_scope,
     )
     _guard_dimensions(gateway)
 

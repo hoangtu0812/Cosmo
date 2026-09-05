@@ -60,6 +60,7 @@ type IngestRequest struct {
 // control plane supplies it from the platform configuration, so the data
 // service never has to hold database credentials or read deployment env vars.
 type ModelSettings struct {
+	EmbeddingScope string
 	EmbeddingModel string
 	RerankerModel  string
 	GatewayBaseURL string
@@ -73,6 +74,7 @@ type ModelSettings struct {
 }
 
 func (m ModelSettings) applyGatewayHeaders(request *http.Request) {
+	request.Header.Set("X-Cosmo-Embedding-Scope", m.EmbeddingScope)
 	request.Header.Set("X-Cosmo-Gateway-Base-URL", m.GatewayBaseURL)
 	if m.GatewayAPIKey != "" {
 		request.Header.Set("X-Cosmo-Gateway-API-Key", m.GatewayAPIKey)
@@ -275,9 +277,10 @@ func (c *Client) DeleteDocument(ctx context.Context, documentID, storageKey stri
 	return c.call(ctx, http.MethodDelete, path, nil, nil, nil)
 }
 
-func (c *Client) InspectDocument(ctx context.Context, documentID string) (DocumentInspection, error) {
+func (c *Client) InspectDocument(ctx context.Context, documentID string, models ModelSettings) (DocumentInspection, error) {
 	var inspection DocumentInspection
-	if err := c.call(ctx, http.MethodGet, "/documents/"+url.PathEscape(documentID)+"/inspection", nil, &inspection, nil); err != nil {
+	path := "/documents/" + url.PathEscape(documentID) + "/inspection?embedding_model=" + url.QueryEscape(models.EmbeddingModel)
+	if err := c.call(ctx, http.MethodGet, path, nil, &inspection, &models); err != nil {
 		return DocumentInspection{}, err
 	}
 	return inspection, nil

@@ -10,13 +10,21 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"cosmo/backend/internal/secrets"
 )
 
+type toolDatabase interface {
+	Begin(context.Context) (pgx.Tx, error)
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 type Repository struct {
-	db      *pgxpool.Pool
+	db      toolDatabase
 	logger  *slog.Logger
 	secrets *secrets.Box
 	egress  EgressPolicy
@@ -391,6 +399,22 @@ func (repository *Repository) Action(ctx context.Context, toolID, actionID strin
 // SaveAction creates or replaces one action. Both paths validate the same way,
 // so an action cannot be edited into a shape that creation would have refused.
 func (repository *Repository) SaveAction(ctx context.Context, toolID, actionID string, input Action) (Action, error) {
+	tx, err := repository.lockTool(ctx, toolID)
+	if err != nil {
+		return Action{}, err
+	}
+	defer tx.Rollback(ctx)
+	saved, err := (&Repository{db: tx}).saveAction(ctx, toolID, actionID, input)
+	if err != nil {
+		return Action{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE tools SET updated_at=clock_timestamp() WHERE id=$1`, toolID); err != nil {
+		return Action{}, err
+	}
+	return saved, tx.Commit(ctx)
+}
+
+func (repository *Repository) saveAction(ctx context.Context, toolID, actionID string, input Action) (Action, error) {
 	// Older UI clients do not know about mcp_tool. Preserve the server-owned
 	// contract on update instead of silently replacing it with an empty object.
 	if actionID != "" && len(input.MCPTool) == 0 {
@@ -492,14 +516,40 @@ func indexOf(haystack, needle string) int {
 }
 
 func (repository *Repository) DeleteAction(ctx context.Context, toolID, actionID string) error {
-	tag, err := repository.db.Exec(ctx, `DELETE FROM tool_actions WHERE id = $1 AND tool_id = $2`, actionID, toolID)
+	tx, err := repository.lockTool(ctx, toolID)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	tag, err := tx.Exec(ctx, `DELETE FROM tool_actions WHERE id = $1 AND tool_id = $2`, actionID, toolID)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if _, err = tx.Exec(ctx, `UPDATE tools SET updated_at=clock_timestamp() WHERE id=$1`, toolID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Every action writer and publisher shares this parent lock. Network discovery
+// happens before taking it; the transaction contains database work only.
+func (repository *Repository) lockTool(ctx context.Context, toolID string) (pgx.Tx, error) {
+	tx, err := repository.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var id string
+	if err = tx.QueryRow(ctx, `SELECT id FROM tools WHERE id=$1 FOR UPDATE`, toolID).Scan(&id); err != nil {
+		tx.Rollback(ctx)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = ErrNotFound
+		}
+		return nil, err
+	}
+	return tx, nil
 }
 
 // secretFor opens the sealed credential for one call. It is deliberately not

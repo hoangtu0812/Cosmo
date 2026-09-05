@@ -23,11 +23,11 @@ func writeToolError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, tools.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, tools.ErrDuplicateAction):
+	case errors.Is(err, tools.ErrDuplicateAction), errors.Is(err, tools.ErrMCPDiscoveryChanged):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, tools.ErrSecretsOff):
 		writeError(w, http.StatusServiceUnavailable, err.Error())
-	case errors.Is(err, tools.ErrToolUnauthorized):
+	case errors.Is(err, tools.ErrToolUnauthorized), errors.Is(err, tools.ErrMCPDiscoveryIncomplete), errors.Is(err, tools.ErrRedirectOrigin):
 		writeError(w, http.StatusBadGateway, err.Error())
 	case errors.Is(err, tools.ErrOAuthConfig), errors.Is(err, tools.ErrOAuthToken),
 		errors.Is(err, tools.ErrOAuthDiscovery), errors.Is(err, tools.ErrOAuthConnection),
@@ -399,6 +399,10 @@ func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
 	discovered, err := s.tools.DiscoverMCP(ctx, item)
 	if err != nil {
 		s.logger.Error("discover mcp tools", "tool_id", item.ID, "error", err)
+		if errors.Is(err, tools.ErrMCPDiscoveryIncomplete) || errors.Is(err, tools.ErrToolUnauthorized) || errors.Is(err, tools.ErrRedirectOrigin) {
+			writeToolError(w, err)
+			return
+		}
 		if errors.Is(err, tools.ErrOAuthConnection) || errors.Is(err, tools.ErrOAuthRegistration) ||
 			errors.Is(err, tools.ErrOAuthToken) || errors.Is(err, tools.ErrOAuthDiscovery) {
 			writeToolError(w, err)
@@ -408,29 +412,17 @@ func (s *Server) discoverMCPTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, err := s.tools.Actions(r.Context(), item.ID)
+	saved, replaced, err := s.tools.ReplaceMCPActions(r.Context(), item, discovered)
 	if err != nil {
 		writeToolError(w, err)
 		return
-	}
-	for _, action := range existing {
-		_ = s.tools.DeleteAction(r.Context(), item.ID, action.ID)
-	}
-
-	saved := []tools.Action{}
-	for _, action := range discovered {
-		result, saveErr := s.tools.SaveAction(r.Context(), item.ID, "", action)
-		if saveErr != nil {
-			continue
-		}
-		saved = append(saved, result)
 	}
 	// This replaces the whole callable surface of the tool, so what it replaced
 	// is recorded alongside what it became.
 	s.audit(r, auditEvent{
 		Action: "tool.actions.discovered", TargetType: "tool", TargetID: item.ID, TargetLabel: item.Name,
 		WorkspaceID: workspaceID,
-		Metadata:    map[string]int{"actions": len(saved), "replaced": len(existing)},
+		Metadata:    map[string]int{"actions": len(saved), "replaced": replaced},
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"actions": saved})
 }

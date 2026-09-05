@@ -34,6 +34,7 @@ type mcpFixture struct {
 	asEventStream bool
 	modern        bool
 	structured    bool
+	customPage    func(string) map[string]any
 
 	mutex        sync.Mutex
 	isInitalized bool
@@ -236,6 +237,9 @@ func TestMCPUsesCurrentStatelessProtocol(t *testing.T) {
 // page answers tools/list. With paginates set it hands back one tool and a
 // cursor, then the second tool on the next request.
 func (fixture *mcpFixture) page(cursor string) map[string]any {
+	if fixture.customPage != nil {
+		return fixture.customPage(cursor)
+	}
 	lookup := map[string]any{
 		"name":        "lookup_customer",
 		"title":       "Customer lookup",
@@ -269,8 +273,6 @@ func (fixture *mcpFixture) page(cursor string) map[string]any {
 			},
 		},
 	}
-	// Refused later: a model could not call this name back.
-	unusable := map[string]any{"name": "not a valid name", "description": "skipped"}
 	onSecondPage := map[string]any{
 		"name":        "close_ticket",
 		"description": "Only reachable by following the cursor",
@@ -278,10 +280,10 @@ func (fixture *mcpFixture) page(cursor string) map[string]any {
 	}
 
 	if !fixture.paginates {
-		return map[string]any{"tools": []any{lookup, unusable}}
+		return map[string]any{"tools": []any{lookup}}
 	}
 	if cursor == "" {
-		return map[string]any{"tools": []any{lookup, unusable}, "nextCursor": "page-2"}
+		return map[string]any{"tools": []any{lookup}, "nextCursor": "page-2"}
 	}
 	return map[string]any{"tools": []any{onSecondPage}}
 }

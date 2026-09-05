@@ -66,7 +66,12 @@ func CapChangelog(changelog string) string {
 // tool, so two people publishing at once cannot mint the same number: the
 // unique constraint settles it and the loser retries.
 func (repository *Repository) Publish(ctx context.Context, toolID, publishedBy, changelog string) (Version, error) {
-	actions, err := repository.Actions(ctx, toolID)
+	transaction, err := repository.lockTool(ctx, toolID)
+	if err != nil {
+		return Version{}, err
+	}
+	defer transaction.Rollback(ctx)
+	actions, err := (&Repository{db: transaction}).Actions(ctx, toolID)
 	if err != nil {
 		return Version{}, err
 	}
@@ -79,12 +84,6 @@ func (repository *Repository) Publish(ctx context.Context, toolID, publishedBy, 
 	if err != nil {
 		return Version{}, err
 	}
-
-	transaction, err := repository.db.Begin(ctx)
-	if err != nil {
-		return Version{}, err
-	}
-	defer func() { _ = transaction.Rollback(ctx) }()
 
 	version := Version{Actions: actions, IsLive: true}
 	versionID := newID("tvr_")

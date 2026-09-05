@@ -23,6 +23,8 @@ const (
 	KindMCP  = "mcp"
 )
 
+var ErrMCPDiscoveryIncomplete = errors.New("Danh sách MCP chưa đầy đủ hoặc có contract không hợp lệ; giữ nguyên các action hiện tại.")
+
 // mcpAuthorisingTransport attaches the credential configured for this Cosmo
 // tool to every HTTP request made by the MCP SDK. This preserves Cosmo's
 // existing bearer, custom-header, OAuth client-credentials and OBO providers
@@ -112,6 +114,8 @@ func (repository *Repository) DiscoverMCP(ctx context.Context, tool Tool) ([]Act
 
 	discovered := []Action{}
 	cursor := ""
+	seenCursors := map[string]bool{}
+	seenNames := map[string]bool{}
 	for page := 0; page < 20; page++ {
 		listed, err := session.ListTools(ctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 		if err != nil {
@@ -122,21 +126,28 @@ func (repository *Repository) DiscoverMCP(ctx context.Context, tool Tool) ([]Act
 		}
 
 		for _, entry := range listed.Tools {
-			name, err := ValidateMCPToolName(entry.Name)
-			if err != nil {
-				continue
+			if entry == nil {
+				return nil, ErrMCPDiscoveryIncomplete
 			}
+			name, err := ValidateMCPToolName(entry.Name)
+			if err != nil || seenNames[name] {
+				return nil, ErrMCPDiscoveryIncomplete
+			}
+			seenNames[name] = true
 			description := strings.TrimSpace(entry.Description)
 			if runes := []rune(description); len(runes) > MaxDescriptionRunes {
 				description = string(runes[:MaxDescriptionRunes])
 			}
 			parameters, err := mcpParameters(entry.InputSchema)
 			if err != nil {
-				continue
+				return nil, ErrMCPDiscoveryIncomplete
 			}
 			mcpTool, err := json.Marshal(entry)
 			if err != nil {
-				continue
+				return nil, ErrMCPDiscoveryIncomplete
+			}
+			if _, _, err := cleanMCPTool(mcpTool); err != nil {
+				return nil, ErrMCPDiscoveryIncomplete
 			}
 			discovered = append(discovered, Action{
 				Name:        name,
@@ -147,17 +158,21 @@ func (repository *Repository) DiscoverMCP(ctx context.Context, tool Tool) ([]Act
 				MCPTool:     mcpTool,
 				ResultType:  mcpSchemaType(entry.OutputSchema),
 			})
-			if len(discovered) >= MaxActions {
-				return discovered, nil
+			if len(discovered) > MaxActions {
+				return nil, ErrMCPDiscoveryIncomplete
 			}
 		}
 
 		cursor = listed.NextCursor
 		if cursor == "" {
-			break
+			return discovered, nil
 		}
+		if seenCursors[cursor] {
+			return nil, ErrMCPDiscoveryIncomplete
+		}
+		seenCursors[cursor] = true
 	}
-	return discovered, nil
+	return nil, ErrMCPDiscoveryIncomplete
 }
 
 // mcpParameters builds the bounded compatibility projection shown by the
@@ -195,6 +210,9 @@ func mcpParameters(inputSchema any) ([]Parameter, error) {
 			Description string `json:"description"`
 		}
 		_ = json.Unmarshal(schema.Properties[field], &property)
+		if runes := []rune(property.Description); len(runes) > MaxDescriptionRunes {
+			property.Description = string(runes[:MaxDescriptionRunes])
+		}
 		parameters = append(parameters, Parameter{
 			Name:        field,
 			Description: property.Description,

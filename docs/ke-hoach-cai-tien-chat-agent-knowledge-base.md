@@ -631,3 +631,10 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Migration 29 thêm pin snapshot vào mount. Quản trị viên chọn Live/Snapshot khi cài hoặc cập nhật; client cũ không gửi mode giữ chế độ hiện hành. Publish KB không tự đổi pin workspace; phiên bản legacy chưa có snapshot bị từ chối khi chọn Snapshot.
 - Chat thường và endpoint retrieval dùng từng cấu hình mount, cho phép trộn KB Live và Snapshot. Run input ghi đủ map; thay cấu hình giữa admission và worker bị runtime hash phát hiện. Agent release vẫn theo chế độ đã publish của chính agent.
 - UI hiển thị chế độ và cho đổi ngay ở KB đã cài. Tests PostgreSQL qua các nhánh phân quyền, thiếu snapshot, cập nhật pin có chủ ý, chuyển Live và worker chat dùng workspace pin. Toàn bộ backend, TypeScript và build frontend qua.
+
+### 2026-09-05 — KB-06d: Snapshot tệp gốc và citation đúng phiên bản
+
+- Snapshot mới sao chép tệp gốc bằng MinIO server-side copy với điều kiện ETag và đối chiếu kích thước manifest. Thiếu tệp hoặc copy lỗi không publish, dọn phần đã tạo. Migration 30 lưu metadata/key riêng cho từng bản gốc; không tự bổ sung tệp hiện tại vào snapshot cũ.
+- Citation lưu snapshot_id và giao diện preview/download dùng đúng pin. Route gốc giải quyết theo manifest snapshot, không cần hàng document live còn tồn tại, không fallback sang tệp live; kiểm tra lại quyền KB trước khi trả nội dung.
+- Xóa tài liệu live giữ các bản sao snapshot; xóa snapshot dọn cả vector và tệp riêng. Deadline response publish được nâng theo deadline công việc 5 phút.
+- Backend/PostgreSQL, 119 RAG tests, TypeScript/build frontend qua. Có tests xóa live vẫn mở được bản gốc snapshot, pin thiếu trả 404, thu hồi share chặn tải, lỗi copy dọn phần tạm.

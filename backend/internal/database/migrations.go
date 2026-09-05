@@ -61,6 +61,7 @@ var migrations = []Migration{
 		`ALTER TABLE knowledge_mounts ADD COLUMN snapshot_id TEXT REFERENCES knowledge_snapshots(id)`,
 		`CREATE INDEX knowledge_mount_snapshot ON knowledge_mounts(snapshot_id) WHERE snapshot_id IS NOT NULL`,
 	}},
+	{Version: 30, Name: "snapshot_originals", Statements: []string{`ALTER TABLE knowledge_snapshots ADD COLUMN originals JSONB NOT NULL DEFAULT '{}'::jsonb`}},
 }
 
 var knowledgeSnapshotStatements = []string{

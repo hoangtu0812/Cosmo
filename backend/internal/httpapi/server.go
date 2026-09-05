@@ -119,6 +119,7 @@ type Message struct {
 // Citation points to a source the answer actually retrieved. The frontend
 // opens it through a protected document route, never directly in MinIO.
 type Citation struct {
+	SnapshotID string `json:"snapshot_id,omitempty"`
 	Index      int    `json:"index"`
 	KBID       string `json:"kb_id"`
 	DocumentID string `json:"document_id"`
@@ -1234,6 +1235,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		history = append([]modelgateway.Message{{Role: "system", Content: grounding}}, history...)
 		for index, passage := range passages {
 			citations = append(citations, Citation{
+				SnapshotID: passage.SnapshotID,
 				Index:      index + 1,
 				KBID:       passage.KBID,
 				DocumentID: passage.DocumentID,

@@ -665,6 +665,7 @@ func (s *Server) publishKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5*time.Minute + 10*time.Second))
 	snapshotID, version, err := s.publishKnowledgeSnapshot(ctx, kbID)
 	if err != nil {
 		s.logger.Error("knowledge snapshot publication failed", "kb_id", kbID, "error", err)

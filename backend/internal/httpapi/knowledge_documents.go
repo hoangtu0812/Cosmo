@@ -138,7 +138,21 @@ func (s *Server) openKnowledgeDocumentOriginal(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	document, storageKey, err := s.knowledgeDocument(r.Context(), kbID, documentID)
+	var document KnowledgeDocument
+	var storageKey string
+	var err error
+	if snapshotID := r.URL.Query().Get("snapshot_id"); snapshotID != "" {
+		var raw []byte
+		err = s.db.QueryRow(r.Context(), `SELECT originals->$3 FROM knowledge_snapshots WHERE id=$1 AND kb_id=$2`, snapshotID, kbID, documentID).Scan(&raw)
+		var original knowledge.SnapshotOriginal
+		if err == nil {
+			err = json.Unmarshal(raw, &original)
+		}
+		storageKey = original.StorageKey
+		document.ContentType, document.Filename = original.ContentType, original.Filename
+	} else {
+		document, storageKey, err = s.knowledgeDocument(r.Context(), kbID, documentID)
+	}
 	if err != nil || storageKey == "" {
 		writeError(w, http.StatusNotFound, "Không tìm thấy bản gốc của tài liệu.")
 		return
@@ -150,6 +164,10 @@ func (s *Server) openKnowledgeDocumentOriginal(w http.ResponseWriter, r *http.Re
 		return
 	}
 	w.Header().Set("Content-Type", document.ContentType)
+	if s.knowledgeAccess(r.Context(), user.ID, kbID) == "" {
+		writeError(w, http.StatusNotFound, "Không tìm thấy knowledge base.")
+		return
+	}
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": document.Filename}))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
 	_, _ = w.Write(content)
@@ -686,6 +704,7 @@ func (s *Server) retrieveKnowledgeSelection(ctx context.Context, workspaceID, qu
 			continue
 		}
 		result = append(result, knowledgePassage{
+			SnapshotID: pins[passage.KBID],
 			KBID:       passage.KBID,
 			DocumentID: passage.DocumentID,
 			Title:      passage.DocumentTitle,
@@ -763,6 +782,7 @@ func (s *Server) logRetrieval(ctx context.Context, workspaceID, query string, kb
 }
 
 type knowledgePassage struct {
+	SnapshotID string `json:"snapshot_id,omitempty"`
 	KBID       string `json:"kb_id"`
 	DocumentID string `json:"document_id"`
 	Title      string `json:"title"`

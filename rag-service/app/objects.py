@@ -9,6 +9,7 @@ import io
 import logging
 
 from minio import Minio
+from minio.commonconfig import CopySource
 
 from .config import settings
 
@@ -53,3 +54,19 @@ def get(key: str) -> bytes:
 
 def delete(key: str) -> None:
     client().remove_object(settings.minio_bucket, key)
+
+
+def copy_original(source: str, target: str) -> dict:
+    storage = client()
+    original = storage.stat_object(settings.minio_bucket, source)
+    storage.copy_object(settings.minio_bucket, target,
+                        CopySource(settings.minio_bucket, source, match_etag=original.etag))
+    copied = storage.stat_object(settings.minio_bucket, target)
+    if copied.size != original.size:
+        raise RuntimeError("snapshot original size mismatch")
+    return {"size_bytes": copied.size, "etag": copied.etag}
+
+
+def delete_prefix(prefix: str) -> None:
+    for item in client().list_objects(settings.minio_bucket, prefix=prefix, recursive=True):
+        client().remove_object(settings.minio_bucket, item.object_name)

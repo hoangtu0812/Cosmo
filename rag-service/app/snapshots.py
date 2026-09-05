@@ -2,8 +2,9 @@
 import hashlib
 import json
 import re
+from urllib.parse import quote
 
-from . import store
+from . import store, objects
 from .models import GatewaySettings
 
 
@@ -13,7 +14,7 @@ def collection_name(snapshot_id: str) -> str:
     return store.settings.collection + "__s1_" + snapshot_id[4:]
 
 
-def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: dict[str, int]) -> dict:
+def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: dict[str, int], originals: dict | None = None) -> dict:
     if not documents or len(documents) > 10000 or any(n <= 0 for n in documents.values()):
         raise ValueError("snapshot requires a bounded manifest of indexed documents")
     source = store.profile_collection(gateway)
@@ -25,6 +26,16 @@ def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: di
     qdrant.create_collection(collection_name=target, vectors_config=info.config.params.vectors,
                              sparse_vectors_config=info.config.params.sparse_vectors)
     try:
+        copied_originals = {}
+        if originals is not None:
+            if set(originals) != set(documents):
+                raise ValueError("snapshot originals do not match document manifest")
+            for doc, original in originals.items():
+                target_key = f"knowledge-snapshots/{snapshot_id}/{quote(doc, safe='')}"
+                stored = objects.copy_original(original["storage_key"], target_key)
+                if stored["size_bytes"] != original["size_bytes"]:
+                    raise ValueError("snapshot original differs from document manifest")
+                copied_originals[doc] = {**original, **stored, "storage_key": target_key}
         counts = {doc: 0 for doc in documents}
         digest = hashlib.sha256()
         offset = None
@@ -53,9 +64,11 @@ def create(snapshot_id: str, kb_id: str, gateway: GatewaySettings, documents: di
             raise ValueError("snapshot corpus is incomplete")
         for field in ("kb_id", "document_id", "status"):
             qdrant.create_payload_index(collection_name=target, field_name=field, field_schema=store.models.PayloadSchemaType.KEYWORD)
-        return {"snapshot_id": snapshot_id, "chunks": sum(counts.values()), "digest": digest.hexdigest()}
+        return {"snapshot_id": snapshot_id, "chunks": sum(counts.values()), "digest": digest.hexdigest(), "originals": copied_originals}
     except Exception:
         qdrant.delete_collection(collection_name=target)
+        if originals is not None:
+            objects.delete_prefix(f"knowledge-snapshots/{snapshot_id}/")
         raise
 
 
@@ -75,6 +88,7 @@ def discard(snapshot_id: str) -> None:
     collection = collection_name(snapshot_id)
     if store.client().collection_exists(collection):
         store.client().delete_collection(collection_name=collection)
+    objects.delete_prefix(f"knowledge-snapshots/{snapshot_id}/")
 
 
 def delete_knowledge_base(kb_id: str) -> None:
@@ -85,4 +99,4 @@ def delete_knowledge_base(kb_id: str) -> None:
             continue
         points, _ = qdrant.scroll(collection_name=item.name, limit=1, with_payload=True, with_vectors=False)
         if points and (points[0].payload or {}).get("kb_id") == kb_id:
-            qdrant.delete_collection(collection_name=item.name)
+            discard("kbs_" + item.name[-32:])

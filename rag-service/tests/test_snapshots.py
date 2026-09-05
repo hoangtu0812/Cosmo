@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 from qdrant_client import QdrantClient
 
-from app import models, retrieve, snapshots, store
+from app import models, retrieve, snapshots, store, objects
 
 SNAPSHOT = "kbs_" + "a" * 32
 GATEWAY = models.GatewaySettings("https://gateway.invalid/v1", "secret", "embed", "rerank", "owner")
@@ -13,6 +13,7 @@ GATEWAY = models.GatewaySettings("https://gateway.invalid/v1", "secret", "embed"
 def index(monkeypatch):
     qdrant = QdrantClient(":memory:")
     monkeypatch.setattr(store, "client", lambda: qdrant)
+    monkeypatch.setattr(objects, "delete_prefix", lambda prefix: None)
     monkeypatch.setattr(retrieve.ml, "encode", lambda *args: [models.Encoded([1., 0.])])
     write("original evidence")
     yield qdrant
@@ -66,4 +67,33 @@ def test_copy_write_failure_removes_partial_collection(index, monkeypatch):
     monkeypatch.setattr(index, "upsert", fail)
     with pytest.raises(RuntimeError, match="injected"):
         snapshots.create(SNAPSHOT, "kb", GATEWAY, {"doc": 1})
+    assert not index.collection_exists(snapshots.collection_name(SNAPSHOT))
+
+
+def test_original_copy_retained_and_discarded_with_snapshot(index, monkeypatch):
+    files = {"live-file": b"original"}
+    def copy(source, target):
+        files[target] = files[source]
+        return {"size_bytes": len(files[target]), "etag": "test"}
+    def delete(prefix):
+        for key in list(files):
+            if key.startswith(prefix): del files[key]
+    monkeypatch.setattr(objects, "copy_original", copy)
+    monkeypatch.setattr(objects, "delete_prefix", delete)
+    original = {"storage_key": "live-file", "size_bytes": 8, "filename": "test.txt", "content_type": "text/plain"}
+    result = snapshots.create(SNAPSHOT, "kb", GATEWAY, {"doc": 1}, {"doc": original})
+    del files["live-file"]
+    assert files[result["originals"]["doc"]["storage_key"]] == b"original"
+    snapshots.discard(SNAPSHOT)
+    assert not files
+
+
+def test_missing_original_prevents_publication_and_cleans(index, monkeypatch):
+    cleaned = []
+    def fail(*args): raise RuntimeError("missing original")
+    monkeypatch.setattr(objects, "copy_original", fail)
+    monkeypatch.setattr(objects, "delete_prefix", cleaned.append)
+    with pytest.raises(RuntimeError, match="missing original"):
+        snapshots.create(SNAPSHOT, "kb", GATEWAY, {"doc": 1}, {"doc": {"storage_key": "missing"}})
+    assert cleaned == [f"knowledge-snapshots/{SNAPSHOT}/"]
     assert not index.collection_exists(snapshots.collection_name(SNAPSHOT))

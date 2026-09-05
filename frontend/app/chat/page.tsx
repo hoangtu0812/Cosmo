@@ -1061,7 +1061,7 @@ function CitationList({citations, onOpen}: {
             label={
               /* Opens beside the answer rather than in place of it: checking a
                  source should not cost you the question you asked. */
-              <Link isStandalone onClick={() => onOpen({kind: 'document', kbID: group.kbID, documentID: group.documentID, title: group.title})} weight="medium">
+              <Link isStandalone onClick={() => onOpen({kind: 'document', kbID: group.kbID, documentID: group.documentID, snapshotID: group.snapshotID, title: group.title})} weight="medium">
                 {group.title}
               </Link>
             }
@@ -1076,12 +1076,13 @@ function CitationList({citations, onOpen}: {
 }
 
 function groupCitations(citations: Citation[]) {
-  const groups = new Map<string, {kbID: string; documentID: string; title: string; pages: string[]; sections: string[]; source: string}>();
+  const groups = new Map<string, {kbID: string; documentID: string; snapshotID?: string; title: string; pages: string[]; sections: string[]; source: string}>();
   citations.forEach((citation) => {
-    const key = `${citation.kb_id}:${citation.document_id}`;
+    const key = `${citation.kb_id}:${citation.document_id}:${citation.snapshot_id ?? ''}`;
     const group = groups.get(key) ?? {
       kbID: citation.kb_id,
       documentID: citation.document_id,
+      snapshotID: citation.snapshot_id,
       title: citation.title || citation.source,
       pages: [],
       sections: [],
@@ -1138,25 +1139,25 @@ function answerForDisplay(content: string, citations: Citation[], hideAllIndexes
  * than a blob to somebody who wants to keep the document open.
  */
 function DocumentPreview({document: source, onClose, t}: {
-  document: {kbID: string; documentID: string; title: string};
+  document: {kbID: string; documentID: string; snapshotID?: string; title: string};
   onClose: () => void;
   t: ReturnType<typeof useTranslation>;
 }) {
   // Both results carry the document they belong to, so switching documents
   // shows the new one's loading state rather than the old one's bytes - and
   // nothing has to be reset synchronously when the effect re-runs.
-  const key = `${source.kbID}:${source.documentID}`;
+  const key = `${source.kbID}:${source.documentID}:${source.snapshotID ?? ''}`;
   const [loaded, setLoaded] = useState<{key: string; url: string; mime: string} | null>(null);
   const [failed, setFailed] = useState('');
-  const externalURL = api.documentOriginalURL(source.kbID, source.documentID);
+  const externalURL = api.documentOriginalURL(source.kbID, source.documentID, source.snapshotID);
   const current = loaded?.key === key ? loaded : null;
   const failure = failed === key ? t('doc.previewFailed') : '';
 
   useEffect(() => {
     let objectURL = '';
     let cancelled = false;
-    const [kbID, documentID] = key.split(':');
-    fetch(api.documentOriginalURL(kbID, documentID), {credentials: 'include'})
+    const [kbID, documentID, snapshotID] = key.split(':');
+    fetch(api.documentOriginalURL(kbID, documentID, snapshotID), {credentials: 'include'})
       .then(async (response) => {
         if (!response.ok) throw new Error(String(response.status));
         const blob = await response.blob();
@@ -1231,7 +1232,7 @@ function DocumentPreview({document: source, onClose, t}: {
 
 /** What the side panel can be showing. */
 type PreviewTarget =
-  | {kind: 'document'; kbID: string; documentID: string; title: string}
+  | {kind: 'document'; kbID: string; documentID: string; snapshotID?: string; title: string}
   | {kind: 'chart'; chart: ChartSpec; title: string}
   | {kind: 'files'; title: string};
 

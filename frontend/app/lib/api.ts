@@ -335,7 +335,7 @@ export type Conversation = {
   created_at: string;
   updated_at: string;
 };
-export type Citation = {index: number; kb_id: string; document_id: string; title: string; source: string; section?: string; page?: string};
+export type Citation = {index: number; kb_id: string; document_id: string; snapshot_id?: string; title: string; source: string; section?: string; page?: string};
 // One call a turn made, as the transcript shows it: what was reached, how it
 // went, how long it took.
 export type ToolCallStatus = 'running' | 'complete' | 'error';
@@ -731,8 +731,8 @@ export const api = {
     request<{documents: KnowledgeDocument[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/documents`),
   knowledgeDocumentDetail: (kbID: string, documentID: string) =>
     request<KnowledgeDocumentDetail>(`/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}/detail`),
-  documentOriginalURL: (kbID: string, documentID: string) =>
-    `${API_BASE}/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}/original`,
+  documentOriginalURL: (kbID: string, documentID: string, snapshotID?: string) =>
+    `${API_BASE}/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}/original${snapshotID ? `?snapshot_id=${encodeURIComponent(snapshotID)}` : ''}`,
   deleteKnowledgeDocument: (kbID: string, documentID: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(kbID)}/documents/${encodeURIComponent(documentID)}`, {method: 'DELETE'}),
   documentEvents: (kbID: string, documentID: string) =>

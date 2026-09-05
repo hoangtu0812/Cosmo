@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -27,7 +28,7 @@ func snapshotManifest(ctx context.Context, db snapshotReader, kbID string) (stri
 	var raw string
 	err := db.QueryRow(ctx, `SELECT jsonb_build_object('kb_updated',kb.updated_at,'version',kb.version,
 		'gateway_updated',w.updated_at,'documents',COALESCE((SELECT jsonb_agg(jsonb_build_object(
-		'id',d.id,'version',d.version,'updated',d.updated_at,'status',d.status,'chunks',d.chunk_count) ORDER BY d.id)
+		'id',d.id,'version',d.version,'updated',d.updated_at,'status',d.status,'chunks',d.chunk_count,'storage_key',d.storage_key,'filename',d.filename,'content_type',d.content_type,'size_bytes',d.size_bytes) ORDER BY d.id)
 		FROM knowledge_documents d WHERE d.kb_id=kb.id),'[]'::jsonb))::text
 		FROM knowledge_bases kb LEFT JOIN workspace_llm_configs w ON w.workspace_id=kb.owner_workspace_id WHERE kb.id=$1`, kbID).Scan(&raw)
 	if err != nil {
@@ -87,7 +88,23 @@ func (s *Server) publishKnowledgeSnapshot(ctx context.Context, kbID string) (id 
 			}
 		}
 	}()
-	copy, err := s.knowledge.CreateSnapshot(ctx, id, kbID, documents, settings)
+	var manifest struct {
+		Documents []struct {
+			ID string `json:"id"`
+			knowledge.SnapshotOriginal
+		}
+	}
+	if err := json.Unmarshal([]byte(before), &manifest); err != nil {
+		return id, 0, err
+	}
+	originals := map[string]knowledge.SnapshotOriginal{}
+	for _, doc := range manifest.Documents {
+		if doc.StorageKey == "" {
+			return id, 0, errSnapshotChanged
+		}
+		originals[doc.ID] = doc.SnapshotOriginal
+	}
+	copy, err := s.knowledge.CreateSnapshot(ctx, id, kbID, documents, originals, settings)
 	if err != nil {
 		return id, 0, err
 	}
@@ -98,6 +115,15 @@ func (s *Server) publishKnowledgeSnapshot(ctx context.Context, kbID string) (id 
 	_, digestErr := hex.DecodeString(copy.Digest)
 	if copy.ID != id || copy.Chunks != total || len(copy.Digest) != 64 || digestErr != nil {
 		return id, 0, fmt.Errorf("snapshot copy verification failed")
+	}
+	if len(copy.Originals) != len(originals) {
+		return id, 0, fmt.Errorf("snapshot originals incomplete")
+	}
+	for doc, original := range originals {
+		stored, ok := copy.Originals[doc]
+		if !ok || stored.StorageKey != "knowledge-snapshots/"+id+"/"+url.PathEscape(doc) || stored.SizeBytes != original.SizeBytes || stored.Filename != original.Filename || stored.ContentType != original.ContentType {
+			return id, 0, fmt.Errorf("snapshot original verification failed")
+		}
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -116,7 +142,8 @@ func (s *Server) publishKnowledgeSnapshot(ctx context.Context, kbID string) (id 
 		return id, 0, err
 	}
 	version++
-	if _, err = tx.Exec(ctx, `INSERT INTO knowledge_snapshots(id,kb_id,version,manifest,model_settings,chunks,digest) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7)`, id, kbID, version, before, string(encoded), copy.Chunks, copy.Digest); err != nil {
+	encodedOriginals, _ := json.Marshal(copy.Originals)
+	if _, err = tx.Exec(ctx, `INSERT INTO knowledge_snapshots(id,kb_id,version,manifest,model_settings,chunks,digest,originals) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8::jsonb)`, id, kbID, version, before, string(encoded), copy.Chunks, copy.Digest, string(encodedOriginals)); err != nil {
 		return id, 0, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE knowledge_bases SET version=$2,published_at=NOW(),updated_at=NOW() WHERE id=$1`, kbID, version); err != nil {

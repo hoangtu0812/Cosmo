@@ -52,10 +52,11 @@ func TestKnowledgeSnapshotPublicationAndPinnedRuntime(t *testing.T) {
 			return
 		}
 		var body struct {
-			ID        string         `json:"snapshot_id"`
-			KB        string         `json:"kb_id"`
-			Documents map[string]int `json:"documents"`
-			Embedding string         `json:"embedding_model"`
+			ID        string                                `json:"snapshot_id"`
+			KB        string                                `json:"kb_id"`
+			Documents map[string]int                        `json:"documents"`
+			Embedding string                                `json:"embedding_model"`
+			Originals map[string]knowledge.SnapshotOriginal `json:"originals"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
@@ -71,7 +72,11 @@ func TestKnowledgeSnapshotPublicationAndPinnedRuntime(t *testing.T) {
 					t.Error(err)
 				}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"snapshot_id": body.ID, "chunks": 1, "digest": strings.Repeat("a", 64)})
+			for key, original := range body.Originals {
+				original.StorageKey = "knowledge-snapshots/" + body.ID + "/" + key
+				body.Originals[key] = original
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"snapshot_id": body.ID, "chunks": 1, "digest": strings.Repeat("a", 64), "originals": body.Originals})
 			return
 		}
 		if body.ID == "" || body.Embedding != "original-model" {

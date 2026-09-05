@@ -1077,8 +1077,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	for _, file := range readable {
 		attachedNames = append(attachedNames, file.Name)
 	}
-	plan := s.planTurn(planCtx, models, options, input.Content,
-		s.knowledgeTopicsFor(planCtx, conversationWorkspaceID, agentKnowledge), attachedNames)
+	topics, topicsErr := s.knowledgeTopicsFor(planCtx, conversationWorkspaceID, agentKnowledge)
+	plan := fallbackTurnPlan(input.Content, "chưa đọc được danh sách Knowledge Base; thử tra cứu lại")
+	if topicsErr == nil {
+		plan = s.planTurn(planCtx, models, options, input.Content, history, topics, attachedNames)
+	}
 	cancelPlan()
 	writeSSE(w, "status", map[string]string{
 		"stage":   "planned",
@@ -1094,7 +1097,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		if runErr == nil {
 			_, runErr = s.runs.TransitionStep(r.Context(), planStep.ID, runs.Succeeded,
-				map[string]any{"needs_knowledge": plan.NeedsKnowledge, "reason": plan.Reason}, "", "", "")
+				map[string]any{"needs_knowledge": plan.NeedsKnowledge, "query_rewritten": plan.QueryRewritten, "reason": plan.Reason}, "", "", "")
 		}
 	}
 
@@ -1126,7 +1129,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 		// The log records which answer this search fed, so a relevance floor
 		// can later be chosen from what the answers actually used.
-		retrieval, retrievalErr := s.retrieveKnowledge(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, input.Content, agentKnowledge)
+		retrieval, retrievalErr := s.retrieveKnowledge(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, plan.SearchQuery, agentKnowledge)
 		passages = retrieval.Passages
 		incomplete := retrievalErr != nil || retrieval.incomplete()
 		partialKnowledge = incomplete && len(passages) > 0

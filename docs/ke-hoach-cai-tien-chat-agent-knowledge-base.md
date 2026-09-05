@@ -462,3 +462,12 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Tests kiểm tra concurrency thực, cancellation, timeout riêng/tổng, nguồn rỗng/lỗi, budget, gateway riêng, quyền bị thu hồi và chặn passage ngoài quyền trước log. Integration qua endpoint chat xác minh câu trả lời/cảnh báo, citation và trạng thái nguồn được lưu.
 - Cấu hình mới được mô tả trong `.env.example`. `go test ./...` với database integration đều qua.
 - Còn gom request theo embedding profile, tái sử dụng query embedding và nối màn hình test/evaluation vào cùng contract; những phần đó chưa hoàn thành.
+
+### 2026-09-05 — KB-04a: Query cho câu hỏi nối tiếp
+
+- Planner nhận tối đa 6 tin gần nhất/6.000 ký tự Unicode, tên và mô tả KB trong quyền truy cập, cùng tên tệp đính kèm. Không đưa system prompt, memory hoặc tool payload vào lịch sử planner.
+- Trong cùng model call lập kế hoạch, trả JSON gồm quyết định tra KB và câu hỏi tìm kiếm độc lập. Chat dùng query này cho retrieval; câu hỏi gốc trong messages được giữ nguyên.
+- Không rewrite lượt đầu không có lịch sử. JSON sai, query rỗng/quá dài hoặc gateway lỗi thì dùng câu hỏi gốc và vẫn tra cứu; không đưa lỗi upstream hoặc output planner thô vào SSE.
+- Lỗi đọc danh sách KB không còn bị hiểu thành workspace không có KB. Quyền truy cập vẫn được resolve ở retrieval, planner không được chọn hay mở rộng KB ID.
+- Unit tests kiểm tra parser/fallback và giới hạn lịch sử; integration qua chat xác minh câu “quy định đó” nhận chủ thể QT-17 từ lịch sử và query đã rewrite được gửi đến RAG. `go test ./...` với database integration đều qua.
+- Tests dùng gateway giả lập để xác minh contract/đường đi; chưa chứng minh chất lượng rewrite của model thực tế. Còn câu hỏi thành phần, coverage đa nguồn, dedup xuyên KB và đánh giá chất lượng trên bộ câu hỏi thật.

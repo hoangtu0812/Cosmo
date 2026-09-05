@@ -733,16 +733,16 @@ func buildGroundingPrompt(passages []knowledgePassage) string {
 }
 
 // knowledgeTopicsFor names the bases a turn could search, for the planner to
-// judge against. Names only: the planner decides whether the question is about
+// judge against. Names/descriptions only: the planner decides whether the question is about
 // this material at all, and reading the material to decide whether to read it
 // would cost more than searching blindly ever did.
-func (s *Server) knowledgeTopicsFor(ctx context.Context, workspaceID string, only []string) []string {
+func (s *Server) knowledgeTopicsFor(ctx context.Context, workspaceID string, only []string) ([]string, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT kb.id, kb.name FROM knowledge_bases kb
+		SELECT kb.id, kb.name, LEFT(kb.description, 1000) FROM knowledge_bases kb
 		JOIN knowledge_mounts m ON m.kb_id = kb.id AND m.target_type = 'workspace' AND m.target_id = $1
 		WHERE (`+workspaceRetrievableKnowledgeSQL+`)`, workspaceID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 
@@ -752,16 +752,16 @@ func (s *Server) knowledgeTopicsFor(ctx context.Context, workspaceID string, onl
 	}
 	topics := []string{}
 	for rows.Next() {
-		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
-			return nil
+		var id, name, description string
+		if err := rows.Scan(&id, &name, &description); err != nil {
+			return nil, err
 		}
 		// A published agent searches only what it was built on; a plain chat
 		// searches everything the workspace mounted.
 		if only != nil && !chosen[id] {
 			continue
 		}
-		topics = append(topics, name)
+		topics = append(topics, name+": "+description)
 	}
-	return topics
+	return topics, rows.Err()
 }

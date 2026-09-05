@@ -707,8 +707,21 @@ export const api = {
     request<{knowledge_bases: KnowledgeBase[]}>(`/api/knowledge${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`),
 	createKnowledgeBase: (body: {name: string; description: string; workspace_id: string; icon?: string; tags?: string[]}) =>
 		request<{knowledge_base: KnowledgeBase}>('/api/knowledge', {method: 'POST', body: JSON.stringify(body)}),
-  publishKnowledgeBase: (kbID: string) =>
-    request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}/publish`, {method: 'POST'}),
+  publishKnowledgeBase: async (kbID: string): Promise<{knowledge_base: KnowledgeBase}> => {
+    const path = `/api/knowledge/${encodeURIComponent(kbID)}`;
+    const result = await request<{knowledge_base?: KnowledgeBase; snapshot_job?: {id: string}}>(`${path}/publish`, {method: 'POST'});
+    if (result.knowledge_base) return {knowledge_base: result.knowledge_base};
+    if (!result.snapshot_job) throw new Error('Không thể đọc trạng thái publish KB.');
+    // A long build outlives the HTTP wait; follow its durable identity.
+    for (let attempt = 0; attempt < 600; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const {snapshot_job: job} = await request<{snapshot_job: {status: string; error_code?: string}}>(`${path}/snapshot-jobs/${encodeURIComponent(result.snapshot_job.id)}`);
+      if (job.status === 'succeeded') return request<{knowledge_base: KnowledgeBase}>(path);
+      if (job.status === 'failed') throw new Error(job.error_code === 'manifest_changed'
+        ? 'Tài liệu hoặc cấu hình đã thay đổi. Hãy publish lại.' : 'Không thể tạo snapshot sau các lần thử lại. Bản đã publish được giữ nguyên.');
+    }
+    throw new Error('Tác vụ snapshot vẫn đang xử lý trên server. Hãy kiểm tra lại sau.');
+  },
   knowledgeShares: (kbID: string) =>
     request<{shares: KnowledgeShare[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/shares`),
   workspaceDirectory: () =>

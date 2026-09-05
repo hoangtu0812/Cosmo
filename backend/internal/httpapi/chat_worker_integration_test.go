@@ -263,3 +263,35 @@ func awaitChatStatus(t *testing.T, s *Server, conversation, key, status string) 
 		}
 	}
 }
+
+func TestChatWorkerDoesNotSaveTruncatedModelStream(t *testing.T) {
+	s, agent, owner, _ := agentAccessFixture(t)
+	s.runs = runs.NewRepository(s.db)
+	s.tools = tools.NewRepository(s.db, slog.Default(), nil, tools.EgressPolicy{}, tools.SearchBackend{})
+	ctx := context.Background()
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"unfinished answer\"}}]}\n\n")
+	}))
+	defer gateway.Close()
+	if _, err := s.db.Exec(ctx, `INSERT INTO workspace_llm_configs(workspace_id,base_url,model) VALUES($1,$2,'test')`, agent.WorkspaceID, gateway.URL); err != nil {
+		t.Fatal(err)
+	}
+	conversation := "con_" + randomID(18)
+	if _, err := s.db.Exec(ctx, `INSERT INTO conversations(id,user_id,workspace_id,title) VALUES($1,$2,$3,'Truncated')`, conversation, owner.ID, agent.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	stop := startTestChatWorkers(t, s)
+	defer stop()
+	router := chi.NewRouter()
+	router.Post("/conversations/{conversationID}/messages", s.chat)
+	r := httptest.NewRequest(http.MethodPost, "/conversations/"+conversation+"/messages", strings.NewReader(`{"content":"Question","client_message_id":"truncated"}`)).WithContext(context.WithValue(ctx, userContextKey, owner))
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, r)
+	awaitChatStatus(t, s, conversation, "truncated", "interrupted")
+	var answers int
+	s.db.QueryRow(ctx, `SELECT count(*) FROM messages WHERE conversation_id=$1 AND role='assistant'`, conversation).Scan(&answers)
+	if answers != 0 || strings.Contains(w.Body.String(), "event: done") {
+		t.Fatal("truncated response was saved as completed")
+	}
+}

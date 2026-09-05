@@ -523,3 +523,8 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Migration 26 `chat_turn_identity` và 27 `durable_chat_queue` áp dụng thành công lúc 11:47:50 (UTC+7). Không sửa các migration đã áp dụng; không tự hạ schema khi đổi image.
 - Smoke test qua HTTP trên backend container đang chạy, với user/workspace tạm và gateway giả lập trong mạng Docker: ngắt subscriber không dừng execution, hai câu hỏi xếp hàng FIFO, nối lại lượt đang chạy bằng `Last-Event-ID` không phát event cũ, retry lượt hoàn thành trả answer đã lưu, transcript đúng hai cặp message và chỉ có hai run succeeded. Đã dọn user/workspace/gateway tạm sau kiểm tra.
 - Phạm vi xác minh triển khai là hạ tầng và contract thực thi chat. Smoke test này không đánh giá chất lượng trả lời của model thật, đăng nhập Entra hay chất lượng retrieval trên bộ KB nghiệp vụ; các giới hạn RUN-01/KB phía trên vẫn còn hiệu lực.
+
+### 2026-09-05 — RUN-01c: Không hoàn tất stream model bị cắt
+
+- Model Gateway chỉ coi stream thành công khi nhận DONE; EOF, JSON lỗi, upstream error và finish_reason length/filter trả lỗi an toàn. Nhận DONE kết thúc ngay, không chờ socket đóng.
+- Unit tests kiểm tra stream lỗi/giới hạn/kết thúc; HTTP integration qua worker xác minh stream bị cắt không lưu assistant message hoặc phát done. Backend suite/PostgreSQL qua.

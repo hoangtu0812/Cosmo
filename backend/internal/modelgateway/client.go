@@ -16,6 +16,8 @@ import (
 )
 
 var ErrNotConfigured = errors.New("model gateway is not configured")
+var ErrIncompleteStream = errors.New("model stream ended without a complete response")
+var ErrInvalidStream = errors.New("model stream contained an invalid response")
 
 type Message struct {
 	Role    string `json:"role"`
@@ -188,12 +190,17 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 			continue
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
+		if data == "[DONE]" {
+			return usage, nil
+		}
+		if data == "" {
 			continue
 		}
 		var chunk struct {
+			Error   json.RawMessage `json:"error"`
 			Choices []struct {
-				Delta struct {
+				FinishReason string `json:"finish_reason"`
+				Delta        struct {
 					Content string `json:"content"`
 				} `json:"delta"`
 			} `json:"choices"`
@@ -205,7 +212,20 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
+			return usage, ErrInvalidStream
+		}
+		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
+			return usage, ErrInvalidStream
+		}
+		if len(chunk.Choices) == 0 && chunk.Usage == nil {
+			return usage, ErrInvalidStream
+		}
+		if len(chunk.Choices) > 0 {
+			switch chunk.Choices[0].FinishReason {
+			case "", "stop":
+			default:
+				return usage, ErrIncompleteStream
+			}
 		}
 		if chunk.Usage != nil {
 			usage.PromptTokens = chunk.Usage.PromptTokens
@@ -221,5 +241,5 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 	if err := scanner.Err(); err != nil {
 		return usage, fmt.Errorf("read model stream: %w", err)
 	}
-	return usage, nil
+	return usage, ErrIncompleteStream
 }

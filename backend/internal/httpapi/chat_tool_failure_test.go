@@ -6,6 +6,7 @@ import (
 	"cosmo/backend/internal/runs"
 	"cosmo/backend/internal/tools"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,21 @@ import (
 	"testing"
 	"time"
 )
+
+func TestToolRoundBudgetErrorStopsBeforeInvocation(t *testing.T) {
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("oversized decision reached gateway") }))
+	defer gateway.Close()
+	s := &Server{}
+	recorder := httptest.NewRecorder()
+	var answer strings.Builder
+	_, calls, final, err := s.runToolRounds(context.Background(), recorder, recorder,
+		toolSet{definitions: []modelgateway.ToolDefinition{{Name: "large", Description: strings.Repeat("x", 1000)}}},
+		[]modelgateway.Message{{Role: "user", Content: "question"}}, modelgateway.Options{MaxInputBytes: 400},
+		modelgateway.New(gateway.URL, "", "test", "", time.Second), "unused", &answer)
+	if !errors.Is(err, modelgateway.ErrContextBudget) || len(calls) != 0 || final != "" {
+		t.Fatalf("budget error ignored: %v", err)
+	}
+}
 
 func TestChatToolFailuresAndMissingStepNeverSucceed(t *testing.T) {
 	for _, missingStep := range []bool{false, true} {
@@ -56,7 +72,7 @@ func TestChatToolFailuresAndMissingStepNeverSucceed(t *testing.T) {
 			}
 			recorder := httptest.NewRecorder()
 			var answer strings.Builder
-			_, calls, _ := s.runToolRounds(ctx, recorder, recorder, toolSet{tools: list, actions: actions, definitions: definitions}, nil, modelgateway.Options{}, modelgateway.New(gateway.URL, "", "test", "", time.Second), runID, &answer)
+			_, calls, _, _ := s.runToolRounds(ctx, recorder, recorder, toolSet{tools: list, actions: actions, definitions: definitions}, nil, modelgateway.Options{}, modelgateway.New(gateway.URL, "", "test", "", time.Second), runID, &answer)
 			if len(calls) != 1 || calls[0].Status != "error" {
 				t.Fatalf("tool error shown as success: %+v", calls)
 			}

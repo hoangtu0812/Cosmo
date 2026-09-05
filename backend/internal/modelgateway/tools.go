@@ -36,7 +36,8 @@ type ToolCall struct {
 func (c *Client) Decide(ctx context.Context, history []Message, definitions []ToolDefinition, options Options) (text string, calls []ToolCall, err error) {
 	started := time.Now()
 	var counted *Usage
-	defer func() { c.observe(ctx, options, started, counted, err) }()
+	var budget *BudgetReport
+	defer func() { c.observe(ctx, options, started, counted, budget, err) }()
 	if !c.HasGateway() || c.ResolveModel(options) == "" {
 		return "", nil, ErrNotConfigured
 	}
@@ -67,6 +68,11 @@ func (c *Client) Decide(ctx context.Context, history []Message, definitions []To
 		body["tools"] = encoded
 		body["tool_choice"] = "auto"
 	}
+	messages, budget, err = budgetMessages(messages, body["tools"], options)
+	if err != nil {
+		return "", nil, err
+	}
+	body["messages"] = messages
 
 	payload, err := json.Marshal(body)
 	if err != nil {

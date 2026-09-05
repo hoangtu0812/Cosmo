@@ -71,6 +71,9 @@ func (c *Client) Model() string {
 type Options struct {
 	Model           string
 	ReasoningEffort string
+	// ContextWindow is trusted gateway metadata, not a client-supplied limit.
+	ContextWindow int
+	MaxInputBytes int
 }
 
 // Usage is what a turn cost, as the gateway counted it.
@@ -137,13 +140,14 @@ func (c *Client) Stream(ctx context.Context, history []Message, options Options,
 func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options Options, onDelta func(string) error) (usage Usage, err error) {
 	started := time.Now()
 	knownUsage := false
+	var budget *BudgetReport
 	defer func() {
 		var counted *Usage
 		if knownUsage {
 			snapshot := usage
 			counted = &snapshot
 		}
-		c.observe(ctx, options, started, counted, err)
+		c.observe(ctx, options, started, counted, budget, err)
 	}()
 	if !c.HasGateway() || c.ResolveModel(options) == "" {
 		return Usage{}, ErrNotConfigured
@@ -153,6 +157,10 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 		messages = append(messages, Message{Role: "system", Content: c.systemPrompt})
 	}
 	messages = append(messages, history...)
+	messages, budget, err = budgetMessages(messages, nil, options)
+	if err != nil {
+		return Usage{}, err
+	}
 	body := map[string]any{
 		"model":    c.ResolveModel(options),
 		"messages": messages,

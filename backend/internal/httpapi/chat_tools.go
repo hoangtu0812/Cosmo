@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -99,20 +100,23 @@ func (s *Server) runToolRounds(
 	models *modelgateway.Client,
 	runID string,
 	answer *strings.Builder,
-) ([]modelgateway.Message, []ToolCall, string) {
+) ([]modelgateway.Message, []ToolCall, string, error) {
 	reported := []ToolCall{}
 	for round := 0; round < maxToolRounds; round++ {
 		narration, calls, err := models.Decide(modelgateway.WithPhase(ctx, "tool_decision"), history, set.definitions, options)
 		if err != nil {
+			if errors.Is(err, modelgateway.ErrContextBudget) || errors.Is(err, modelgateway.ErrToolHistory) {
+				return history, reported, "", err
+			}
 			// A failed round is not a failed answer: the model can still reply
 			// from what it already has, so this is reported and stepped over.
 			s.logger.Error("tool round failed", "source", set.source, "error", err)
 			writeSSE(w, "status", map[string]string{"stage": "tool_failed", "message": "Không gọi được tool."})
 			flusher.Flush()
-			return history, reported, ""
+			return history, reported, "", nil
 		}
 		if len(calls) == 0 {
-			return history, reported, strings.TrimSpace(narration)
+			return history, reported, strings.TrimSpace(narration), nil
 		}
 
 		// What the model said on its way to calling is part of the answer, not
@@ -144,7 +148,7 @@ func (s *Server) runToolRounds(
 		for _, call := range calls {
 			toolName, actionName := tools.SplitCallName(call.Name)
 			if err := s.checkChatExecution(ctx); err != nil {
-				return history, reported, ""
+				return history, reported, "", nil
 			}
 			shown := ToolCall{
 				ID:        call.ID,
@@ -173,7 +177,7 @@ func (s *Server) runToolRounds(
 			}
 
 			if err := s.checkChatExecution(ctx); err != nil {
-				return history, reported, ""
+				return history, reported, "", nil
 			}
 			var result tools.CallResult
 			var callErr error
@@ -228,7 +232,7 @@ func (s *Server) runToolRounds(
 			})
 		}
 	}
-	return history, reported, ""
+	return history, reported, "", nil
 }
 
 // toolSetFor gathers what a turn may call.

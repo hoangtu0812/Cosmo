@@ -31,6 +31,10 @@ func TestChatKnowledgeEvidenceHandling(t *testing.T) {
 			ctx := context.Background()
 			var modelCalls atomic.Int32
 			gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/model/info" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
 				call := modelCalls.Add(1)
 				body, _ := io.ReadAll(r.Body)
 				content := "CO"

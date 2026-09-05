@@ -580,3 +580,12 @@ Chưa chốt thời lượng vì chưa có thông tin nhân sự và dữ liệu
 - Tạm đọc legacy trong khi API admin reindex dựng lại đủ 3 tài liệu/67 chunk vào một profile theo cấu hình thực tế. Kiểm tra count từng tài liệu và inspection đúng, collection legacy còn nguyên; sau đó bật KNOWLEDGE_PROFILE_READS=true và recreate RAG healthy.
 - Truy vấn bằng gateway thật qua API retrieval có xác thực cho cả 3 tài liệu: có bằng chứng, không partial, KB trả về đúng danh sách yêu cầu. Đây là kiểm tra kết nối và provenance, không phải baseline chất lượng trên câu hỏi nghiệp vụ gán nhãn.
 - Frontend có manifest Sites rỗng, chưa gắn project_id; triển khai tiếp tục theo phạm vi server test Docker Compose đã được yêu cầu, không tạo site cloud mới.
+
+### 2026-09-05 — CHAT-01b: Giới hạn ngữ cảnh trước mọi model call
+
+- Model Gateway kiểm tra cả stream/generation, utility Complete và tool decision trước HTTP request. Tính kích thước JSON của messages + tool definitions; giữ system/developer instructions và toàn bộ lượt mới nhất, bỏ lượt cũ từ xa đến gần theo nhóm user/assistant/tool nguyên vẹn.
+- Kiểm tra tool-call/result trước khi cắt: thiếu kết quả, kết quả mồ côi/trùng hoặc xen câu hỏi khi chưa đủ kết quả trả lỗi. Không bỏ cặp tool trong lượt hiện tại hoặc rút ngắn âm thầm câu hỏi mới/tool schema.
+- Worker đọc context window từ metadata gateway với deadline 2 giây, dùng lại cho accounting. Khi có window, trừ dự phòng output tối đa 4096 (không quá 1/4 window) và framing 1024; áp trần input 128 KiB. Không có metadata vẫn áp trần byte, không bịa context window.
+- Đây là heuristic bảo thủ theo byte JSON, không phải tokenizer chính xác hoặc usage tính phí. Phần dự phòng output không đặt giới hạn sinh token của provider. Ngữ cảnh bắt buộc vượt trần trả lỗi rõ cho người dùng và dừng tool round, không fallback generation bỏ qua lỗi ngân sách.
+- Mỗi model_call step lưu budget: input_bytes, limit_bytes, dropped_messages, context_window, output_reserve; không lưu nội dung đã bỏ. Tests kiểm tra giữ tiếng Việt/Unicode, instruction/query/schema, chuỗi tool song song, chặn trước network và HTTP worker trim/failure/accounting. Toàn bộ backend suite/PostgreSQL qua.
+- Còn phân bổ chi tiết memory/file/retrieval/tool output, tokenizer theo model, tóm tắt history có phạm vi, giới hạn output provider và UI hiển thị nội dung ngữ cảnh đã rút gọn; CHAT-01 chưa đóng toàn bộ.

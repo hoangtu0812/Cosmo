@@ -32,6 +32,10 @@ func TestChatUsesDecisionAnswerWithoutAnotherGeneration(t *testing.T) {
 	}
 	var decisions, generations atomic.Int32
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model/info" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		if _, ok := body["tools"]; ok {

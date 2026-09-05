@@ -44,6 +44,10 @@ func TestChatQueueSurvivesSubscriberDisconnectAndRechecksAccess(t *testing.T) {
 			ctx := context.Background()
 			var calls atomic.Int32
 			gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/model/info" {
+					w.WriteHeader(http.StatusNotFound)
+					return
+				}
 				calls.Add(1)
 				w.Header().Set("Content-Type", "text/event-stream")
 				fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Detached answer\"}}]}\n\ndata: [DONE]\n\n")
@@ -102,6 +106,10 @@ func TestChatWorkerCancelsGatewayWhenRunIsCancelled(t *testing.T) {
 	ctx := context.Background()
 	started, stopped := make(chan struct{}), make(chan struct{})
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model/info" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		_, _ = io.ReadAll(r.Body)
 		close(started)
 		<-r.Context().Done()
@@ -270,6 +278,10 @@ func TestChatWorkerDoesNotSaveTruncatedModelStream(t *testing.T) {
 	s.tools = tools.NewRepository(s.db, slog.Default(), nil, tools.EgressPolicy{}, tools.SearchBackend{})
 	ctx := context.Background()
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model/info" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"unfinished answer\"}}]}\n\n")
 	}))

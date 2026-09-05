@@ -113,5 +113,5 @@ func planningHistory(history []modelgateway.Message, question string) []modelgat
 }
 
 func planOptions(options modelgateway.Options) modelgateway.Options {
-	return modelgateway.Options{Model: options.Model}
+	return modelgateway.Options{Model: options.Model, ContextWindow: options.ContextWindow, MaxInputBytes: options.MaxInputBytes}
 }

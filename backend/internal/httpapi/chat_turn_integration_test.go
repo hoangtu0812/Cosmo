@@ -28,6 +28,10 @@ func TestChatTurnRetriesReplayWithoutExecutingAgain(t *testing.T) {
 	var calls atomic.Int32
 	started, release := make(chan struct{}), make(chan struct{})
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/model/info" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
 		var payload struct {
 			Messages []modelgateway.Message `json:"messages"`
 		}

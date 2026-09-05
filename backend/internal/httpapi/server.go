@@ -1086,6 +1086,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	metadataCtx, metadataCancel := context.WithTimeout(r.Context(), 2*time.Second)
+	options.ContextWindow = s.contextWindowFor(metadataCtx, conversationWorkspaceID, models.ResolveModel(options))
+	metadataCancel()
 	r = r.WithContext(modelgateway.WithObserver(r.Context(), s.observeChatModel(chatRun.ID)))
 	toolCtx = tools.WithCaller(r.Context(), caller)
 	history = withResponsePresentation(history)
@@ -1264,7 +1267,13 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		if described, marshalErr := json.Marshal(set.definitions); marshalErr == nil {
 			contextParts["tools"] = len([]rune(string(described)))
 		}
-		history, toolCalls, decidedAnswer = s.runToolRounds(toolCtx, w, flusher, set, history, options, models, chatRun.ID, &assistant)
+		history, toolCalls, decidedAnswer, err = s.runToolRounds(toolCtx, w, flusher, set, history, options, models, chatRun.ID, &assistant)
+		if err != nil {
+			writeSSE(w, "error", map[string]string{"message": err.Error()})
+			flusher.Flush()
+			_, _ = s.runs.Transition(context.Background(), chatRun.ID, runs.Failed, nil, "context_budget", err.Error())
+			return
+		}
 	}
 
 	writeSSE(w, "status", map[string]string{"stage": "writing", "message": "Đang soạn câu trả lời…"})
@@ -1310,7 +1319,11 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.logger.Error("model stream failed", "conversation_id", conversationID, "error", err)
-		writeSSE(w, "error", map[string]string{"message": "Model Gateway hiện không phản hồi. Vui lòng thử lại."})
+		message := "Model Gateway hiện không phản hồi. Vui lòng thử lại."
+		if errors.Is(err, modelgateway.ErrContextBudget) || errors.Is(err, modelgateway.ErrToolHistory) {
+			message = err.Error()
+		}
+		writeSSE(w, "error", map[string]string{"message": message})
 		flusher.Flush()
 		if runErr == nil {
 			_, _ = s.runs.TransitionStep(context.Background(), generationStep.ID, runs.Failed, nil, "", "model_gateway", err.Error())
@@ -1322,7 +1335,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	// stored so a reader watching the composer sees it settle with the answer
 	// rather than a beat later.
 	if usage.PromptTokens > 0 {
-		usage.ContextWindow = s.contextWindowFor(r.Context(), conversationWorkspaceID, models.ResolveModel(options))
+		usage.ContextWindow = options.ContextWindow
 		// The instructions the model runs under, whether an agent's or the
 		// workspace's, and then whatever the blocks above did not account for:
 		// the exchange itself.

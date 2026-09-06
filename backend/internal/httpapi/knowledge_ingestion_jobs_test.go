@@ -288,3 +288,75 @@ func TestIngestionRetryRestoresOnlyCompletedDocument(t *testing.T) {
 		t.Fatal(status)
 	}
 }
+
+func TestBatchAdmissionReplayAndValidation(t *testing.T) {
+	s, kb, owner, _ := ingestionFixture(t)
+	ctx := context.Background()
+	calls := 0
+	fail := true
+	rag := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if fail {
+			fail = false
+			w.WriteHeader(503)
+			return
+		}
+		var body struct {
+			DocumentID string `json:"document_id"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		json.NewEncoder(w).Encode(map[string]any{"storage_key": "knowledge-uploads/" + body.DocumentID, "size_bytes": 4})
+	}))
+	defer rag.Close()
+	s.knowledge = knowledge.New(rag.URL, time.Second)
+	router := chi.NewRouter()
+	router.Post("/knowledge/{kbID}/document-batches", s.uploadKnowledgeBatch)
+	send := func(id string, names []string, content string) *httptest.ResponseRecorder {
+		var body bytes.Buffer
+		form := multipart.NewWriter(&body)
+		form.WriteField("request_id", id)
+		for _, name := range names {
+			file, _ := form.CreateFormFile("files", name)
+			file.Write([]byte(content))
+		}
+		form.Close()
+		r := httptest.NewRequest("POST", "/knowledge/"+kb+"/document-batches", &body).WithContext(context.WithValue(ctx, userContextKey, owner))
+		r.Header.Set("Content-Type", form.FormDataContentType())
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		return w
+	}
+	if w := send("invalid", []string{"one.txt", "two.exe"}, "test"); w.Code != 415 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	var count int
+	s.db.QueryRow(ctx, `SELECT count(*) FROM knowledge_documents WHERE kb_id=$1`, kb).Scan(&count)
+	if count != 2 || calls != 0 {
+		t.Fatal("invalid batch partially admitted")
+	}
+	if w := send("batch", []string{"one.txt", "two.txt"}, "test"); w.Code != 502 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	w := send("batch", []string{"one.txt", "two.txt"}, "test")
+	if w.Code != 202 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	before := calls
+	if w = send("batch", []string{"one.txt", "two.txt"}, "test"); w.Code != 202 || calls != before {
+		t.Fatal("replay reuploaded", w.Code, calls)
+	}
+	if w = send("batch", []string{"one.txt", "two.txt"}, "edit"); w.Code != 409 {
+		t.Fatal("changed content accepted")
+	}
+	s.db.QueryRow(ctx, `SELECT count(*) FROM knowledge_documents WHERE kb_id=$1`, kb).Scan(&count)
+	if count != 4 {
+		t.Fatal("duplicate documents", count)
+	}
+	s.db.QueryRow(ctx, `SELECT count(*) FROM knowledge_ingestion_jobs WHERE kb_id=$1 AND status='queued'`, kb).Scan(&count)
+	if count != 1 {
+		t.Fatal("duplicate jobs", count)
+	}
+	if w = send("other", []string{"three.txt"}, "test"); w.Code != 409 {
+		t.Fatal("concurrent batch admitted")
+	}
+}

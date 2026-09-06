@@ -52,6 +52,8 @@ export default function KnowledgeDetailPage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [retryBatch, setRetryBatch] = useState<{files: File[]; requestID: string} | null>(null);
+  const [ingestion, setIngestion] = useState<{id: string; status: string; files: number; completed_documents: number; total_documents: number} | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -67,6 +69,8 @@ export default function KnowledgeDetailPage() {
     return () => { uploadScope.current += 1; };
   }, [kbID]);
 
+  useEffect(() => { setRetryBatch(null); setIngestion(null); }, [kbID]);
+
   const canEdit = base?.access === 'owner';
 
   const isSettling = documents.some((item) => item.status === 'processing' || item.status === 'pending');
@@ -74,8 +78,15 @@ export default function KnowledgeDetailPage() {
 	const failedCount = documents.filter((item) => item.status === 'failed').length;
 
   const loadDocuments = useCallback(
-    () => api.knowledgeDocuments(kbID).then((result) => setDocuments(result.documents)),
-    [kbID],
+    async () => {
+      const result = await api.knowledgeDocuments(kbID);
+      setDocuments(result.documents);
+      if (canEdit) {
+        const result = await api.knowledgeIngestionJobs(kbID);
+        setIngestion(result.jobs[0] ?? null);
+      }
+    },
+    [kbID, canEdit],
   );
 
   // Stable across renders: the log subscribes on this callback, and a fresh
@@ -118,38 +129,26 @@ export default function KnowledgeDetailPage() {
     return () => clearInterval(timer);
   }, [isSettling, loadDocuments]);
 
-  async function upload(files: File[]) {
+  async function upload(files: File[], requestID = crypto.randomUUID()) {
     if (files.length === 0) return;
+    if (files.length > 20 || files.reduce((size, file) => size + file.size, 0) > 64 * 1024 * 1024) {
+      setError('Mỗi lô tối đa 20 tệp, tổng dung lượng 64 MB.');
+      return;
+    }
     setUploading(true);
     setError('');
-    const failures: string[] = [];
     const scope = uploadScope.current;
     try {
-      // A KB admits one generation build at a time. Wait before admitting the
-      // next file; never replay an upload whose HTTP outcome is unknown.
-      for (const file of files) {
-        const deadline = Date.now() + 95 * 60 * 1000;
-        while (true) {
-          if (uploadScope.current !== scope) return;
-          const current = await api.knowledgeDocuments(kbID);
-          if (uploadScope.current !== scope) return;
-          setDocuments(current.documents);
-          if (!current.documents.some((item) => item.status === 'pending' || item.status === 'processing')) break;
-          if (Date.now() >= deadline) throw new Error('KB vẫn đang xử lý. Các tệp còn lại chưa được tải lên.');
-          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
-        }
-        try {
-          const result = await api.uploadKnowledgeDocument(kbID, file);
-          setDocuments((current) => [result.document, ...current]);
-          void openDocument(result.document);
-        } catch (caught) {
-          failures.push(`${file.name}: ${caught instanceof Error ? caught.message : t('kb.uploadFailed')}`);
-        }
-      }
-      if (failures.length > 0) setError(failures.join('\n'));
+      await api.uploadKnowledgeBatch(kbID, files, requestID);
+      if (uploadScope.current !== scope) return;
+      setRetryBatch(null);
+      await loadDocuments();
     } catch (caught) {
-      failures.push(caught instanceof Error ? caught.message : t('kb.uploadFailed'));
-      if (uploadScope.current === scope) setError(failures.join('\n'));
+      if (uploadScope.current !== scope) return;
+      const uncertain = !(caught instanceof APIError) || caught.status >= 500;
+      setRetryBatch(uncertain ? {files, requestID} : null);
+      setError(caught instanceof Error ? caught.message : t('kb.uploadFailed'));
+      void loadDocuments().catch(() => undefined);
     } finally {
       if (uploadScope.current === scope) setUploading(false);
     }
@@ -320,6 +319,9 @@ export default function KnowledgeDetailPage() {
             <HStack hAlign="center" width="100%">
             <VStack gap={5} maxWidth={700} width="100%">
               {error && <Banner isDismissable onDismiss={() => setError('')} status="error" title={error} />}
+              {canEdit && retryBatch && <Button label="Thử lại lô tải lên" variant="secondary" isDisabled={uploading} onClick={() => void upload(retryBatch.files, retryBatch.requestID)} />}
+              {canEdit && ingestion && <Text>Lô gần nhất: {({uploading: 'Đang lưu tệp', queued: 'Đang chờ', running: 'Đang xử lý', succeeded: 'Hoàn tất', failed: 'Thất bại'} as Record<string, string>)[ingestion.status] ?? ingestion.status} · {ingestion.completed_documents}/{ingestion.total_documents} tài liệu</Text>}
+
               {base && !base.embedding_model ? <Banner status="warning" title={t('kbd.needEmbedding')} /> : null}
 
               <input

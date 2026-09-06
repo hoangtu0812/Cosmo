@@ -104,6 +104,10 @@ var migrations = []Migration{
 		`CREATE TABLE knowledge_ingestion_checkpoints(job_id TEXT NOT NULL REFERENCES knowledge_ingestion_jobs(id) ON DELETE CASCADE, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, snapshot_id TEXT NOT NULL, chunks INTEGER NOT NULL CHECK(chunks>0), PRIMARY KEY(job_id,document_id))`,
 		`CREATE INDEX knowledge_ingestion_checkpoint_snapshot ON knowledge_ingestion_checkpoints(snapshot_id)`,
 	}},
+	{Version: 47, Name: "ingestion_batch_receipts", Statements: []string{
+		`ALTER TABLE knowledge_ingestion_jobs ADD COLUMN request_id TEXT NOT NULL DEFAULT '', ADD COLUMN request_hash TEXT NOT NULL DEFAULT '', ADD COLUMN upload_document_ids JSONB NOT NULL DEFAULT '[]'`,
+		`CREATE UNIQUE INDEX ingestion_batch_request ON knowledge_ingestion_jobs(kb_id,requested_by,request_id) WHERE request_id<>''`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

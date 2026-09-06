@@ -306,6 +306,8 @@ func (s *Server) Router() http.Handler {
 		protected.Delete("/api/knowledge/{kbID}", s.deleteKnowledgeBase)
 		protected.Get("/api/knowledge/{kbID}/documents", s.listKnowledgeDocuments)
 		protected.Post("/api/knowledge/{kbID}/documents", s.uploadKnowledgeDocument)
+		protected.Post("/api/knowledge/{kbID}/document-batches", s.uploadKnowledgeBatch)
+		protected.Get("/api/knowledge/{kbID}/ingestion-jobs", s.listKnowledgeIngestionJobs)
 		protected.Delete("/api/knowledge/{kbID}/documents/{documentID}", s.deleteKnowledgeDocument)
 		protected.Get("/api/knowledge/{kbID}/documents/{documentID}/detail", s.getKnowledgeDocumentDetail)
 		protected.Get("/api/knowledge/{kbID}/documents/{documentID}/original", s.openKnowledgeDocumentOriginal)

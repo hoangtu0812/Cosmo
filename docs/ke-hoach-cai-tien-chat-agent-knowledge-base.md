@@ -901,3 +901,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Migration 46 lưu checkpoint theo job/document sau khi RAG xác nhận hoàn tất; ghi dưới khóa lease để executor cũ không ghi đè tiến độ. Retry vẫn tạo generation mới, sao chép tài liệu đã xong theo đúng KB/document/profile và số chunks, bỏ qua parse/embedding cho tài liệu đó.
 - Manifest và quyền vẫn được kiểm tra trước phục hồi và trước publish. Checkpoint thiếu/không khớp trong Qdrant quay lại parse; lỗi ghi bản sao không được coi là thành công. Cleanup giữ generation chứa checkpoint của job active; generation cũ không bị sửa bởi lần thử mới.
 - Test backend/PostgreSQL xác minh chỉ tài liệu hoàn tất có checkpoint và được truyền sang lần thử mới; test RAG xác minh không parse/embed lại, cách ly profile/KB và số chunk sai không tạo target. Các test ingestion/upload/cleanup/migration cùng 25 test pipeline/snapshot qua. Chưa rollout migration 46 tại commit này.
+
+
+### 2026-09-06 — Batch upload tài liệu với receipt chống gửi trùng
+
+- Migration 47 lưu request ID/hash và các document ID của lô. API nhận 1–20 tệp, tổng tối đa 64 MiB; kiểm tra toàn lô trước admission, một job dựng generation cho cả lô. Một tệp ingest lỗi không công bố generation dở dang.
+- Retry cùng actor/KB/request ID và đúng nội dung trả cùng job/document IDs; nội dung đổi trả 409. Intent lưu trước object storage; khi chưa xác nhận đủ original có thể thử lại cùng lô. Byte chưa đến server/object storage không thể tự khôi phục; lỗi cuối cùng giữ generation đang phục vụ.
+- Giao diện gửi một lô, theo dõi tiến độ gần nhất qua API job và có nút thử lại giữ nguyên request ID khi phản hồi chưa chắc chắn. API trạng thái chỉ cho người có quyền quản trị KB; không trả manifest/nội dung tài liệu.
+- Backend/PostgreSQL qua validation toàn lô, lỗi lưu original rồi retry, replay không ghi thêm, payload đổi và KB đang bận. TypeScript qua. Chưa rollout migration 47 tại commit này.

@@ -758,6 +758,14 @@ export const api = {
     if (title) form.append('title', title);
     return upload<{document: KnowledgeDocument}>(`/api/knowledge/${encodeURIComponent(kbID)}/documents`, form);
   },
+  uploadKnowledgeBatch: (kbID: string, files: File[], requestID: string) => {
+    const form = new FormData();
+    form.append('request_id', requestID);
+    files.forEach((file) => form.append('files', file));
+    return upload<{job_id: string; document_ids: string[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/document-batches`, form);
+  },
+  knowledgeIngestionJobs: (kbID: string) =>
+    request<{jobs: {id: string; status: string; files: number; completed_documents: number; total_documents: number}[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/ingestion-jobs`),
   knowledgeDocuments: (kbID: string) =>
     request<{documents: KnowledgeDocument[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/documents`),
   knowledgeDocumentDetail: (kbID: string, documentID: string) =>

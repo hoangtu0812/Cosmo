@@ -762,3 +762,10 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - API giữ toàn bộ yêu cầu pending/approved/uncertain trong phạm vi được phép cùng 50 bản ghi mới nhất. Kết quả ledger quyết định trạng thái, nên lịch sử mới không che mất yêu cầu cũ cần đối soát.
 - Full backend trên PostgreSQL mới qua. Integration model cố gọi cùng action hai lần trong một batch và lặp lại ở vòng sau với tham số khác: đúng một approval, từ chối không dispatch, duyệt rồi HTTP 503 chỉ một dispatch; tool đọc chạy cả hai vòng. Ca 60 receipt mới không che operation cũ và preflight không phát sinh approval cũng qua.
 - Đây chưa phải durable chat checkpoint hay giải phóng worker đang chờ duyệt; các phần đó vẫn còn mở.
+
+
+### 2026-09-06 — OBS-01c: không mất accounting ở các vòng gọi model
+
+- Mỗi model call trong cùng phase có attempt riêng; cấp số có khóa để tác vụ phụ kết thúc đồng thời không trùng khóa run_steps. Trước đây tool_decision vòng hai trở đi không lưu được accounting vì luôn dùng attempt 1.
+- Integration Chat ba vòng quyết định lưu đủ ba model_call. Kiểm thử tám callback cùng phase chạy đồng thời và một phase khác giữ đủ token, duration, trạng thái lỗi; phân biệt usage thiếu với usage bằng 0.
+- Đây là sửa độ đầy đủ per-call; chưa bổ sung dashboard tổng hợp, embedding/reranking accounting hay khôi phục usage đã bị mất ở các lượt cũ.

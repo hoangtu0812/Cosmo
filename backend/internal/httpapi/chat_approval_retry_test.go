@@ -141,6 +141,13 @@ func TestChatDoesNotRepeatClosedApprovalButContinuesReads(t *testing.T) {
 				t.Fatal("repeated approval blocked completion")
 			}
 			awaitChatStatus(t, s, conversation, "retry-test", "succeeded")
+			var observed int
+			if err := s.db.QueryRow(ctx, `SELECT count(*) FROM run_steps s JOIN chat_turns t ON t.run_id=s.run_id WHERE t.conversation_id=$1 AND s.node_id='model_call:tool_decision'`, conversation).Scan(&observed); err != nil {
+				t.Fatal(err)
+			}
+			if observed != 3 {
+				t.Fatalf("lost decision accounting: %d", observed)
+			}
 			wantWrites := int32(0)
 			if decision == "approved" {
 				wantWrites = 1

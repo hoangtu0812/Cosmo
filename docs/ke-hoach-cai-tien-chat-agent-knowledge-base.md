@@ -936,3 +936,10 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Batch upload công bố index nguyên tử; không có nghĩa upload byte lên object storage là một transaction. Byte chưa tải lên thành công cần người dùng gửi lại; UI giữ request ID để retry trong trang đang mở.
 - Accounting vẫn có thể thiếu khi process/kết nối mất trước khi observation được nhận và lưu. Không có usage token hoặc đơn giá thì chi phí để trống; chưa đối chiếu hóa đơn gateway hay tính theo billed units riêng của nhà cung cấp.
 - SAP business idempotency/reconciliation cần hợp đồng API và phương thức kiểm tra kết quả từ phía SAP. Baseline chất lượng nhiều KB cần bộ câu hỏi, đáp án và evidence được xác nhận nghiệp vụ. Hai mục này chưa được nghiệm thu chỉ bằng test kỹ thuật hiện có.
+
+
+### Nghiệm thu file picker trên trình duyệt (2026-09-06)
+
+- Chọn hai tệp giả lập cùng lúc bằng nút Add documents trên KB test rỗng. Giao diện chuyển sang Đang chờ 0/2, tải lại trang hiển thị Hoàn tất 2/2, có đủ hai tài liệu/hai chunks.
+- Đối chiếu PostgreSQL: đúng một job succeeded, upload_document_ids gồm hai tài liệu; reload không tạo thêm job. Browser console không có error trong ca thử. Kết quả này bổ sung phần file picker chưa kiểm thử ở mục rollout phía trên.
+- Đã dọn fixture và tab UI; đây là tải tài liệu giả lập vào KB tạm, không cập nhật các KB thực.

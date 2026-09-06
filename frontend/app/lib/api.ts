@@ -655,6 +655,7 @@ export const api = {
     ),
   deleteToolAction: (toolID: string, actionID: string, workspaceID?: string) =>
     request<void>(`/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
+  cancelWorkflowExecution: (workflowID: string, workspaceID: string, executionID: string) => request<void>(`/api/workflows/${encodeURIComponent(workflowID)}/executions/${encodeURIComponent(executionID)}/cancel?workspace=${encodeURIComponent(workspaceID)}`, {method:'POST'}),
   workflowExecutions: (workflowID: string, workspaceID: string) => request<{executions: WorkflowExecution[]}>(`/api/workflows/${encodeURIComponent(workflowID)}/executions?workspace=${encodeURIComponent(workspaceID)}`),
   toolApprovals: (workspace: string, kind: string, source: string) => request<{approvals: ToolApproval[]}>(`/api/tool-approvals?workspace=${encodeURIComponent(workspace)}&kind=${encodeURIComponent(kind)}&source=${encodeURIComponent(source)}`),
   decideToolApproval: (id: string, workspace: string, decision: string, definition: string) => request<void>(`/api/tool-approvals/${encodeURIComponent(id)}/decision?workspace=${encodeURIComponent(workspace)}`, {method:'POST',body:JSON.stringify({decision,definition})}),
@@ -972,41 +973,52 @@ export async function streamWorkflowRun(
   workspaceID: string | undefined,
   handlers: {onStep: (step: WorkflowStep) => void; onDone?: () => void},
   executionID?: string,
+  followOnly = false,
 ): Promise<void> {
   const query = workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : '';
-  const response = await fetch(`${API_BASE}/api/workflows/${encodeURIComponent(workflowID)}/run${query}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: {'Content-Type': 'application/json', Accept: 'text/event-stream'},
-    body: JSON.stringify({input, execution_id: executionID}),
-  });
-  if (!response.ok) {
-    let body: APIErrorShape = {};
-    try { body = await response.json() as APIErrorShape; } catch { /* ignore invalid error body */ }
-    throw new APIError(body.error?.message ?? 'Không chạy được workflow.', response.status);
+  const base = `${API_BASE}/api/workflows/${encodeURIComponent(workflowID)}`;
+  const identity = await chatRequestIdentity(`workflow:${workspaceID}:${workflowID}`, JSON.stringify([input,executionID ?? '']));
+  let following = followOnly ? executionID : undefined;
+  let cursor = '';
+  for (let attempt = 0; ; attempt++) {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const response = await fetch(following ? `${base}/executions/${encodeURIComponent(following)}/events${query}` : `${base}/run${query}`, {
+        method: following ? 'GET' : 'POST', credentials: 'include',
+        headers: {'Content-Type':'application/json', Accept:'text/event-stream', ...(cursor ? {'Last-Event-ID':cursor} : {})},
+        ...(following ? {} : {body:JSON.stringify({input,execution_id:executionID,request_id:identity.id})}),
+      });
+      if (!response.ok) {
+        let body: APIErrorShape = {};
+        try {body = await response.json() as APIErrorShape;} catch { /* invalid error body */ }
+        throw new APIError(body.error?.message ?? 'Không đọc được phiên workflow.', response.status);
+      }
+      if (!response.body) throw new APIError('Trình duyệt không hỗ trợ streaming.',500);
+      reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const {done,value} = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value,{stream:true});
+        const frames = buffer.split('\n\n');buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          const lines = frame.split('\n');
+          const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
+          const raw = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
+          if (!event || !raw) continue;
+          const data = JSON.parse(raw) as Record<string,unknown>;
+          if (event === 'execution') {following = String(data.id); identity.complete();}
+          if (event === 'step') handlers.onStep(data as unknown as WorkflowStep);
+          if (event === 'done') {identity.complete();handlers.onDone?.();return;}
+          if (event === 'error') {identity.complete();throw new APIError(String(data.message ?? 'Workflow dừng giữa chừng.'),502);}
+          cursor = lines.find((line) => line.startsWith('id:'))?.slice(3).trim() ?? cursor;
+        }
+      }
+      throw new Error('Kết nối bị ngắt. Xem lại tiến độ trong Phiên chạy đã lưu.');
+    } catch (error) {
+      if (error instanceof APIError || error instanceof SyntaxError || attempt>=3) throw error;
+      await new Promise((resolve) => setTimeout(resolve,500*(attempt+1)));
+    } finally {await reader?.cancel().catch(() => undefined);}
   }
-  if (!response.body) throw new APIError('Trình duyệt không hỗ trợ nhận dữ liệu streaming.', 500);
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let completed = false;
-  while (true) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, {stream: true});
-    const frames = buffer.split('\n\n');
-    buffer = frames.pop() ?? '';
-    for (const frame of frames) {
-      const lines = frame.split('\n');
-      const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim();
-      const rawData = lines.find((line) => line.startsWith('data:'))?.slice(5).trim();
-      if (!event || !rawData) continue;
-      const data = JSON.parse(rawData) as Record<string, unknown>;
-      if (event === 'step') handlers.onStep(data as unknown as WorkflowStep);
-      if (event === 'done') {completed = true; handlers.onDone?.();}
-      if (event === 'error') throw new APIError(String(data.message ?? 'Workflow dừng giữa chừng.'), 502);
-    }
-  }
-  if (!completed) throw new APIError('Phiên streaming bị ngắt. Kiểm tra tiến độ đã lưu trước khi tiếp tục.', 502);
 }

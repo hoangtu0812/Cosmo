@@ -812,3 +812,10 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - API xem lại sự kiện hỗ trợ Last-Event-ID. Đọc trạng thái trước sự kiện để không bỏ mất frame cuối khi worker vừa hoàn tất. Dừng phiên chặn bước tiếp theo, hết hạn xác nhận đang chờ; không hoàn tác lệnh đã gửi ra hệ thống ngoài.
 - Full backend trên PostgreSQL mới sau migration qua: hai worker tranh một việc chỉ gọi tool một lần; mất kết nối trước worker chạy; phát lại theo cursor; payload đổi; thu hồi quyền/cấu hình đổi; crash sau claim; dừng queued; request replay trước/sau hoàn tất và sau resume. TypeScript qua. Chưa rollout tại commit này.
 - Còn mở: workflow đang chờ duyệt vẫn giữ worker; restart trong giai đoạn running vẫn cần tiếp tục thủ công. Chưa có chính sách lưu giữ/xóa sự kiện theo thời gian hay dashboard accounting tổng hợp.
+
+
+### 2026-09-06 — Theo dõi và dừng workflow từ giao diện
+
+- Phiên chạy đã lưu hiển thị trạng thái queued/running, cho phép theo dõi tiến độ sau tải lại trang và dừng phiên. Theo dõi dùng GET sự kiện, không lưu lại graph hoặc gửi yêu cầu thực thi mới.
+- Khi mất mạng trước nhận execution ID, client gửi lại cùng request_id; sau nhận ID chuyển sang GET cùng cursor. Tối đa ba lần kết nối lại; lỗi nghiệp vụ/quyền được hiển thị ngay, không tự chạy lại workflow.
+- Hai kiểm thử frontend xác minh giữ mã yêu cầu khi mất phản hồi admission, chuyển GET theo execution/cursor, theo dõi sau reload không POST và lỗi terminal không retry. TypeScript qua; nghiệm thu trình duyệt/rollout ở bước kế tiếp.

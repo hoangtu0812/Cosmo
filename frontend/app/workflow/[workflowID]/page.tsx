@@ -216,7 +216,7 @@ function WorkflowEditor() {
 
   // A run has to see the graph on screen, so it is saved first. Running a
   // stale copy and animating the new one would light up the wrong nodes.
-  async function run(executionID?: string) {
+  async function run(executionID?: string, followOnly = false) {
     setSteps([]);
     setError('');
     setIsRunning(true);
@@ -233,7 +233,7 @@ function WorkflowEditor() {
           });
           paint(step);
         },
-      }, executionID);
+      }, executionID, followOnly);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('workflow.runFailed'));
     } finally {
@@ -410,7 +410,7 @@ function WorkflowEditor() {
       </VStack>
 
       <VStack className="border-l border-[var(--color-border)]" gap={4} height="100%" isScrollable padding={4} width={320}>
-        <WorkflowExecutionHistory key={`history-${workflow.id}`} workflowID={workflow.id} workspaceID={workspaceID} isRunning={isRunning} onResume={(id) => void run(id)} />
+        <WorkflowExecutionHistory key={`history-${workflow.id}`} workflowID={workflow.id} workspaceID={workspaceID} isRunning={isRunning} onResume={(id) => void run(id)} onFollow={(id) => void run(id,true)} />
         <InlineToolApprovals key={workflow.id} workspaceID={workspaceID} kind="workflow" sourceID={workflow.id} />
         {selected ? (
           <NodeSettings

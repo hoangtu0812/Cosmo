@@ -296,6 +296,8 @@ func (s *Server) Router() http.Handler {
 		protected.Delete("/api/workflows/{workflowID}", s.deleteWorkflow)
 		protected.Put("/api/workflows/{workflowID}/graph", s.saveWorkflowGraph)
 		protected.Get("/api/workflows/{workflowID}/executions", s.listWorkflowExecutions)
+		protected.Get("/api/workflows/{workflowID}/executions/{executionID}/events", s.workflowEvents)
+		protected.Post("/api/workflows/{workflowID}/executions/{executionID}/cancel", s.cancelWorkflowExecution)
 		protected.Post("/api/workflows/{workflowID}/run", s.runWorkflow)
 		protected.Get("/api/knowledge", s.listKnowledgeBases)
 		protected.Post("/api/knowledge", s.createKnowledgeBase)

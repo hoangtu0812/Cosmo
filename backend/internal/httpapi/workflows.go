@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"cosmo/backend/internal/modelgateway"
@@ -182,14 +183,26 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Input  string `json:"input"`
-		Model  string `json:"model"`
-		Resume string `json:"execution_id"`
+		Input      string `json:"input"`
+		Model      string `json:"model"`
+		Resume     string `json:"execution_id"`
+		RequestKey string `json:"request_id"`
 	}
 	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
 		return
 	}
 
+	if raw := r.Header.Get("Last-Event-ID"); raw != "" {
+		cursor, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || cursor < 0 {
+			writeError(w, 400, "Vị trí sự kiện không hợp lệ.")
+			return
+		}
+	}
+	if len(input.RequestKey) > 100 || len(input.Input) > 65536 {
+		writeError(w, 400, "Yêu cầu chạy workflow vượt giới hạn.")
+		return
+	}
 	models := s.modelsFor(r.Context(), workspaceID)
 	if !models.HasGateway() {
 		writeError(w, http.StatusServiceUnavailable, "Workspace này chưa cấu hình Model Gateway.")
@@ -201,18 +214,24 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flusher, streaming := w.(http.Flusher)
+	_, streaming := w.(http.Flusher)
 	if !streaming {
 		writeError(w, http.StatusInternalServerError, "Trình duyệt không nhận được dữ liệu streaming.")
 		return
 	}
-	execution, err := s.admitWorkflowExecution(r.Context(), item, user.ID, input.Input, models.ResolveModel(options), input.Resume)
+	execution, err := s.admitWorkflowExecution(context.WithValue(r.Context(), workflowQueueKey{}, input.RequestKey), item, user.ID, input.Input, models.ResolveModel(options), input.Resume)
 	if err != nil {
 		writeError(w, 409, errWorkflowResume.Error())
 		return
 	}
-	options.Model = execution.Model
-	ctx, cancel := context.WithCancel(r.Context())
+	s.audit(r, auditEvent{Action: "workflow.run.queued", TargetType: "workflow", TargetID: item.ID, WorkspaceID: workspaceID, Metadata: map[string]string{"execution_id": execution.ID}})
+	s.followWorkflowExecution(w, r, execution.ID)
+}
+
+func (s *Server) executeWorkflowJob(parent context.Context, execution *workflowExecution, item workflows.Workflow, user User, workspaceID string) {
+	models := s.modelsFor(parent, workspaceID)
+	options := modelgateway.Options{Model: execution.Model}
+	ctx, cancel := context.WithTimeout(parent, workflows.RunTimeout)
 	ctx = context.WithValue(ctx, workflowExecutionKey{}, execution)
 	heartbeatDone := make(chan struct{})
 	go func() {
@@ -240,15 +259,9 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 		defer stop()
 		_, _ = s.db.Exec(finish, `UPDATE workflow_executions SET status=$3,finished_at=NOW() WHERE id=$1 AND lease_owner=$2 AND status='running'`, execution.ID, execution.owner, finalStatus)
 	}()
-	// Recorded before the stream opens rather than after it closes: a workflow
-	// calls tools, and the record that one was set running has to survive the
-	// reader closing the tab halfway through.
-	s.audit(r, auditEvent{
-		Action: "workflow.run.started", TargetType: "workflow", TargetID: item.ID, TargetLabel: item.Name,
-		WorkspaceID: workspaceID,
-		Metadata:    map[string]any{"model": models.ResolveModel(options), "nodes": len(item.Graph.Nodes)},
-	})
 
+	w := &workflowEventWriter{server: s, ctx: ctx, execution: execution, cancel: cancel, header: make(http.Header)}
+	var flusher http.Flusher = w
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")

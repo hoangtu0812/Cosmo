@@ -18,16 +18,21 @@ import (
 var errWorkflowResume = errors.New("Phiên chạy đang hoạt động, cấu hình đã đổi, hoặc bước bị ngắt chưa có kết quả chắc chắn để tiếp tục.")
 
 type workflowExecutionKey struct{}
+type workflowQueueKey struct{}
 type workflowExecution struct {
-	ID         string                    `json:"id"`
-	Status     string                    `json:"status"`
-	Input      string                    `json:"input"`
-	Model      string                    `json:"model"`
-	Completed  map[string]workflows.Step `json:"completed"`
-	ActiveNode string                    `json:"active_node"`
-	ApprovalID string                    `json:"approval_id"`
-	CreatedAt  time.Time                 `json:"created_at"`
-	owner      string
+	ID          string                    `json:"id"`
+	Status      string                    `json:"status"`
+	Input       string                    `json:"input"`
+	Model       string                    `json:"model"`
+	Completed   map[string]workflows.Step `json:"completed"`
+	ActiveNode  string                    `json:"active_node"`
+	ApprovalID  string                    `json:"approval_id"`
+	CreatedAt   time.Time                 `json:"created_at"`
+	workflowID  string
+	actorID     string
+	workspaceID string
+	runtimeHash string
+	owner       string
 }
 
 // Runtime changes require a new reviewed run. Hash gateway data rather than
@@ -73,6 +78,23 @@ func (s *Server) admitWorkflowExecution(ctx context.Context, item workflows.Work
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, item.ID+":"+userID); err != nil {
 		return nil, err
 	}
+	requestKey, queued := ctx.Value(workflowQueueKey{}).(string)
+	requestHash := chatRuntimeHash(item.ID, input, model, resume)
+	if queued && requestKey != "" {
+		var existing workflowExecution
+		var previousHash string
+		err := tx.QueryRow(ctx, `SELECT e.id,e.status,r.request_hash FROM workflow_execution_requests r JOIN workflow_executions e ON e.id=r.execution_id WHERE r.actor_id=$1 AND r.workspace_id=$2 AND r.request_key=$3`, userID, item.WorkspaceID, requestKey).Scan(&existing.ID, &existing.Status, &previousHash)
+		if err == nil {
+			if previousHash != requestHash {
+				return nil, errWorkflowResume
+			}
+			return &existing, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+	}
+
 	if _, err = tx.Exec(ctx, `UPDATE workflow_executions SET status='interrupted' WHERE workflow_id=$1 AND actor_id=$2 AND workspace_id=$3 AND status='running' AND lease_until<=NOW()`, item.ID, userID, item.WorkspaceID); err != nil {
 		return nil, err
 	}
@@ -145,10 +167,27 @@ func (s *Server) admitWorkflowExecution(ctx context.Context, item workflows.Work
 	if err != nil {
 		return nil, errWorkflowResume
 	}
+	if queued {
+		if _, err = tx.Exec(ctx, `UPDATE workflow_executions SET status='queued',lease_owner='',lease_until=NOW() WHERE id=$1`, exec.ID); err != nil {
+			return nil, err
+		}
+		if requestKey != "" {
+			if _, err = tx.Exec(ctx, `INSERT INTO workflow_execution_requests(actor_id,workspace_id,request_key,execution_id,request_hash) VALUES($1,$2,$3,$4,$5)`, userID, item.WorkspaceID, requestKey, exec.ID, requestHash); err != nil {
+				return nil, err
+			}
+		}
+		// A manual resume begins a new stream over the same durable checkpoints.
+		if _, err = tx.Exec(ctx, `DELETE FROM workflow_execution_events WHERE execution_id=$1`, exec.ID); err != nil {
+			return nil, err
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	exec.Status = "running"
+	if queued {
+		exec.Status = "queued"
+	}
 	exec.ActiveNode = ""
 	exec.ApprovalID = ""
 	return exec, nil
@@ -157,6 +196,18 @@ func (s *Server) admitWorkflowExecution(ctx context.Context, item workflows.Work
 func (s *Server) saveWorkflowCheckpoint(ctx context.Context, exec *workflowExecution, step workflows.Step) error {
 	var err error
 	if step.Status == workflows.StatusRunning {
+		if exec.actorID != "" {
+			var member bool
+			if e := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspace_memberships WHERE user_id=$1 AND workspace_id=$2)`, exec.actorID, exec.workspaceID).Scan(&member); e != nil {
+				return e
+			} else if !member {
+				return errWorkflowResume
+			}
+			if _, e := s.workflows.Get(ctx, exec.workflowID, exec.actorID, exec.workspaceID); e != nil {
+				return e
+			}
+		}
+
 		tag, e := s.db.Exec(ctx, `UPDATE workflow_executions SET active_node=$3,approval_id='' WHERE id=$1 AND lease_owner=$2 AND lease_until>NOW() AND status='running'`, exec.ID, exec.owner, step.NodeID)
 		err = e
 		if e == nil && tag.RowsAffected() != 1 {

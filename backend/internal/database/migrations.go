@@ -86,6 +86,7 @@ var migrations = []Migration{
 	{Version: 38, Name: "workflow_execution_checkpoints", Statements: workflowCheckpointStatements},
 	{Version: 39, Name: "chat_approval_anchors", Statements: chatApprovalAnchorStatements},
 	{Version: 40, Name: "chat_approval_checkpoints", Statements: chatApprovalCheckpointStatements},
+	{Version: 41, Name: "workflow_background_queue", Statements: workflowQueueStatements},
 }
 
 var knowledgeSnapshotStatements = []string{

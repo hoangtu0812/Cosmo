@@ -803,3 +803,12 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Trình duyệt: gửi câu hỏi tới tool giả lập, tải lại trang khi đang chờ, khung duyệt hiện đúng tin nhắn. Duyệt từ trang đã tải lại tự cập nhật câu trả lời và loại khung pending; fixture nhận đúng một lệnh, không có console error. Không gọi SAP thật.
 - Regression chat FIFO/disconnect/SSE replay/transcript và MCP discovery/rediscovery/invocation qua. Gateway thật truy xuất cả ba tài liệu, nguồn đúng KB. Dữ liệu cuối 3 tài liệu/67 chunks; backend/frontend healthy, không có công việc queued/executing/waiting_approval còn lại. Fixture và hai PostgreSQL kiểm thử đã dọn.
 - Chat đã giải phóng worker và phục hồi điểm chờ xác nhận qua restart. Chưa tự phục hồi lần thực thi bị ngắt sau khi đã claim checkpoint; trường hợp đó vẫn interrupted/đối soát. Các mục còn lại gồm workflow worker nền, shared-tool approval, SAP business idempotency/reconciliation, baseline nghiệp vụ nhiều KB, tổng hợp accounting và incremental/batch ingest.
+
+
+### 2026-09-06 — Workflow chạy nền và phát lại tiến độ
+
+- Migration 41 lưu hàng đợi, mã yêu cầu chống gửi trùng và sự kiện workflow. HTTP chỉ nhận việc và theo dõi; worker độc lập tiếp tục khi người dùng đóng trang/ngắt mạng. Một worker mặc định, nhận việc bằng khóa SKIP LOCKED; queued tồn tại qua restart.
+- Kiểm tra lại quyền và fingerprint cấu hình trước thực thi; kiểm tra quyền trước mỗi node và mỗi lần đọc sự kiện. Lease hết hạn khi running chuyển interrupted, không tự gọi lại bước chưa rõ kết quả. Tiếp tục thủ công dùng checkpoint/ledger đã có; mã yêu cầu cũ vẫn trỏ cùng phiên sau resume.
+- API xem lại sự kiện hỗ trợ Last-Event-ID. Đọc trạng thái trước sự kiện để không bỏ mất frame cuối khi worker vừa hoàn tất. Dừng phiên chặn bước tiếp theo, hết hạn xác nhận đang chờ; không hoàn tác lệnh đã gửi ra hệ thống ngoài.
+- Full backend trên PostgreSQL mới sau migration qua: hai worker tranh một việc chỉ gọi tool một lần; mất kết nối trước worker chạy; phát lại theo cursor; payload đổi; thu hồi quyền/cấu hình đổi; crash sau claim; dừng queued; request replay trước/sau hoàn tất và sau resume. TypeScript qua. Chưa rollout tại commit này.
+- Còn mở: workflow đang chờ duyệt vẫn giữ worker; restart trong giai đoạn running vẫn cần tiếp tục thủ công. Chưa có chính sách lưu giữ/xóa sự kiện theo thời gian hay dashboard accounting tổng hợp.

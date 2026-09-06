@@ -720,3 +720,8 @@ TOOL-01 chưa đóng toàn bộ: còn approval/resume trong chat/workflow và t�
 ### 2026-09-06 — TOOL-01c: xác nhận trong phiên chat/workflow
 
 Đã thêm migration 37, yêu cầu phê duyệt gắn actor/phạm vi/tham số với thời hạn và lease executor; UI xác nhận hoặc từ chối tại chat/workflow, rồi tiếp tục dùng kết quả qua write ledger. Full backend/PostgreSQL và TypeScript qua kiểm tra. [Phạm vi và giới hạn hiện tại](tool-write-policy.md): cần tiếp tục durable checkpoint/resume sau restart, phê duyệt shared tool, business idempotency và SAP reconciliation.
+
+
+### Nghiệm thu TOOL-01c trên server test
+
+Backend `be36bff`, frontend bổ sung khung thử agent tại `fa70910`, migration 37. Backup trước migration đã kiểm tra: 426988 bytes, 319 TOC lines. Smoke xác thực qua API cho chat approve/reject và workflow approve/reject: đúng 2 lệnh được nhận cho 2 lần duyệt, 0 lệnh khi từ chối; replay chat và lặp quyết định không dispatch thêm. SIGKILL backend trong lúc workflow đang chờ duyệt rồi restart: yêu cầu cũ hết hạn và không thể gửi lệnh. Regression chat FIFO/SSE/replay, MCP discovery/invoke và 3 tài liệu KB thực đều qua. Fixture đã dọn sạch. Chưa kiểm tra tương tác UI bằng trình duyệt.

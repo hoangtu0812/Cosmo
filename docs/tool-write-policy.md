@@ -40,3 +40,8 @@ Yêu cầu chờ tối đa 90 giây và luôn nằm trong deadline phiên chạy
 Phạm vi quyền hiện tại vẫn là người tạo tool tự xác nhận thao tác của mình. Chưa triển khai người phê duyệt riêng cho shared tool. Chat đóng tab vẫn có worker tiếp tục và có thể tải lại yêu cầu đang chờ; workflow đóng kết nối trước admission thì dừng phiên. Chờ phê duyệt vẫn chiếm một worker chat; chưa có checkpoint để giải phóng worker và tự khôi phục phần còn lại sau restart. Restart không tự tiếp tục hay phát lại lệnh đã duyệt. Đây là giới hạn còn mở của durable approval/resume, không phải xác nhận hoàn thành toàn bộ TOOL-01.
 
 Kiểm thử PostgreSQL: actor khác, sai definition, quyết định lặp, approve/reject, hết lease, hủy phiên, thay đổi tool, mất membership và khôi phục operation từ ledger; full backend tests và TypeScript đã qua. Rollout API được ghi riêng sau triển khai.
+
+
+### Nghiệm thu TOOL-01c trên server test
+
+Backend `be36bff`, frontend bổ sung khung thử agent tại `fa70910`, migration 37. Backup trước migration đã kiểm tra: 426988 bytes, 319 TOC lines. Smoke xác thực qua API cho chat approve/reject và workflow approve/reject: đúng 2 lệnh được nhận cho 2 lần duyệt, 0 lệnh khi từ chối; replay chat và lặp quyết định không dispatch thêm. SIGKILL backend trong lúc workflow đang chờ duyệt rồi restart: yêu cầu cũ hết hạn và không thể gửi lệnh. Regression chat FIFO/SSE/replay, MCP discovery/invoke và 3 tài liệu KB thực đều qua. Fixture đã dọn sạch. Chưa kiểm tra tương tác UI bằng trình duyệt.

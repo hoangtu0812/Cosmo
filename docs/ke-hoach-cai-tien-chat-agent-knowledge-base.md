@@ -752,3 +752,13 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Migration 39 lưu message_id/call_id; tool event và transcript mới giữ approval_id. Backfill chỉ dùng thứ tự SSE đã lưu trong đúng lượt, không suy đoán theo tên tool/tham số hoặc call ID có thể lặp. Yêu cầu legacy thiếu sự kiện liên kết vẫn có ledger ở màn hình tool, không gắn bừa vào tin nhắn khác.
 - Full backend/PostgreSQL, hai test liên kết frontend, TypeScript và Docker production build qua. Trình duyệt server test đã xác minh yêu cầu cũ đứng trước câu hỏi giờ phía sau, mở chi tiết đúng vị trí; yêu cầu mới hiển thị trong lượt streaming và từ chối tiếp tục Chat. Không có browser console error trong ca thử.
 - Backup trước migration: `.cache/deployments/20260906-approval-anchors/database.dump`, 452030 bytes, 334 dòng TOC; backend/frontend healthy. Smoke approve/reject/replay và executor chết khi chờ duyệt qua, liên kết message/call/approval mới được kiểm tra qua API/SSE. Không gọi hay đối soát SAP thật.
+
+
+### 2026-09-06 — TOOL-01e: chặn vòng lặp xác nhận và giữ việc cần đối soát
+
+- Trước khi tạo yêu cầu xác nhận, kiểm tra ledger chưa kết thúc của đúng actor/workspace/tool/action. Có executing/uncertain thì trả hướng dẫn đối soát; admission vẫn kiểm tra lại dưới khóa để chặn race. Không tự phân loại SAP action là read hoặc gửi lại thao tác chưa rõ kết quả.
+- Trong một lượt Chat, action đã bị từ chối/hết hạn/lỗi sau xác nhận hoặc bị policy chặn được loại khỏi danh sách đưa cho model. Backend cũng chặn nếu model vẫn gửi tên đó hoặc đổi tham số. Tool đọc khác vẫn được dùng. Lượt mới có thể yêu cầu lại sau từ chối; ledger unresolved vẫn chặn xuyên lượt.
+- Mỗi lần gọi cùng action có attempt riêng trong run_steps, sửa lỗi unique key khiến tool đọc ở vòng tiếp theo thất bại trước khi dispatch.
+- API giữ toàn bộ yêu cầu pending/approved/uncertain trong phạm vi được phép cùng 50 bản ghi mới nhất. Kết quả ledger quyết định trạng thái, nên lịch sử mới không che mất yêu cầu cũ cần đối soát.
+- Full backend trên PostgreSQL mới qua. Integration model cố gọi cùng action hai lần trong một batch và lặp lại ở vòng sau với tham số khác: đúng một approval, từ chối không dispatch, duyệt rồi HTTP 503 chỉ một dispatch; tool đọc chạy cả hai vòng. Ca 60 receipt mới không che operation cũ và preflight không phát sinh approval cũng qua.
+- Đây chưa phải durable chat checkpoint hay giải phóng worker đang chờ duyệt; các phần đó vẫn còn mở.

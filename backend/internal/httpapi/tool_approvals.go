@@ -41,6 +41,16 @@ func (s *Server) awaitToolApproval(ctx context.Context, kind, source string, too
 	if !current.IsEditable || s.tools.PolicyReview(current, action) != s.tools.PolicyReview(tool, action) {
 		return tools.CallResult{}, tools.ErrApprovalRequired
 	}
+	// Avoid requesting consent for a dispatch that the ledger would reject.
+	// InvokeConfirmed repeats this check under its admission lock.
+	var unresolved bool
+	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM tool_write_operations WHERE tool_id=$1 AND action_id=$2 AND actor_id=$3 AND workspace_id=$4 AND status IN ('executing','uncertain'))`, tool.ID, action.ID, caller.UserID, caller.WorkspaceID).Scan(&unresolved)
+	if err != nil {
+		return tools.CallResult{}, err
+	}
+	if unresolved {
+		return tools.CallResult{}, tools.ErrWriteUncertain
+	}
 	// Fixed values are part of the exact request the user reviews.
 	effective := make(map[string]any, len(args))
 	for k, v := range args {
@@ -140,7 +150,10 @@ func (s *Server) listToolApprovals(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Thiếu phạm vi xác nhận.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT a.id,a.tool_id,CASE WHEN o.status IN ('succeeded','reconciled_succeeded') THEN 'completed' WHEN o.status='reconciled_no_effect' THEN 'failed' WHEN o.status='uncertain' OR (o.status='executing' AND o.created_at<NOW()-INTERVAL '1 minute') THEN 'uncertain' WHEN o.status='executing' THEN 'approved' WHEN a.status IN ('pending','approved') AND (a.expires_at<=NOW() OR a.lease_until<=NOW()) THEN 'expired' ELSE a.status END,a.request,a.expires_at,COALESCE(o.id,a.operation_id),a.message_id,a.call_id FROM tool_approvals a JOIN tools t ON t.id=a.tool_id LEFT JOIN tool_write_operations o ON o.actor_id=a.actor_id AND o.workspace_id=a.workspace_id AND o.idempotency_key=a.id WHERE a.actor_id=$1 AND a.workspace_id=$2 AND a.source_kind=$3 AND a.source_id=$4 AND t.owner_user_id=$1 ORDER BY a.created_at DESC LIMIT 50`, user.ID, workspace, kind, source)
+	rows, err := s.db.Query(r.Context(), `WITH scoped AS (SELECT a.id,a.tool_id,CASE WHEN o.status IN ('succeeded','reconciled_succeeded') THEN 'completed' WHEN o.status='reconciled_no_effect' THEN 'failed' WHEN o.status='uncertain' OR (o.status='executing' AND o.created_at<NOW()-INTERVAL '1 minute') THEN 'uncertain' WHEN o.status='executing' THEN 'approved' WHEN a.status IN ('pending','approved') AND (a.expires_at<=NOW() OR a.lease_until<=NOW()) THEN 'expired' ELSE a.status END AS status,a.request,a.expires_at,COALESCE(o.id,a.operation_id) AS operation_id,a.message_id,a.call_id,a.created_at FROM tool_approvals a JOIN tools t ON t.id=a.tool_id LEFT JOIN tool_write_operations o ON o.actor_id=a.actor_id AND o.workspace_id=a.workspace_id AND o.idempotency_key=a.id WHERE a.actor_id=$1 AND a.workspace_id=$2 AND a.source_kind=$3 AND a.source_id=$4 AND t.owner_user_id=$1)
+ SELECT id,tool_id,status,request,expires_at,operation_id,message_id,call_id FROM scoped
+ WHERE status IN ('pending','approved','uncertain') OR id IN (SELECT id FROM scoped ORDER BY created_at DESC,id DESC LIMIT 50)
+ ORDER BY created_at DESC,id DESC`, user.ID, workspace, kind, source)
 	if err != nil {
 		writeToolError(w, err)
 		return

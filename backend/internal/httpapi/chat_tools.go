@@ -103,8 +103,16 @@ func (s *Server) runToolRounds(
 	answer *strings.Builder,
 ) ([]modelgateway.Message, []ToolCall, string, error) {
 	reported := []ToolCall{}
+	blocked := map[string]error{}
+	attempts := map[string]int{}
 	for round := 0; round < maxToolRounds; round++ {
-		narration, calls, err := models.Decide(modelgateway.WithPhase(ctx, "tool_decision"), history, set.definitions, options)
+		definitions := make([]modelgateway.ToolDefinition, 0, len(set.definitions))
+		for _, definition := range set.definitions {
+			if blocked[definition.Name] == nil {
+				definitions = append(definitions, definition)
+			}
+		}
+		narration, calls, err := models.Decide(modelgateway.WithPhase(ctx, "tool_decision"), history, definitions, options)
 		if err != nil {
 			if errors.Is(err, modelgateway.ErrContextBudget) || errors.Is(err, modelgateway.ErrToolHistory) {
 				return history, reported, "", err
@@ -166,11 +174,13 @@ func (s *Server) runToolRounds(
 			flusher.Flush()
 			startedAt := time.Now()
 
+			attempts[call.Name]++
 			step, stepErr := s.runs.CreateStep(ctx, runs.NewStep{
 				RunID:     runID,
 				NodeID:    "tool:" + call.Name,
 				Type:      "tool",
 				Name:      call.Name,
+				Attempt:   attempts[call.Name],
 				TimeoutMS: 20000,
 			})
 			if stepErr == nil {
@@ -182,7 +192,10 @@ func (s *Server) runToolRounds(
 			}
 			var result tools.CallResult
 			var callErr error
-			if stepErr != nil {
+			if blocked[call.Name] != nil {
+				// Enforce the stop even if the model requests a removed definition.
+				callErr = blocked[call.Name]
+			} else if stepErr != nil {
 				// Never perform an external action without a persisted execution step.
 				callErr = fmt.Errorf("Không thể ghi nhận bước thực thi tool")
 			} else {
@@ -203,6 +216,10 @@ func (s *Server) runToolRounds(
 				if callErr == nil && (result.Status < 200 || result.Status >= 300) {
 					callErr = fmt.Errorf("Tool trả trạng thái lỗi %d", result.Status)
 				}
+			}
+			if callErr != nil && (shown.ApprovalID != "" || errors.Is(callErr, tools.ErrWriteUncertain) || errors.Is(callErr, tools.ErrActionBlocked) || errors.Is(callErr, tools.ErrApprovalRequired)) {
+				blocked[call.Name] = fmt.Errorf("Không gọi lại thao tác này trong lượt hiện tại, kể cả đổi tham số: %w", callErr)
+				callErr = blocked[call.Name]
 			}
 			content := result.Body
 			if callErr != nil {

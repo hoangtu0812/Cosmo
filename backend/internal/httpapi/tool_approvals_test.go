@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -130,6 +131,16 @@ func TestInlineApprovalRequiresExactLiveActorDecision(t *testing.T) {
 				_, err = s.db.Exec(base, `INSERT INTO tool_write_operations(id,tool_id,action_id,actor_id,workspace_id,idempotency_key,request_hash,status,created_at) VALUES($1,$2,$3,$4,$5,$6,'test','executing',NOW()-INTERVAL '2 minutes')`, "two_"+randomID(18), id, action.ID, owner.ID, agent.WorkspaceID, approval.ID)
 				if err != nil {
 					t.Fatal(err)
+				}
+				// New terminal receipts must not hide an older unresolved operation.
+				_, err = s.db.Exec(base, `INSERT INTO tool_approvals(id,actor_id,workspace_id,tool_id,source_kind,source_id,request,status,expires_at,created_at) SELECT $1||g,$2,$3,$4,'workflow','test','{}','completed',NOW(),NOW()+g*INTERVAL '1 second' FROM generate_series(1,60) g`, "tap_recent_"+randomID(10), owner.ID, agent.WorkspaceID, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var unexpectedNotice bool
+				_, blockedErr := s.awaitToolApproval(tools.WithCaller(base, tools.Caller{UserID: owner.ID, WorkspaceID: agent.WorkspaceID}), "workflow", "test", tool, action, map[string]any{"value": "changed"}, func(toolApproval) { unexpectedNotice = true })
+				if !errors.Is(blockedErr, tools.ErrWriteUncertain) || unexpectedNotice {
+					t.Fatalf("unresolved operation requested approval: %v", blockedErr)
 				}
 				r := httptest.NewRequest("GET", "/approvals?workspace="+agent.WorkspaceID+"&kind=workflow&source=test", nil).WithContext(context.WithValue(base, userContextKey, owner))
 				w := httptest.NewRecorder()

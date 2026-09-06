@@ -64,3 +64,13 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Mô phỏng riêng việc mất checkpoint sau ledger succeeded bằng điều chỉnh bản ghi fixture: resume dùng response đã lưu và không dispatch thêm. Đây là fault injection trên dữ liệu test, không phải kiểm thử SAP thật.
 - Regression approve/reject chat và workflow, chat FIFO/SSE/replay, MCP discovery/rediscovery/invoke và truy xuất 3 tài liệu thực qua gateway đều qua. Fixture và PostgreSQL kiểm thử tạm đã dọn; server giữ 3 tài liệu/67 chunks, không có phiên chạy/job đang thực thi.
 - Còn mở: durable checkpoint/resume cho chat để giải phóng worker khi chờ duyệt; worker workflow tự tiếp tục nền; phê duyệt shared tool; business idempotency/SAP reconciliation và bộ câu hỏi nghiệp vụ nhiều KB được gán nhãn. Chưa nghiệm thu tương tác UI bằng trình duyệt.
+
+
+### 2026-09-06 — TOOL-01e: chặn vòng lặp xác nhận và giữ việc cần đối soát
+
+- Trước khi tạo yêu cầu xác nhận, kiểm tra ledger chưa kết thúc của đúng actor/workspace/tool/action. Có executing/uncertain thì trả hướng dẫn đối soát; admission vẫn kiểm tra lại dưới khóa để chặn race. Không tự phân loại SAP action là read hoặc gửi lại thao tác chưa rõ kết quả.
+- Trong một lượt Chat, action đã bị từ chối/hết hạn/lỗi sau xác nhận hoặc bị policy chặn được loại khỏi danh sách đưa cho model. Backend cũng chặn nếu model vẫn gửi tên đó hoặc đổi tham số. Tool đọc khác vẫn được dùng. Lượt mới có thể yêu cầu lại sau từ chối; ledger unresolved vẫn chặn xuyên lượt.
+- Mỗi lần gọi cùng action có attempt riêng trong run_steps, sửa lỗi unique key khiến tool đọc ở vòng tiếp theo thất bại trước khi dispatch.
+- API giữ toàn bộ yêu cầu pending/approved/uncertain trong phạm vi được phép cùng 50 bản ghi mới nhất. Kết quả ledger quyết định trạng thái, nên lịch sử mới không che mất yêu cầu cũ cần đối soát.
+- Full backend trên PostgreSQL mới qua. Integration model cố gọi cùng action hai lần trong một batch và lặp lại ở vòng sau với tham số khác: đúng một approval, từ chối không dispatch, duyệt rồi HTTP 503 chỉ một dispatch; tool đọc chạy cả hai vòng. Ca 60 receipt mới không che operation cũ và preflight không phát sinh approval cũng qua.
+- Đây chưa phải durable chat checkpoint hay giải phóng worker đang chờ duyệt; các phần đó vẫn còn mở.

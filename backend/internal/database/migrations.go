@@ -100,6 +100,10 @@ var migrations = []Migration{
 		`CREATE TABLE workflow_model_calls(id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE,observation JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE INDEX workflow_model_call_execution ON workflow_model_calls(execution_id,created_at)`,
 	}},
+	{Version: 46, Name: "ingestion_document_checkpoints", Statements: []string{
+		`CREATE TABLE knowledge_ingestion_checkpoints(job_id TEXT NOT NULL REFERENCES knowledge_ingestion_jobs(id) ON DELETE CASCADE, document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE, snapshot_id TEXT NOT NULL, chunks INTEGER NOT NULL CHECK(chunks>0), PRIMARY KEY(job_id,document_id))`,
+		`CREATE INDEX knowledge_ingestion_checkpoint_snapshot ON knowledge_ingestion_checkpoints(snapshot_id)`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

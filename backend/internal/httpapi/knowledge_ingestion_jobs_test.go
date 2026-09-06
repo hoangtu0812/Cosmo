@@ -228,3 +228,63 @@ func TestUploadPersistsIntentAndOriginalBeforeWorker(t *testing.T) {
 		t.Fatal("upload not durably queued")
 	}
 }
+
+func TestIngestionRetryRestoresOnlyCompletedDocument(t *testing.T) {
+	s, kb, owner, _ := ingestionFixture(t)
+	ctx := context.Background()
+	id := queueIngestionTest(t, s, kb, owner)
+	first, err := s.claimIngestionJob(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	restored := ""
+	rag := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body knowledge.IngestRequest
+		json.NewDecoder(r.Body).Decode(&body)
+		calls++
+		if calls == 2 {
+			w.WriteHeader(503)
+			return
+		}
+		if calls == 3 {
+			if body.CheckpointSnapshotID != first.AttemptID || body.CheckpointChunks != 3 {
+				t.Error("completed checkpoint missing")
+			}
+			restored = body.DocumentID
+		}
+		if calls == 4 && body.CheckpointSnapshotID != "" {
+			t.Error("incomplete document checkpointed")
+		}
+		fmt.Fprintln(w, `{"stage":"done","chunks":3,"storage_key":"original"}`)
+	}))
+	defer rag.Close()
+	s.knowledge = knowledge.New(rag.URL, time.Second)
+	if err = s.executeIngestionJob(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	s.db.QueryRow(ctx, `SELECT count(*) FROM knowledge_ingestion_checkpoints WHERE job_id=$1`, id).Scan(&count)
+	if count != 1 {
+		t.Fatal("must checkpoint only completed document", count)
+	}
+	s.db.Exec(ctx, `UPDATE knowledge_ingestion_jobs SET next_attempt_at=NOW() WHERE id=$1`, id)
+	second, err := s.claimIngestionJob(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.AttemptID == first.AttemptID {
+		t.Fatal("attempt reused")
+	}
+	if err = s.executeIngestionJob(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if restored == "" || calls != 4 {
+		t.Fatal("restore was not exercised")
+	}
+	var status string
+	s.db.QueryRow(ctx, `SELECT status FROM knowledge_ingestion_jobs WHERE id=$1`, id).Scan(&status)
+	if status != "succeeded" {
+		t.Fatal(status)
+	}
+}

@@ -111,7 +111,7 @@ func (s *Server) collectKnowledgeSnapshots(ctx context.Context, cutoff time.Time
 	}
 	for _, id := range pending {
 		var exists bool
-		if err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM knowledge_snapshots WHERE id=$1) OR EXISTS(SELECT 1 FROM knowledge_bases WHERE live_index_id=$1) OR EXISTS(SELECT 1 FROM knowledge_ingestion_jobs WHERE attempt_id=$1 AND status='running' AND lease_expires_at>NOW())`, id).Scan(&exists); err != nil {
+		if err := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM knowledge_snapshots WHERE id=$1) OR EXISTS(SELECT 1 FROM knowledge_bases WHERE live_index_id=$1) OR EXISTS(SELECT 1 FROM knowledge_ingestion_jobs WHERE attempt_id=$1 AND status='running' AND lease_expires_at>NOW()) OR EXISTS(SELECT 1 FROM knowledge_ingestion_checkpoints c JOIN knowledge_ingestion_jobs j ON j.id=c.job_id WHERE c.snapshot_id=$1 AND j.status IN ('uploading','queued','running'))`, id).Scan(&exists); err != nil {
 			return err
 		}
 		if exists {

@@ -163,3 +163,13 @@ class TestIncrementalEmbeddings:
         assert run(source_snapshot_id='kbs_'+'a'*32)[-1]['stage']=='done'
         monkeypatch.setenv('KNOWLEDGE_REUSE_EMBEDDINGS','false')
         assert run(source_snapshot_id='kbs_'+'a'*32)[-1]['reused_embeddings']==0
+
+
+def test_completed_checkpoint_bypasses_parsing_and_embedding(stub, monkeypatch):
+    monkeypatch.setattr(pipeline.snapshots, "restore_document", lambda *args: True)
+    monkeypatch.setattr(pipeline.ingest, "parse", lambda **kw: pytest.fail("parsed completed document"))
+    monkeypatch.setattr(pipeline.ml, "encode", lambda *args: pytest.fail("embedded completed document"))
+    events = run(storage_key="original", target_snapshot_id="kbs_" + "a" * 32,
+                 checkpoint_snapshot_id="kbs_" + "b" * 32, checkpoint_chunks=3)
+    assert events[-1]["stage"] == "done" and events[-1]["chunks"] == 3
+    assert events[-1]["restored"]

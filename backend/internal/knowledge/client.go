@@ -40,23 +40,25 @@ func New(baseURL string, timeout time.Duration) *Client {
 }
 
 type IngestRequest struct {
-	SourceSnapshotID string `json:"source_snapshot_id,omitempty"`
-	TargetSnapshotID string `json:"target_snapshot_id,omitempty"`
-	DeadlineEpoch    int64  `json:"deadline_epoch,omitempty"`
-	KBID             string `json:"kb_id"`
-	DocumentID       string `json:"document_id"`
-	Filename         string `json:"filename"`
-	ContentType      string `json:"content_type"`
-	ContentBase64    string `json:"content_base64,omitempty"`
-	StorageKey       string `json:"storage_key,omitempty"`
-	Title            string `json:"title"`
-	DocumentVersion  int    `json:"document_version"`
-	EffectiveDate    string `json:"effective_date,omitempty"`
-	LayoutMode       string `json:"layout_mode,omitempty"`
-	EmbeddingModel   string `json:"embedding_model,omitempty"`
-	RerankerModel    string `json:"reranker_model,omitempty"`
-	ChunkSize        int    `json:"chunk_size,omitempty"`
-	ChunkOverlap     int    `json:"chunk_overlap,omitempty"`
+	CheckpointSnapshotID string `json:"checkpoint_snapshot_id,omitempty"`
+	CheckpointChunks     int    `json:"checkpoint_chunks,omitempty"`
+	SourceSnapshotID     string `json:"source_snapshot_id,omitempty"`
+	TargetSnapshotID     string `json:"target_snapshot_id,omitempty"`
+	DeadlineEpoch        int64  `json:"deadline_epoch,omitempty"`
+	KBID                 string `json:"kb_id"`
+	DocumentID           string `json:"document_id"`
+	Filename             string `json:"filename"`
+	ContentType          string `json:"content_type"`
+	ContentBase64        string `json:"content_base64,omitempty"`
+	StorageKey           string `json:"storage_key,omitempty"`
+	Title                string `json:"title"`
+	DocumentVersion      int    `json:"document_version"`
+	EffectiveDate        string `json:"effective_date,omitempty"`
+	LayoutMode           string `json:"layout_mode,omitempty"`
+	EmbeddingModel       string `json:"embedding_model,omitempty"`
+	RerankerModel        string `json:"reranker_model,omitempty"`
+	ChunkSize            int    `json:"chunk_size,omitempty"`
+	ChunkOverlap         int    `json:"chunk_overlap,omitempty"`
 }
 
 // ModelSettings selects the models used for an individual knowledge job. The
@@ -95,17 +97,19 @@ func (m ModelSettings) applyGatewayHeaders(request *http.Request) {
 // reading it here only to encode it back to the service that stored it costs a
 // full copy of every document in both directions.
 type IngestJob struct {
-	SourceSnapshotID string
-	TargetSnapshotID string
-	KBID             string
-	DocumentID       string
-	Filename         string
-	ContentType      string
-	Title            string
-	LayoutMode       string
-	Version          int
-	Content          []byte
-	StorageKey       string
+	CheckpointSnapshotID string
+	CheckpointChunks     int
+	SourceSnapshotID     string
+	TargetSnapshotID     string
+	KBID                 string
+	DocumentID           string
+	Filename             string
+	ContentType          string
+	Title                string
+	LayoutMode           string
+	Version              int
+	Content              []byte
+	StorageKey           string
 }
 
 type IngestResult struct {
@@ -175,20 +179,22 @@ type DocumentInspection struct {
 // uploaded the file staring at nothing, unable to tell slow from stuck.
 func (c *Client) Ingest(ctx context.Context, job IngestJob, models ModelSettings, onEvent func(Event)) (IngestResult, error) {
 	body := IngestRequest{
-		TargetSnapshotID: job.TargetSnapshotID,
-		SourceSnapshotID: job.SourceSnapshotID,
-		KBID:             job.KBID,
-		DocumentID:       job.DocumentID,
-		Filename:         job.Filename,
-		ContentType:      job.ContentType,
-		StorageKey:       job.StorageKey,
-		Title:            job.Title,
-		LayoutMode:       job.LayoutMode,
-		DocumentVersion:  job.Version,
-		EmbeddingModel:   models.EmbeddingModel,
-		RerankerModel:    models.RerankerModel,
-		ChunkSize:        models.ChunkSize,
-		ChunkOverlap:     models.ChunkOverlap,
+		CheckpointSnapshotID: job.CheckpointSnapshotID,
+		CheckpointChunks:     job.CheckpointChunks,
+		TargetSnapshotID:     job.TargetSnapshotID,
+		SourceSnapshotID:     job.SourceSnapshotID,
+		KBID:                 job.KBID,
+		DocumentID:           job.DocumentID,
+		Filename:             job.Filename,
+		ContentType:          job.ContentType,
+		StorageKey:           job.StorageKey,
+		Title:                job.Title,
+		LayoutMode:           job.LayoutMode,
+		DocumentVersion:      job.Version,
+		EmbeddingModel:       models.EmbeddingModel,
+		RerankerModel:        models.RerankerModel,
+		ChunkSize:            models.ChunkSize,
+		ChunkOverlap:         models.ChunkOverlap,
 	}
 	if deadline, ok := ctx.Deadline(); ok {
 		body.DeadlineEpoch = deadline.Unix()

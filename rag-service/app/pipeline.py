@@ -58,6 +58,8 @@ def run(
     chunk_overlap: int | None = None,
     target_snapshot_id: str | None = None,
     source_snapshot_id: str | None = None,
+    checkpoint_snapshot_id: str | None = None,
+    checkpoint_chunks: int = 0,
     deadline_epoch: float | None = None,
 ) -> Iterator[dict]:
     """Ingest one document, yielding an event per stage.
@@ -84,6 +86,14 @@ def run(
             key = ingest.storage_key(kb_id, document_id, filename)
             objects.put(key, content, content_type)
             yield _event("stored", f"Original stored as {key}", storage_key=key)
+
+        if checkpoint_snapshot_id and target_snapshot_id and checkpoint_chunks:
+            yield _event("restoring", "Restoring completed document")
+            if snapshots.restore_document(checkpoint_snapshot_id, target_snapshot_id, kb_id,
+                    document_id, checkpoint_chunks, gateway, check_deadline):
+                yield _event("done", "Restored completed document", chunks=checkpoint_chunks,
+                             storage_key=key, restored=True)
+                return
 
         yield _event("parsing", "Parsing document")
         chunks = yield from _reported(ingest.parse(

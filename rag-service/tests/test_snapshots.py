@@ -123,3 +123,15 @@ def test_expired_worker_cannot_continue_writing(index, monkeypatch):
     with pytest.raises(TimeoutError):
         snapshots.create(SNAPSHOT, "kb", GATEWAY, {"doc": 1}, deadline_epoch=101.)
     assert not index.collection_exists(snapshots.collection_name(SNAPSHOT))
+
+
+def test_restore_completed_document_isolated_and_validated(index):
+    snapshots.create(SNAPSHOT, "kb", GATEWAY, {"doc": 1})
+    target = "kbs_" + "c" * 32
+    assert not snapshots.restore_document(SNAPSHOT, target, "kb", "doc", 2, GATEWAY, lambda: None)
+    assert not index.collection_exists(snapshots.collection_name(target))
+    assert not snapshots.restore_document(SNAPSHOT, target, "kb", "doc", 1, replace(GATEWAY, embedding_scope="other"), lambda: None)
+    assert not snapshots.restore_document(SNAPSHOT, target, "other", "doc", 1, GATEWAY, lambda: None)
+    assert snapshots.restore_document(SNAPSHOT, target, "kb", "doc", 1, GATEWAY, lambda: None)
+    assert snapshots.resolve(target, ["kb"], GATEWAY)
+    assert snapshots.resolve(SNAPSHOT, ["kb"], GATEWAY)

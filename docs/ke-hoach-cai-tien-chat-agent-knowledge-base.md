@@ -894,3 +894,10 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - **Phụ thuộc dữ liệu nghiệp vụ:** bộ câu hỏi nhiều KB được gán nhãn và duyệt, evidence/đáp án mong đợi, tiêu chí chất lượng; cần baseline trên bộ này trước kết luận chất lượng tìm kiếm đã đạt yêu cầu.
 - **Có thể tiếp tục phát triển nội bộ:** accounting embedding/rerank khi nối được usage từ RAG; checkpoint ingest từng tài liệu và batch-upload nguyên tử nhiều tệp. Hiện vẫn parsing toàn bộ tài liệu và dựng generation đầy đủ. Các hạng mục này chưa được coi là hoàn tất bởi tối ưu reuse embedding.
 - **Cấu hình vận hành:** đơn giá model nội bộ cần được cung cấp trong MODEL_PRICES_JSON để tính chi phí; giới hạn queue/retention hiện dùng giá trị mặc định cấu hình được. Metadata chống replay và ledger vẫn được giữ, không tuyên bố đã có retention cho mọi bản ghi.
+
+
+### 2026-09-06 — Checkpoint ingest theo tài liệu
+
+- Migration 46 lưu checkpoint theo job/document sau khi RAG xác nhận hoàn tất; ghi dưới khóa lease để executor cũ không ghi đè tiến độ. Retry vẫn tạo generation mới, sao chép tài liệu đã xong theo đúng KB/document/profile và số chunks, bỏ qua parse/embedding cho tài liệu đó.
+- Manifest và quyền vẫn được kiểm tra trước phục hồi và trước publish. Checkpoint thiếu/không khớp trong Qdrant quay lại parse; lỗi ghi bản sao không được coi là thành công. Cleanup giữ generation chứa checkpoint của job active; generation cũ không bị sửa bởi lần thử mới.
+- Test backend/PostgreSQL xác minh chỉ tài liệu hoàn tất có checkpoint và được truyền sang lần thử mới; test RAG xác minh không parse/embed lại, cách ly profile/KB và số chunk sai không tạo target. Các test ingestion/upload/cleanup/migration cùng 25 test pipeline/snapshot qua. Chưa rollout migration 46 tại commit này.

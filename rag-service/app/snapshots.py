@@ -95,6 +95,48 @@ def resolve(snapshot_id: str, kb_ids: list[str], gateway: GatewaySettings) -> st
     return collection
 
 
+def restore_document(source_id, target_id, kb_id, document_id, expected, gateway, check_deadline):
+    """Copy a completed document into a fresh attempt; never mutate its source.
+
+    Only the control plane supplies checkpoints after validating the same job
+    manifest. Missing/incomplete source falls back to parsing before any write.
+    """
+    if source_id == target_id or not 0 < expected <= 100000:
+        raise ValueError("invalid document checkpoint")
+    source, target = collection_name(source_id), collection_name(target_id)
+    qdrant = store.client()
+    if not qdrant.collection_exists(source):
+        return False
+    chunks, encoded, offset = [], [], None
+    while True:
+        check_deadline()
+        points, offset = qdrant.scroll(collection_name=source, offset=offset, limit=128,
+            scroll_filter=store.models.Filter(must=[
+                store.models.FieldCondition(key="kb_id", match=store.models.MatchValue(value=kb_id)),
+                store.models.FieldCondition(key="document_id", match=store.models.MatchValue(value=document_id)),
+            ]), with_payload=True, with_vectors=True)
+        for point in points:
+            payload = dict(point.payload or {})
+            if payload.get("snapshot_id") != source_id or payload.get("snapshot_profile") != store.profile_collection(gateway):
+                return False
+            vector = (point.vector or {}).get(store.DENSE)
+            if not vector:
+                return False
+            payload["snapshot_id"] = target_id
+            chunks.append(payload)
+            encoded.append(store.Encoded(vector))
+            if len(chunks) > expected:
+                return False
+        if offset is None:
+            break
+    if len(chunks) != expected:
+        return False
+    check_deadline()
+    store.upsert(chunks, encoded, collection=target)
+    check_deadline()
+    return True
+
+
 def discard(snapshot_id: str) -> None:
     collection = collection_name(snapshot_id)
     if store.client().collection_exists(collection):

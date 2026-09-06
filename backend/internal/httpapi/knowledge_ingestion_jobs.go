@@ -176,12 +176,27 @@ func (s *Server) buildIngestion(ctx context.Context, job ingestionJob) error {
 			_, _ = s.db.Exec(ctx, `INSERT INTO knowledge_document_events(document_id,stage,message,done,total)
  SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM knowledge_ingestion_jobs WHERE id=$6 AND status='running' AND lease_owner=$7 AND attempt_id=$8 AND lease_expires_at>NOW())`, doc.ID, event.Stage, event.Message, event.Done, event.Total, job.ID, job.Owner, job.AttemptID)
 		}
-		result, err := s.knowledge.Ingest(ctx, knowledge.IngestJob{KBID: job.KBID, DocumentID: doc.ID, Filename: doc.Filename, ContentType: doc.ContentType, Title: doc.Title, Version: doc.Version, StorageKey: doc.StorageKey, LayoutMode: manifest.Layout, TargetSnapshotID: job.AttemptID, SourceSnapshotID: manifest.SourceSnapshotID}, settings, record)
+		var checkpoint string
+		var checkpointChunks int
+		err := s.db.QueryRow(ctx, `SELECT snapshot_id,chunks FROM knowledge_ingestion_checkpoints WHERE job_id=$1 AND document_id=$2`, job.ID, doc.ID).Scan(&checkpoint, &checkpointChunks)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		result, err := s.knowledge.Ingest(ctx, knowledge.IngestJob{CheckpointSnapshotID: checkpoint, CheckpointChunks: checkpointChunks, KBID: job.KBID, DocumentID: doc.ID, Filename: doc.Filename, ContentType: doc.ContentType, Title: doc.Title, Version: doc.Version, StorageKey: doc.StorageKey, LayoutMode: manifest.Layout, TargetSnapshotID: job.AttemptID, SourceSnapshotID: manifest.SourceSnapshotID}, settings, record)
 		if err != nil {
 			return err
 		}
 		if result.Chunks <= 0 || result.StorageKey != doc.StorageKey {
 			return fmt.Errorf("ingestion result verification failed")
+		}
+		// Fence checkpoint admission against both expired and replaced executors.
+		tag, err := s.db.Exec(ctx, `WITH owned AS (SELECT id,attempt_id FROM knowledge_ingestion_jobs WHERE id=$1 AND status='running' AND lease_owner=$2 AND attempt_id=$3 AND lease_expires_at>NOW() FOR UPDATE) INSERT INTO knowledge_ingestion_checkpoints(job_id,document_id,snapshot_id,chunks) SELECT id,$4,attempt_id,$5 FROM owned
+ ON CONFLICT(job_id,document_id) DO UPDATE SET snapshot_id=EXCLUDED.snapshot_id,chunks=EXCLUDED.chunks`, job.ID, job.Owner, job.AttemptID, doc.ID, result.Chunks)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return errIngestionLease
 		}
 		results[doc.ID] = result
 	}

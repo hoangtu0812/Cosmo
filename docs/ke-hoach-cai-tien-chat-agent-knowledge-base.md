@@ -769,3 +769,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Mỗi model call trong cùng phase có attempt riêng; cấp số có khóa để tác vụ phụ kết thúc đồng thời không trùng khóa run_steps. Trước đây tool_decision vòng hai trở đi không lưu được accounting vì luôn dùng attempt 1.
 - Integration Chat ba vòng quyết định lưu đủ ba model_call. Kiểm thử tám callback cùng phase chạy đồng thời và một phase khác giữ đủ token, duration, trạng thái lỗi; phân biệt usage thiếu với usage bằng 0.
 - Đây là sửa độ đầy đủ per-call; chưa bổ sung dashboard tổng hợp, embedding/reranking accounting hay khôi phục usage đã bị mất ở các lượt cũ.
+
+
+### Nghiệm thu rollout xác nhận/đối soát và accounting (2026-09-06)
+
+- Frontend `a2a277d`, backend `82cd833` gồm `d759663`; migration 39. Production build và health check qua, dữ liệu thực giữ 3 tài liệu/67 chunks, không còn tác vụ đang chạy.
+- Sau rollout: regression chat FIFO/subscriber disconnect/SSE replay/transcript, MCP discovery/rediscovery/invocation qua; gateway thật truy xuất đúng KB cho cả ba tài liệu. Smoke approve/reject, replay và crash trong lúc chờ duyệt vẫn qua sau thay đổi luồng xác nhận.
+- Các fixture user/workspace/tool và hai PostgreSQL kiểm thử đã dọn. Browser đã kiểm tra vị trí đối soát lịch sử, mở chi tiết và từ chối yêu cầu mới; không thay policy hay đối soát SAP thật.
+- Công việc lớn còn mở: durable chat checkpoint và giải phóng worker khi chờ duyệt; workflow worker tự tiếp tục nền; shared-tool approval; SAP business idempotency/reconciliation; baseline nhiều KB cần dữ liệu nghiệp vụ được duyệt; tổng hợp accounting và tối ưu incremental/batch ingest.

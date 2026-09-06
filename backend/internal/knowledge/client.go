@@ -40,6 +40,7 @@ func New(baseURL string, timeout time.Duration) *Client {
 }
 
 type IngestRequest struct {
+	SourceSnapshotID string `json:"source_snapshot_id,omitempty"`
 	TargetSnapshotID string `json:"target_snapshot_id,omitempty"`
 	DeadlineEpoch    int64  `json:"deadline_epoch,omitempty"`
 	KBID             string `json:"kb_id"`
@@ -94,6 +95,7 @@ func (m ModelSettings) applyGatewayHeaders(request *http.Request) {
 // reading it here only to encode it back to the service that stored it costs a
 // full copy of every document in both directions.
 type IngestJob struct {
+	SourceSnapshotID string
 	TargetSnapshotID string
 	KBID             string
 	DocumentID       string
@@ -174,6 +176,7 @@ type DocumentInspection struct {
 func (c *Client) Ingest(ctx context.Context, job IngestJob, models ModelSettings, onEvent func(Event)) (IngestResult, error) {
 	body := IngestRequest{
 		TargetSnapshotID: job.TargetSnapshotID,
+		SourceSnapshotID: job.SourceSnapshotID,
 		KBID:             job.KBID,
 		DocumentID:       job.DocumentID,
 		Filename:         job.Filename,

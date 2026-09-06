@@ -99,3 +99,16 @@ def test_cleanup_failure_can_be_retried(indexed, monkeypatch):
     monkeypatch.setattr(qdrant, "delete", delete)
     store.upsert(replacement, vectors)
     assert [c["text"] for c in store.inspect_document("doc_1")["chunks"]] == ["new"]
+
+
+def test_reuse_is_scoped_to_document_kb_and_embedding_profile(indexed):
+    qdrant, chunks = indexed
+    profile='profile-test'
+    own=[dict(c,snapshot_profile=profile) for c in chunks]
+    store.upsert(own,[Encoded([1.0,0.0]) for _ in own])
+    got=store.reusable_embeddings(collection=store.settings.collection,profile=profile,kb_id='kb_1',document_id='doc_1',texts={'old 0','new'})
+    assert set(got)=={'old 0'}
+    for overrides in ({'profile':'different'},{'kb_id':'another'},{'document_id':'another'}):
+        args=dict(collection=store.settings.collection,profile=profile,kb_id='kb_1',document_id='doc_1',texts={'old 0'})
+        args.update(overrides)
+        assert store.reusable_embeddings(**args)=={}

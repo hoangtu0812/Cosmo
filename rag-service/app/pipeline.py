@@ -9,6 +9,7 @@ forward that upstream while the work continues.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Iterator
 
@@ -56,6 +57,7 @@ def run(
     chunk_size: int | None = None,
     chunk_overlap: int | None = None,
     target_snapshot_id: str | None = None,
+    source_snapshot_id: str | None = None,
     deadline_epoch: float | None = None,
 ) -> Iterator[dict]:
     """Ingest one document, yielding an event per stage.
@@ -104,18 +106,27 @@ def run(
 
         yield _event("embedding", "Embedding chunks through the workspace model gateway")
 
-        encoded = []
-        for start in range(0, len(chunks), EMBED_BATCH):
+        texts = [chunk["text"] for chunk in chunks]
+        cached = {}
+        if source_snapshot_id and os.environ.get("KNOWLEDGE_REUSE_EMBEDDINGS", "true").lower() == "true":
+            try:
+                cached = store.reusable_embeddings(collection=snapshots.collection_name(source_snapshot_id),
+                    profile=store.profile_collection(gateway), kb_id=kb_id, document_id=document_id, texts=set(texts))
+            except Exception:
+                logger.warning("source embeddings unavailable; rebuilding document %s", document_id)
+        reused = sum(text in cached for text in texts)
+        missing = list(dict.fromkeys(text for text in texts if text not in cached))
+        for start in range(0, len(missing), EMBED_BATCH):
             check_deadline()
-            batch = chunks[start : start + EMBED_BATCH]
-            encoded.extend(ml.encode([chunk["text"] for chunk in batch], gateway))
-            done = len(encoded)
-            yield _event(
-                "embedding",
-                f"Embedded {done}/{len(chunks)} chunks",
-                done=done,
-                total=len(chunks),
-            )
+            batch = missing[start : start + EMBED_BATCH]
+            vectors = ml.encode(batch, gateway)
+            if len(vectors) != len(batch):
+                raise ValueError("incomplete embedding batch")
+            cached.update(zip(batch, vectors))
+            done = sum(text in cached for text in texts)
+            yield _event("embedding", f"Prepared {done}/{len(chunks)} chunks", done=done, total=len(chunks))
+        encoded = [cached[text] for text in texts]
+        yield _event("embedding", f"Reused {reused}/{len(chunks)} unchanged embeddings", done=len(chunks), total=len(chunks))
 
         yield _event("indexing", "Writing vectors to the index")
         check_deadline()
@@ -137,6 +148,8 @@ def run(
             chunks=len(chunks),
             storage_key=key,
             seconds=round(elapsed, 1),
+            reused_embeddings=reused,
+            embedded_texts=len(missing),
         )
     except Exception as error:  # noqa: BLE001 - the reason belongs in the log the user sees
         logger.exception("ingestion failed for %s", document_id)

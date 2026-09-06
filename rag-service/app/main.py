@@ -34,6 +34,7 @@ async def profile_not_indexed(_request, error):
 
 
 class IngestRequest(BaseModel):
+    source_snapshot_id: str | None = Field(default=None, pattern=r"^kbs_[0-9a-f]{32}$")
     target_snapshot_id: str | None = Field(default=None, pattern=r"^kbs_[0-9a-f]{32}$")
     deadline_epoch: float | None = Field(default=None, allow_inf_nan=False)
     kb_id: str
@@ -161,6 +162,7 @@ def ingest_document(
             chunk_size=request.chunk_size,
             chunk_overlap=request.chunk_overlap,
             target_snapshot_id=request.target_snapshot_id,
+            source_snapshot_id=request.source_snapshot_id,
             deadline_epoch=request.deadline_epoch,
         ):
             yield json.dumps(event, ensure_ascii=False) + "\n"

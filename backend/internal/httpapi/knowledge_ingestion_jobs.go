@@ -25,8 +25,9 @@ type ingestionDocument struct {
 	StorageKey  string `json:"storage_key"`
 }
 type ingestionManifestData struct {
-	Layout    string              `json:"layout"`
-	Documents []ingestionDocument `json:"documents"`
+	SourceSnapshotID string              `json:"live_index"`
+	Layout           string              `json:"layout"`
+	Documents        []ingestionDocument `json:"documents"`
 }
 type ingestionJob struct {
 	ID, KBID, RequestedBy, Manifest, AttemptID, Owner string
@@ -175,7 +176,7 @@ func (s *Server) buildIngestion(ctx context.Context, job ingestionJob) error {
 			_, _ = s.db.Exec(ctx, `INSERT INTO knowledge_document_events(document_id,stage,message,done,total)
  SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM knowledge_ingestion_jobs WHERE id=$6 AND status='running' AND lease_owner=$7 AND attempt_id=$8 AND lease_expires_at>NOW())`, doc.ID, event.Stage, event.Message, event.Done, event.Total, job.ID, job.Owner, job.AttemptID)
 		}
-		result, err := s.knowledge.Ingest(ctx, knowledge.IngestJob{KBID: job.KBID, DocumentID: doc.ID, Filename: doc.Filename, ContentType: doc.ContentType, Title: doc.Title, Version: doc.Version, StorageKey: doc.StorageKey, LayoutMode: manifest.Layout, TargetSnapshotID: job.AttemptID}, settings, record)
+		result, err := s.knowledge.Ingest(ctx, knowledge.IngestJob{KBID: job.KBID, DocumentID: doc.ID, Filename: doc.Filename, ContentType: doc.ContentType, Title: doc.Title, Version: doc.Version, StorageKey: doc.StorageKey, LayoutMode: manifest.Layout, TargetSnapshotID: job.AttemptID, SourceSnapshotID: manifest.SourceSnapshotID}, settings, record)
 		if err != nil {
 			return err
 		}

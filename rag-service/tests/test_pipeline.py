@@ -137,3 +137,29 @@ class TestReindex:
         monkeypatch.setattr(pipeline.objects, "put", lambda *args, **kwargs: None)
         events = run(storage_key="kb_1/doc_1.md")
         assert events[-1]["storage_key"] == "kb_1/doc_1.md"
+
+
+class TestIncrementalEmbeddings:
+    def test_reuses_only_unchanged_text_and_preserves_new_metadata(self, stub, monkeypatch):
+        chunks = [{"text":"unchanged","document_id":"doc_1","kb_id":"kb_1","document_version":2}, {"text":"changed","document_id":"doc_1","kb_id":"kb_1","document_version":2}]
+        def parse(**kwargs):
+            yield {"stage":"parsing","message":"fixture"}
+            return chunks
+        monkeypatch.setattr(pipeline.ingest,"parse",parse)
+        monkeypatch.setattr(pipeline.store,"reusable_embeddings",lambda **kwargs: {"unchanged":pipeline.ml.Encoded([1.,0.])})
+        requests=[]
+        monkeypatch.setattr(pipeline.ml,"encode",lambda texts,gateway: requests.append(texts) or [pipeline.ml.Encoded([0.,1.]) for _ in texts])
+        written=[]
+        monkeypatch.setattr(pipeline.store,"upsert",lambda chunks,encoded,**kwargs:written.extend(chunks))
+        events=run(source_snapshot_id='kbs_'+'a'*32,target_snapshot_id='kbs_'+'b'*32)
+        assert events[-1]['stage']=='done'
+        assert requests==[['changed']]
+        assert events[-1]['reused_embeddings']==1
+        assert all(c['document_version']==2 and c['snapshot_id']=='kbs_'+'b'*32 for c in written)
+
+    def test_missing_source_falls_back_and_force_rebuild_skips_cache(self, stub, monkeypatch):
+        def unavailable(**kwargs):raise RuntimeError('source unavailable')
+        monkeypatch.setattr(pipeline.store,'reusable_embeddings',unavailable)
+        assert run(source_snapshot_id='kbs_'+'a'*32)[-1]['stage']=='done'
+        monkeypatch.setenv('KNOWLEDGE_REUSE_EMBEDDINGS','false')
+        assert run(source_snapshot_id='kbs_'+'a'*32)[-1]['reused_embeddings']==0

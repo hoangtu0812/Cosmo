@@ -861,3 +861,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Màn hình Số liệu sử dụng có chọn workspace/thời gian, phạm vi Của tôi/Toàn workspace, bảng model-phase và số liệu theo ngày UTC. Chỉ owner/admin workspace xem được tổng hợp của mọi thành viên; payload không có prompt/câu trả lời.
 - Chi phí ước tính chỉ dùng MODEL_PRICES_JSON do vận hành cấu hình: object workspace_id → model alias → {input,output}, đơn vị USD/triệu token. Thiếu đơn giá hoặc usage giữ tổng cost null và cung cấp known_cost/unpriced_calls khi tính được một phần. Không gọi bảng giá ngoài hoặc suy đoán giá model nội bộ.
 - Integration qua phạm vi actor/workspace, chặn member xem toàn workspace, cộng call phụ, phân biệt null/0 và cost thiếu một phần. TypeScript qua. Embedding/rerank ở RAG chưa có usage token từ gateway đưa về nên chưa được tính là token/chi phí đã biết; không coi số liệu này là hóa đơn đầy đủ.
+
+
+### 2026-09-06 — Tái sử dụng embedding khi dựng lại KB
+
+- Manifest admission ghi live generation nguồn; control plane chỉ gửi ID nguồn đó khi dựng attempt mới. RAG đọc vector theo đúng KB/document và snapshot_profile (workspace scope/endpoint/model), khớp nguyên văn text. Không dùng score hoặc vị trí chunk để suy đoán nội dung giống nhau.
+- Chỉ embed các text thiếu, gộp text trùng trong tài liệu rồi gửi batch 16. Metadata/version/citation luôn lấy từ parsing mới; lexical vector được tính lại. Upsert vào generation đích cách ly, chỉ publish khi mọi tài liệu thành công. Nguồn thiếu/lỗi quay lại embed mới; KNOWLEDGE_REUSE_EMBEDDINGS=false ép tính lại.
+- 128 kiểm thử RAG qua: reuse đoạn không đổi, tính lại đoạn đổi, metadata mới, cache lỗi/force rebuild và cách ly document/KB/profile. Vẫn parsing toàn tài liệu và dựng generation đầy đủ; chưa checkpoint từng tài liệu hoặc batch-upload nguyên tử nhiều tệp. Tối ưu này giảm embedding cho phần không đổi, không tuyên bố đã loại bỏ mọi chi phí ingest.
+- Full backend trên PostgreSQL mới, TypeScript và 7 kiểm thử frontend qua trước chỉnh nguồn từ manifest; phần nối nguồn được kiểm tra tiếp qua smoke rollout. Các biến vận hành mới đã ghi trong .env.example, không tự đặt đơn giá model.

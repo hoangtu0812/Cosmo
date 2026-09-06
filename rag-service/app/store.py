@@ -290,3 +290,36 @@ def search_sparse(kb_ids: Sequence[str], sparse: dict[int, float], limit: int, *
         limit=limit,
         with_payload=True,
     ).points
+
+
+def reusable_embeddings(*, collection: str, profile: str, kb_id: str, document_id: str, texts: set[str]) -> dict[str, Encoded]:
+    """Reuse only exact texts from the same authorized document and profile.
+
+    A missing/retired source is a cache miss. Never copy source payloads; the
+    freshly parsed chunks retain current metadata, version and provenance.
+    """
+    found: dict[str, Encoded] = {}
+    if not texts or not client().collection_exists(collection):
+        return found
+    offset = None
+    inspected = 0
+    while inspected < 10000:
+        points, offset = client().scroll(
+            collection_name=collection,
+            scroll_filter=models.Filter(must=[
+                models.FieldCondition(key="kb_id", match=models.MatchValue(value=kb_id)),
+                models.FieldCondition(key="document_id", match=models.MatchValue(value=document_id)),
+                models.FieldCondition(key="snapshot_profile", match=models.MatchValue(value=profile)),
+            ]), limit=128, offset=offset, with_payload=True, with_vectors=[DENSE],
+        )
+        inspected += len(points)
+        for point in points:
+            payload = point.payload or {}
+            text = payload.get("text")
+            vector = point.vector.get(DENSE) if isinstance(point.vector, dict) else None
+            if (text in texts and isinstance(vector, list) and vector
+                    and all(isinstance(v, (int, float)) and math.isfinite(v) for v in vector)):
+                found[text] = Encoded(vector)
+        if offset is None or len(found) == len(texts):
+            break
+    return found

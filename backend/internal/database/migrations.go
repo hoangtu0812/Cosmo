@@ -92,6 +92,10 @@ var migrations = []Migration{
 		`CREATE INDEX chat_turns_finished_retention ON chat_turns(finished_at) WHERE status IN ('succeeded','interrupted')`,
 		`CREATE INDEX workflow_finished_retention ON workflow_executions(finished_at) WHERE status IN ('succeeded','failed','cancelled')`,
 	}},
+	{Version: 44, Name: "shared_tool_confirmation_policy", Statements: []string{
+		`ALTER TABLE tool_action_policies DROP CONSTRAINT tool_action_policies_effect_check`,
+		`ALTER TABLE tool_action_policies ADD CONSTRAINT tool_action_policies_effect_check CHECK(effect IN ('read','approval','approval_shared','blocked'))`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

@@ -14,6 +14,7 @@ import (
 
 const EffectRead = "read"
 const EffectApproval = "approval"
+const EffectSharedApproval = "approval_shared"
 const EffectBlocked = "blocked"
 
 var ErrApprovalRequired = errors.New("Thao tác này cần xác nhận trước khi thực hiện. Kiểm tra đích và tham số trước khi xác nhận.")
@@ -74,7 +75,7 @@ func (repository *Repository) ActionEffect(ctx context.Context, tool Tool, actio
 }
 
 func (repository *Repository) SetActionEffect(ctx context.Context, tool Tool, action Action, userID, effect string) error {
-	if effect != EffectRead && effect != EffectApproval && effect != EffectBlocked {
+	if effect != EffectRead && effect != EffectApproval && effect != EffectSharedApproval && effect != EffectBlocked {
 		return ErrWritePolicy
 	}
 	tx, err := repository.lockTool(ctx, tool.ID)
@@ -187,7 +188,7 @@ func (repository *Repository) InvokeConfirmed(ctx context.Context, tool Tool, ac
 	if err != nil {
 		return CallResult{}, nil, err
 	}
-	if !current.IsEditable || definitionHash(current, latest) != expectedDefinition {
+	if definitionHash(current, latest) != expectedDefinition {
 		return CallResult{}, nil, ErrApprovalRequired
 	}
 	effect, err = (&Repository{db: tx}).ActionEffect(ctx, current, latest)
@@ -196,6 +197,16 @@ func (repository *Repository) InvokeConfirmed(ctx context.Context, tool Tool, ac
 	}
 	if effect == EffectBlocked {
 		return CallResult{}, nil, ErrActionBlocked
+	}
+	if !current.IsEditable {
+		if effect != EffectSharedApproval || !current.IsInstalled {
+			return CallResult{}, nil, ErrApprovalRequired
+		}
+		// Lock the grant through admission; revocation wins before dispatch.
+		var grant string
+		if err = tx.QueryRow(ctx, `SELECT m.user_id FROM workspace_memberships m JOIN workspace_tools w ON w.workspace_id=m.workspace_id WHERE m.user_id=$1 AND m.workspace_id=$2 AND w.tool_id=$3 FOR SHARE OF m,w`, caller.UserID, caller.WorkspaceID, tool.ID).Scan(&grant); err != nil {
+			return CallResult{}, nil, ErrApprovalRequired
+		}
 	}
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, tool.ID+":"+action.ID+":"+caller.UserID+":"+caller.WorkspaceID); err != nil {
 		return CallResult{}, nil, err
@@ -295,4 +306,16 @@ func (repository *Repository) ReconcileWrite(ctx context.Context, toolID, userID
 		return ErrWriteUncertain
 	}
 	return nil
+}
+
+// Permission to consent is separate from visibility and from permission to edit.
+func (repository *Repository) CanConfirm(ctx context.Context, tool Tool, action Action) bool {
+	if tool.IsEditable {
+		return true
+	}
+	if !tool.IsInstalled {
+		return false
+	}
+	effect, err := repository.ActionEffect(ctx, tool, action)
+	return err == nil && effect == EffectSharedApproval
 }

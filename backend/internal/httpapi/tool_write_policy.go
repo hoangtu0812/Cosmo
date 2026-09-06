@@ -1,13 +1,14 @@
 package httpapi
 
 import (
+	"cosmo/backend/internal/tools"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 )
 
 func (s *Server) getToolActionPolicy(w http.ResponseWriter, r *http.Request) {
-	item, _, _, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, _, _, ok := s.toolForReceipt(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -54,7 +55,7 @@ func (s *Server) setToolActionPolicy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listToolWriteOperations(w http.ResponseWriter, r *http.Request) {
-	item, user, workspace, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, user, workspace, ok := s.toolForReceipt(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -67,7 +68,7 @@ func (s *Server) listToolWriteOperations(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) reconcileToolWrite(w http.ResponseWriter, r *http.Request) {
-	item, user, workspace, ok := s.toolForWrite(w, r, chi.URLParam(r, "toolID"))
+	item, user, workspace, ok := s.toolForReceipt(w, r, chi.URLParam(r, "toolID"))
 	if !ok {
 		return
 	}
@@ -85,4 +86,17 @@ func (s *Server) reconcileToolWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, auditEvent{Action: "tool.write.reconciled", TargetType: "tool", TargetID: item.ID, WorkspaceID: workspace, Metadata: map[string]string{"operation_id": id, "outcome": input.Outcome}})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) toolForReceipt(w http.ResponseWriter, r *http.Request, id string) (tools.Tool, User, string, bool) {
+	user, workspace, ok := s.agentWorkspace(w, r, r.URL.Query().Get("workspace"))
+	if !ok {
+		return tools.Tool{}, User{}, "", false
+	}
+	item, err := s.tools.Get(r.Context(), id, user.ID, workspace)
+	if err != nil {
+		writeToolError(w, err)
+		return tools.Tool{}, User{}, "", false
+	}
+	return item, user, workspace, true
 }

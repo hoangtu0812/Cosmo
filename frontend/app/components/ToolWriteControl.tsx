@@ -37,7 +37,6 @@ export function useToolWriteControl(toolID: string, actionID: string, workspaceI
     return {review, latest};
   }
   useEffect(() => {
-    if (!isEditable) return;
     let active = true;
     Promise.all([api.toolActionPolicy(toolID, actionID, workspaceID), api.toolWriteOperations(toolID, workspaceID)])
       .then(([review, records]) => {if (active) {recoverIntent(records.operations);setPolicy(review);setOperation(records.operations.find((item) => item.action_id === actionID) ?? null);}})
@@ -51,7 +50,7 @@ export function useToolWriteControl(toolID: string, actionID: string, workspaceI
     const {review, latest} = await refresh();
     if (review.effect === 'blocked') throw new Error('Action đã bị chặn.');
     if (latest && ['executing', 'uncertain'].includes(latest.status)) throw new Error('Cần đối soát thao tác trước khi gửi lệnh mới.');
-    if (review.effect === 'approval') {
+    if (['approval','approval_shared'].includes(review.effect)) {
       const effective = {...args};
       for (const parameter of review.parameters) {if (parameter.source === 'fixed') effective[parameter.name] = parameter.value;}
       const key = sessionStorage.getItem(intentStorage) ?? crypto.randomUUID();
@@ -95,10 +94,10 @@ export function useToolWriteControl(toolID: string, actionID: string, workspaceI
     catch (error) {onFailure(error instanceof Error ? error.message : 'Không thể đối soát.');}
     finally {setBusy(false);}
   }
-  const controls = isEditable ? <VStack gap={3} width="100%">
-    <Selector label="Chính sách action" value={policy?.effect} isDisabled={busy || !policy} onChange={(value) => void changePolicy(value)} options={[
-      {value:'approval', label:'Cần xác nhận'}, {value:'read', label:'Chỉ đọc — cho phép tự gọi'}, {value:'blocked', label:'Chặn action'},
-    ]} />
+  const controls = <VStack gap={3} width="100%">
+    {isEditable ? <Selector label="Chính sách action" value={policy?.effect} isDisabled={busy || !policy} onChange={(value) => void changePolicy(value)} options={[
+      {value:'approval', label:'Chủ tool xác nhận'}, {value:'approval_shared',label:'Người sử dụng xác nhận'}, {value:'read', label:'Chỉ đọc — cho phép tự gọi'}, {value:'blocked', label:'Chặn action'},
+    ]} /> : null}
     {operation ? <Text type="supporting">{`${states[operation.status] ?? operation.status} · ${operation.id}`}</Text> : null}
     {networkUnknown || operation?.status === 'executing' || operation?.status === 'uncertain' ?
       <Button label="Kiểm tra trạng thái" variant="secondary" isDisabled={busy} onClick={() => void refresh().catch((error: Error) => onFailure(error.message))} /> : null}
@@ -125,6 +124,6 @@ export function useToolWriteControl(toolID: string, actionID: string, workspaceI
         <Button label="Xác nhận và thực hiện" variant="primary" isLoading={busy} isDisabled={busy} onClick={() => void confirm()} />
       </HStack></LayoutFooter>} />
     </Dialog>
-  </VStack> : null;
+  </VStack>;
   return {test, controls, isBlocked:busy || networkUnknown || operation?.status === 'executing' || operation?.status === 'uncertain'};
 }

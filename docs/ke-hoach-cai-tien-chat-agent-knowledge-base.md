@@ -845,3 +845,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Cleanup theo giờ, mặc định 30 ngày (RUNTIME_RETENTION_DAYS), mỗi batch tối đa 1000 sự kiện/100 payload. Dọn SSE Chat và workflow terminal, request payload Chat đã kết thúc, input/output workflow không còn được resume, manifest job KB terminal và sự kiện tài liệu cũ; giữ sự kiện tài liệu cuối cùng.
 - Giữ transcript, request identity/hash, ledger cần đối soát, model accounting, các tham chiếu snapshot và checkpoint interrupted/waiting. Không xóa remote data hoặc tự gửi lại thao tác. Migration 43 thêm index retention.
 - Integration xác nhận capacity chặn admission mới, replay vẫn hoạt động khi đầy/sau pruning, transcript/receipt còn nguyên và checkpoint waiting/interrupted không bị dọn. Các kiểm thử workflow/Chat admission qua. Giới hạn admission trên đây áp dụng Chat/workflow; ingestion vẫn giới hạn một job active mỗi KB và số worker đã cấu hình.
+
+
+### 2026-09-06 — Phê duyệt thao tác tool dùng chung
+
+- Migration 44 thêm chính sách approval_shared (Người sử dụng xác nhận), chỉ chủ tool được bật cho từng action/definition. Policy mặc định không thay đổi, action đã đổi hợp đồng quay lại yêu cầu chủ tool. Shared tool phải còn được cài và còn nhìn thấy trong workspace của actor.
+- Actor chỉ duyệt yêu cầu của chính mình. Admission kiểm tra lại definition, policy, membership và installation; khóa grant đến khi ledger được ghi. Thu hồi trước admission chặn dispatch. Chủ tool không được duyệt thay actor khác và người sử dụng không được đổi policy/credential.
+- Giao diện chủ tool có lựa chọn chính sách mới; người dùng shared tool xem được receipt/đối soát của chính mình, không thấy operation của actor khác. Test action thủ công vẫn dành cho chủ tool; Chat/Agent/workflow dùng consent inline.
+- Integration qua approve, thu hồi policy, uninstall, thu hồi membership, đổi definition; không gửi lệnh trước duyệt và đúng một dispatch khi được phép. Các test confirmed-write/inline/workflow parking và TypeScript qua. Chưa rollout migration 44 tại commit này.

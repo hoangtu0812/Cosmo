@@ -1,5 +1,7 @@
 'use client';
 
+import {InlineToolApprovals} from '../../components/InlineToolApprovals';
+
 import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
 import {ArrowLeft, Braces, History, MoreHorizontal, Pencil, Plus, SlidersHorizontal, Trash2, Wrench} from 'lucide-react';
@@ -954,6 +956,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
                 </VStack>
               </Card>
             ) : null}
+            {conversationID ? <InlineToolApprovals key={conversationID} workspaceID={workspaceID} kind="conversation" sourceID={conversationID} /> : null}
             {suggestions.length > 0 && !isSending ? (
               /* Taking one sends it. Filling the box instead made a suggestion
                  a draft to edit, which is a step nobody wanted - and the chips

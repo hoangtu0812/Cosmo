@@ -273,6 +273,7 @@ func (s *Server) buildIngestion(ctx context.Context, job ingestionJob) error {
 }
 
 func (s *Server) executeIngestionJob(ctx context.Context, job ingestionJob) error {
+	ctx = context.WithValue(ctx, userContextKey, User{ID: job.RequestedBy})
 	work, cancel := context.WithTimeout(ctx, s.ingestionTimeout())
 	err := s.buildIngestion(work, job)
 	cancel()

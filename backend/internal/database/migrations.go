@@ -108,6 +108,10 @@ var migrations = []Migration{
 		`ALTER TABLE knowledge_ingestion_jobs ADD COLUMN request_id TEXT NOT NULL DEFAULT '', ADD COLUMN request_hash TEXT NOT NULL DEFAULT '', ADD COLUMN upload_document_ids JSONB NOT NULL DEFAULT '[]'`,
 		`CREATE UNIQUE INDEX ingestion_batch_request ON knowledge_ingestion_jobs(kb_id,requested_by,request_id) WHERE request_id<>''`,
 	}},
+	{Version: 48, Name: "rag_model_accounting", Statements: []string{
+		`CREATE TABLE rag_model_calls(id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,observation JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE INDEX rag_model_call_scope ON rag_model_calls(workspace_id,created_at,actor_id)`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

@@ -44,6 +44,7 @@ func (s *Server) usageSummary(w http.ResponseWriter, r *http.Request) {
  ), calls AS (
  SELECT st.output AS data FROM run_steps st JOIN executions e ON e.id=st.run_id WHERE st.type='model_call'
  UNION ALL SELECT c.observation FROM workflow_model_calls c JOIN executions e ON e.id=c.execution_id
+ UNION ALL SELECT observation FROM rag_model_calls WHERE workspace_id=$1 AND created_at>=NOW()-$3*INTERVAL '1 day' AND ($2='' OR actor_id=$2)
  ), grouped AS (
  SELECT data->>'model' AS model,data->>'phase' AS phase,count(*) AS calls,
  count(*) FILTER(WHERE data->'usage' IS NULL OR data->'usage'='null'::jsonb) AS unknown_usage_calls,

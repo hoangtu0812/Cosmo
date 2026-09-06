@@ -2,11 +2,15 @@ package httpapi
 
 import (
 	"context"
+	"cosmo/backend/internal/knowledge"
 	"cosmo/backend/internal/modelgateway"
 	"cosmo/backend/internal/runs"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestUsageSummaryScopeAndUnknownTokens(t *testing.T) {
@@ -66,5 +70,53 @@ func TestConfiguredCostDoesNotHideMissingUsageOrRates(t *testing.T) {
 	applyConfiguredCost(result, "workspace", `{"workspace":{"fixture":{"input":2,"output":4}}}`)
 	if result["cost"] != float64(4) {
 		t.Fatal("known cost missing")
+	}
+}
+
+func TestRAGAccountingStreamsFailuresAndDeduplicates(t *testing.T) {
+	s, agent, owner, member := agentAccessFixture(t)
+	ctx := context.WithValue(context.Background(), userContextKey, owner)
+	observation := knowledge.Observation{ID: "12345678-1234-1234-1234-" + randomID(9), Model: "embed", Phase: "rag:ingest:embedding", DurationMS: 8, Usage: &knowledge.TokenUsage{PromptTokens: 12, TotalTokens: 12}}
+	raw, _ := json.Marshal(observation)
+	rag := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ingest" {
+			fmt.Fprintf(w, "{\"stage\":\"accounting\",\"observation\":%s}\n{\"stage\":\"done\",\"chunks\":1,\"storage_key\":\"original\"}\n", raw)
+			return
+		}
+		w.WriteHeader(503)
+		json.NewEncoder(w).Encode(map[string]any{"observations": []knowledge.Observation{{ID: "12345678-1234-1234-1234-" + randomID(9), Model: "rerank", Phase: "rag:search:rerank", Failed: true}}})
+	}))
+	defer rag.Close()
+	client := knowledge.New(rag.URL, time.Second)
+	client.Observer = s.observeRAGModel
+	settings := knowledge.ModelSettings{EmbeddingScope: agent.WorkspaceID}
+	for i := 0; i < 2; i++ {
+		if _, err := client.Ingest(ctx, knowledge.IngestJob{DocumentID: "doc", StorageKey: "original"}, settings, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := client.Search(ctx, "query", []string{"kb"}, 1, settings); err == nil {
+		t.Fatal("expected search failure")
+	}
+	for _, user := range []User{owner, member} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/api/usage?workspace="+agent.WorkspaceID+"&days=7&audience=me", nil).WithContext(context.WithValue(ctx, userContextKey, user))
+		s.usageSummary(w, r)
+		if w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		var got struct {
+			Calls   int  `json:"model_calls"`
+			Unknown int  `json:"unknown_usage_calls"`
+			Tokens  *int `json:"known_total_tokens"`
+		}
+		json.Unmarshal(w.Body.Bytes(), &got)
+		if user.ID == owner.ID {
+			if got.Calls != 2 || got.Unknown != 1 || got.Tokens == nil || *got.Tokens != 12 {
+				t.Fatal(got)
+			}
+		} else if got.Calls != 0 {
+			t.Fatal("member saw another actor's calls")
+		}
 	}
 }

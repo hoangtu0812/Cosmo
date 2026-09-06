@@ -22,8 +22,9 @@ import (
 )
 
 type Client struct {
-	baseURL string
-	http    *http.Client
+	Observer func(context.Context, ModelSettings, Observation)
+	baseURL  string
+	http     *http.Client
 }
 
 // New returns nil when no service is configured, which callers read as "the
@@ -120,12 +121,13 @@ type IngestResult struct {
 
 // Event is one stage of an ingestion, as it happens.
 type Event struct {
-	Stage      string `json:"stage"`
-	Message    string `json:"message"`
-	Done       int    `json:"done"`
-	Total      int    `json:"total"`
-	Chunks     int    `json:"chunks"`
-	StorageKey string `json:"storage_key"`
+	Observation *Observation `json:"observation,omitempty"`
+	Stage       string       `json:"stage"`
+	Message     string       `json:"message"`
+	Done        int          `json:"done"`
+	Total       int          `json:"total"`
+	Chunks      int          `json:"chunks"`
+	StorageKey  string       `json:"storage_key"`
 }
 
 // Terminal reports whether this is the last event of a stream. A stream that
@@ -240,6 +242,12 @@ func (c *Client) Ingest(ctx context.Context, job IngestJob, models ModelSettings
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			continue
 		}
+		if event.Stage == "accounting" {
+			if event.Observation != nil && c.Observer != nil {
+				c.Observer(ctx, models, *event.Observation)
+			}
+			continue
+		}
 		last = event
 		if onEvent != nil {
 			onEvent(event)
@@ -285,10 +293,16 @@ func (c *Client) Search(ctx context.Context, query string, kbIDs []string, limit
 		body["limit"] = limit
 	}
 	var result struct {
-		Results []Passage `json:"results"`
+		Results      []Passage     `json:"results"`
+		Observations []Observation `json:"observations"`
 	}
 	if err := c.call(ctx, http.MethodPost, "/search", body, &result, &models); err != nil {
 		return nil, err
+	}
+	if c.Observer != nil {
+		for _, observation := range result.Observations {
+			c.Observer(ctx, models, observation)
+		}
 	}
 	return result.Results, nil
 }
@@ -377,8 +391,18 @@ func (c *Client) call(ctx context.Context, method, path string, body any, out an
 	defer response.Body.Close()
 
 	if response.StatusCode >= 300 {
-		payload, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
-		return fmt.Errorf("knowledge service returned %d: %s", response.StatusCode, strings.TrimSpace(string(payload)))
+		payload, _ := io.ReadAll(io.LimitReader(response.Body, 128*1024))
+		if path == "/search" && models != nil && c.Observer != nil {
+			var result struct {
+				Observations []Observation `json:"observations"`
+			}
+			if json.Unmarshal(payload, &result) == nil {
+				for _, observation := range result.Observations {
+					c.Observer(ctx, *models, observation)
+				}
+			}
+		}
+		return fmt.Errorf("knowledge service returned %d", response.StatusCode)
 	}
 	if out == nil {
 		return nil

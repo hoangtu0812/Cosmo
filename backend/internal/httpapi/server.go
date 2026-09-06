@@ -153,6 +153,9 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		secrets:   box,
 		logger:    logger,
 	}
+	if s.knowledge != nil {
+		s.knowledge.Observer = s.observeRAGModel
+	}
 	if cfg.EntraEnabled() {
 		provider, err := oidc.NewProvider(ctx, fmt.Sprintf("https://login.microsoftonline.com/%s/v2.0", cfg.EntraTenantID))
 		if err != nil {

@@ -8,6 +8,7 @@ about identity here is what keeps authorisation in one place.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import base64
 import json
 import logging
@@ -92,6 +93,7 @@ class SearchRequest(BaseModel):
 
 class SearchResponse(BaseModel):
     results: list[dict]
+    observations: list[dict] = Field(default_factory=list)
 
 
 @app.get("/health")
@@ -149,6 +151,8 @@ def ingest_document(
         raise HTTPException(status_code=400, detail="document is empty")
 
     def stream():
+        observations = []
+        observed_gateway = replace(gateway, observer=observations.append)
         for event in pipeline.run(
             content=content,
             filename=request.filename,
@@ -160,7 +164,7 @@ def ingest_document(
             effective_date=request.effective_date,
             layout_mode=request.layout_mode,
             storage_key=request.storage_key,
-            gateway=gateway,
+            gateway=observed_gateway,
             chunk_size=request.chunk_size,
             chunk_overlap=request.chunk_overlap,
             target_snapshot_id=request.target_snapshot_id,
@@ -169,6 +173,10 @@ def ingest_document(
             checkpoint_chunks=request.checkpoint_chunks,
             deadline_epoch=request.deadline_epoch,
         ):
+            for observation in observations:
+                observation["phase"] = "rag:ingest:" + observation["phase"]
+                yield json.dumps({"stage": "accounting", "observation": observation}) + "\n"
+            observations.clear()
             yield json.dumps(event, ensure_ascii=False) + "\n"
 
     return StreamingResponse(stream(), media_type="application/x-ndjson")
@@ -201,16 +209,21 @@ def search(
     embedding_scope: str | None = Header(default=None, alias="X-Cosmo-Embedding-Scope"),
 ) -> SearchResponse:
     gateway = ml.gateway_settings(request.embedding_model, request.reranker_model, gateway_base_url, gateway_api_key, embedding_scope)
-    return SearchResponse(results=retrieve.search(
-        request.query,
-        request.kb_ids,
-        request.limit,
-        gateway=gateway,
-        retrieval_mode=request.retrieval_mode,
-        rerank_enabled=request.rerank_enabled,
-        score_threshold=request.score_threshold,
-        snapshot_id=request.snapshot_id,
-    ))
+    observations = []
+    gateway = replace(gateway, observer=observations.append)
+    try:
+        results = retrieve.search(request.query, request.kb_ids, request.limit, gateway=gateway,
+            retrieval_mode=request.retrieval_mode, rerank_enabled=request.rerank_enabled,
+            score_threshold=request.score_threshold, snapshot_id=request.snapshot_id)
+    except Exception as error:
+        for observation in observations:
+            observation["phase"] = "rag:search:" + observation["phase"]
+        code = "embedding_profile_not_indexed" if isinstance(error, store.ProfileNotIndexed) else "retrieval_failed"
+        return JSONResponse(status_code=503, content={"detail": "Retrieval failed", "code": code, "observations": observations})
+    for observation in observations:
+        observation["phase"] = "rag:search:" + observation["phase"]
+    return SearchResponse(results=results, observations=observations)
+
 
 
 class SnapshotRequest(BaseModel):

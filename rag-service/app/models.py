@@ -11,7 +11,12 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from contextvars import ContextVar
+from functools import wraps
+from typing import Callable
+import time
+import uuid
 from typing import Sequence
 
 
@@ -22,6 +27,7 @@ class GatewaySettings:
     embedding_model: str
     reranker_model: str
     embedding_scope: str = ""
+    observer: Callable[[dict], None] | None = field(default=None, compare=False, repr=False)
 
 
 def gateway_settings(
@@ -71,6 +77,14 @@ def _post(gateway: GatewaySettings, path: str, payload: dict) -> dict:
         raise RuntimeError("Workspace Model Gateway returned invalid JSON") from error
     if not isinstance(decoded, dict):
         raise RuntimeError("Workspace Model Gateway returned an invalid response")
+    observation = _active_observation.get()
+    if observation is not None:
+        usage = decoded.get("usage")
+        if isinstance(usage, dict):
+            prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
+            total = usage.get("total_tokens", prompt)
+            if (type(prompt) is int and type(total) is int and 0 <= prompt <= total <= 10**12):
+                observation["usage"] = {"prompt_tokens": prompt, "completion_tokens": 0, "total_tokens": total}
     return decoded
 
 
@@ -93,9 +107,40 @@ class Encoded:
         self.dense = dense
 
 
+_active_observation: ContextVar[dict | None] = ContextVar("rag_observation", default=None)
+
+
+def _observed(kind):
+    def decorate(fn):
+        @wraps(fn)
+        def wrapped(*args, **kwargs):
+            gateway = kwargs.get("gateway") or args[-1]
+            observation = {"id": str(uuid.uuid4()), "phase": kind,
+                "model": gateway.embedding_model if kind == "embedding" else gateway.reranker_model,
+                "usage": None, "failed": True}
+            token = _active_observation.set(observation)
+            started = time.monotonic()
+            try:
+                result = fn(*args, **kwargs)
+                observation["failed"] = False
+                return result
+            finally:
+                observation["duration_ms"] = round((time.monotonic() - started) * 1000)
+                _active_observation.reset(token)
+                if gateway.observer:
+                    gateway.observer(observation)
+        return wrapped
+    return decorate
+
+
 def encode(texts: Sequence[str], gateway: GatewaySettings) -> list[Encoded]:
     if not texts:
         return []
+    return _encode(texts, gateway)
+
+
+@_observed("embedding")
+def _encode(texts, gateway):
     response = _post(gateway, "/embeddings", {"model": gateway.embedding_model, "input": list(texts)})
     data = response.get("data")
     if not isinstance(data, list) or len(data) != len(texts):
@@ -123,6 +168,11 @@ def rerank(query: str, passages: Sequence[str], gateway: GatewaySettings) -> lis
         return []
     if not gateway.reranker_model:
         raise RuntimeError("Reranker model is not configured")
+    return _rerank(query, passages, gateway)
+
+
+@_observed("rerank")
+def _rerank(query, passages, gateway):
     response = _post(
         gateway,
         "/rerank",

@@ -69,3 +69,34 @@ def test_reranker_uses_system_gateway(monkeypatch):
         "documents": ["first", "second"],
         "top_n": 2,
     }
+
+
+def test_accounting_known_zero_missing_usage_and_failures(monkeypatch):
+    from dataclasses import replace
+    import pytest
+    observations = []
+    gateway = replace(configure(), observer=observations.append)
+    for usage in ({"prompt_tokens": 0, "total_tokens": 0}, None, {"input_tokens": 12, "total_tokens": 12}):
+        monkeypatch.setattr(models.urllib.request, "urlopen", lambda *a, **kw: Response({"data": [{"embedding": [1., 0.]}], "usage": usage}))
+        models.encode(["sensitive document"], gateway)
+    assert observations[0]["usage"]["total_tokens"] == 0
+    assert observations[1]["usage"] is None
+    assert observations[2]["usage"]["prompt_tokens"] == 12
+    monkeypatch.setattr(models.urllib.request, "urlopen", lambda *a, **kw: Response({"data": []}))
+    with pytest.raises(RuntimeError):
+        models.encode(["sensitive document"], gateway)
+    assert observations[-1]["failed"]
+    before = len(observations)
+    models.encode([], gateway)
+    assert len(observations) == before
+    assert len({o["id"] for o in observations}) == len(observations)
+    assert "sensitive" not in json.dumps(observations) and "secret" not in json.dumps(observations)
+
+
+def test_rerank_accounting_is_separate_from_embeddings(monkeypatch):
+    from dataclasses import replace
+    observations = []
+    gateway = replace(configure(), observer=observations.append)
+    monkeypatch.setattr(models.urllib.request, "urlopen", lambda *a, **kw: Response({"results": [{"index": 0, "relevance_score": .8}], "usage": {"prompt_tokens": 9}}))
+    assert models.rerank("query", ["document"], gateway) == [.8]
+    assert observations[0]["phase"] == "rerank" and observations[0]["usage"]["total_tokens"] == 9

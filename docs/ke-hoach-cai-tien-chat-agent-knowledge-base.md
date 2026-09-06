@@ -909,3 +909,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Retry cùng actor/KB/request ID và đúng nội dung trả cùng job/document IDs; nội dung đổi trả 409. Intent lưu trước object storage; khi chưa xác nhận đủ original có thể thử lại cùng lô. Byte chưa đến server/object storage không thể tự khôi phục; lỗi cuối cùng giữ generation đang phục vụ.
 - Giao diện gửi một lô, theo dõi tiến độ gần nhất qua API job và có nút thử lại giữ nguyên request ID khi phản hồi chưa chắc chắn. API trạng thái chỉ cho người có quyền quản trị KB; không trả manifest/nội dung tài liệu.
 - Backend/PostgreSQL qua validation toàn lô, lỗi lưu original rồi retry, replay không ghi thêm, payload đổi và KB đang bận. TypeScript qua. Chưa rollout migration 47 tại commit này.
+
+
+### 2026-09-06 — Accounting embedding/rerank từ RAG
+
+- Migration 48 lưu observation RAG với ID chống đếm trùng, model/phase, thời gian, lỗi và usage tùy chọn. Gateway trả thiếu usage giữ null; usage 0 giữ 0. Không ghi query, chunks, endpoint hay credential trong observation.
+- Ingest chuyển observation qua NDJSON; retrieval chuyển trong kết quả hoặc phản hồi lỗi. Backend lưu độc lập với request đã hủy, gắn actor và workspace sở hữu gateway của KB (workspace chịu chi phí), rồi tổng hợp vào API/dashboard usage hiện có. Ingest retry tạo call mới cho lần gọi thực tế; restore/reuse không tạo model call giả.
+- Chi phí chỉ dùng đơn giá cấu hình đã có. Reranker chỉ trả billed units hoặc thiếu token vẫn chưa có chi phí token đầy đủ. Mất kết nối trước khi nhận observation hoặc process chết trước khi lưu vẫn có thể mất accounting; chưa thay thế hóa đơn gateway.
+- Full backend/PostgreSQL qua trước test mới; test bổ sung ingestion stream, retrieval lỗi, receipt dedupe và actor isolation qua. 132 test RAG từ mã nguồn workspace qua, gồm checkpoint và usage known/zero/missing/failed, rerank, không ghi nội dung. Chưa rollout migration 48 tại commit này.

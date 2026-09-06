@@ -1,6 +1,7 @@
 'use client';
 
 import {useEffect, useMemo, useRef, useState} from 'react';
+import {useChatRecovery} from '../lib/use-chat-recovery';
 import {useRouter, useSearchParams} from 'next/navigation';
 import {ThinkingOrb, type OrbState} from 'thinking-orbs';
 import {ArrowLeft, Bot, Brain, Cloud, Cpu, ExternalLink, FolderOpen, Gem, History, MessageSquare, MoreHorizontal, Paperclip, Pencil, Plus, Sparkles, SquarePen, Trash2, X} from 'lucide-react';
@@ -91,6 +92,11 @@ export default function ChatPage() {
   // streaming placeholder so deltas land on an id that no longer exists.
   const hydratedRef = useRef('');
   const submittingRef = useRef(false);
+  useChatRecovery(conversationID, !streaming && messages.some((message) => message.is_pending), {
+    isBusy: () => submittingRef.current,
+    onMessages: setMessages,
+    onError: setError,
+  });
   const [renaming, setRenaming] = useState<Conversation | null>(null);
   // Files attached to the question being written. They are read on the server
   // as they are attached, so an unreadable file is refused while somebody is
@@ -915,8 +921,8 @@ export default function ChatPage() {
                                   {/* The reference puts this on every answer.
                                       Copying a reply is the thing people do
                                       most with one. */}
-                                  {isActiveStream ? null : <CopyButton text={message.content} />}
-                                  {isActiveStream ? null : (
+                                  {isActiveStream || message.is_pending ? null : <CopyButton text={message.content} />}
+                                  {isActiveStream || message.is_pending ? null : (
                                     <IconButton
                                       icon={<Trash2 size={14} />}
                                       label={t('chat.deleteTurn')}
@@ -933,7 +939,7 @@ export default function ChatPage() {
                           name={selectedAgent?.name || 'Cosmo'}
                           variant="ghost"
                         >
-                          {message.content
+                          {message.content || message.is_pending
                             ? <VStack gap={3}>
                               <AnswerWithToolCalls
                                 messageID={message.id}
@@ -943,6 +949,7 @@ export default function ChatPage() {
                               >
                                 {answerForDisplay(message.content, message.citations ?? [], isActiveStream)}
                               </AnswerWithToolCalls>
+                              {message.is_pending && !message.tool_calls?.length ? <Text type="supporting">{t('chat.savedPending')}</Text> : null}
                               {isActiveStream ? null : <CitationList citations={message.citations ?? []} onOpen={setPreview} />}
                             </VStack>
                             : (streaming ? <VStack gap={3}>

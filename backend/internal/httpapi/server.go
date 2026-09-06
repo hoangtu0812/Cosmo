@@ -99,6 +99,7 @@ type Conversation struct {
 }
 
 type Message struct {
+	IsPending      bool       `json:"is_pending,omitempty"`
 	ID             string     `json:"id"`
 	ConversationID string     `json:"conversation_id"`
 	Role           string     `json:"role"`
@@ -825,7 +826,15 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Không tìm thấy hội thoại.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `
+	rows, err := s.db.Query(r.Context(), `WITH transcript AS (
+ SELECT id,conversation_id,role,content,model,citations,tool_calls,usage,created_at,false AS is_pending FROM messages WHERE conversation_id=$1
+ UNION ALL
+ SELECT t.assistant_message_id,t.conversation_id,'assistant',COALESCE(c.state->'Tools'->>'Answer',''),COALESCE(t.request_payload->>'model',''), '[]'::jsonb,
+ CASE WHEN c.run_id IS NULL THEN '[]'::jsonb ELSE COALESCE(NULLIF(c.state->'Tools'->'Reported','null'::jsonb),'[]'::jsonb)||jsonb_build_array(c.state->'Tools'->'Pending') END,
+ NULL::jsonb,t.created_at,true
+ FROM chat_turns t LEFT JOIN chat_approval_checkpoints c ON c.run_id=t.run_id
+ WHERE t.conversation_id=$1 AND t.status IN ('queued','executing','waiting_approval') AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=t.assistant_message_id)
+ )
 		SELECT m.id, m.conversation_id, m.role, m.content, COALESCE(m.model, ''), m.citations, m.tool_calls, m.usage, m.created_at,
 		       COALESCE((
 		           SELECT jsonb_agg(jsonb_build_object(
@@ -833,8 +842,8 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		               'byte_size', a.byte_size, 'chars', LENGTH(a.text), 'is_truncated', a.is_truncated
 		           ) ORDER BY a.created_at)
 		           FROM conversation_attachments a WHERE a.message_id = m.id
-		       ), '[]'::jsonb)
-		FROM messages m LEFT JOIN chat_turns t ON t.conversation_id=m.conversation_id AND (t.user_message_id=m.id OR t.assistant_message_id=m.id)
+		       ), '[]'::jsonb),m.is_pending
+		FROM transcript m LEFT JOIN chat_turns t ON t.conversation_id=m.conversation_id AND (t.user_message_id=m.id OR t.assistant_message_id=m.id)
 		WHERE m.conversation_id = $1 ORDER BY COALESCE(t.sequence,0),
 		CASE WHEN t.sequence IS NOT NULL AND m.role='assistant' THEN 1 ELSE 0 END,m.created_at,m.id`, conversationID)
 	if err != nil {
@@ -850,7 +859,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		var attachmentsJSON []byte
 		var usageJSON []byte
 		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model,
-			&citationsJSON, &toolCallsJSON, &usageJSON, &item.CreatedAt, &attachmentsJSON) == nil {
+			&citationsJSON, &toolCallsJSON, &usageJSON, &item.CreatedAt, &attachmentsJSON, &item.IsPending) == nil {
 			if len(usageJSON) > 0 {
 				var counted modelgateway.Usage
 				if json.Unmarshal(usageJSON, &counted) == nil && counted.PromptTokens > 0 {

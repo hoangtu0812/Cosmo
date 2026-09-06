@@ -125,6 +125,7 @@ func TestChatParkSurvivesWorkerRestartAndPreservesFIFO(t *testing.T) {
 			}
 			router := chi.NewRouter()
 			router.Post("/conversations/{conversationID}/messages", s.chat)
+			router.Get("/conversations/{conversationID}/messages", s.listMessages)
 			router.Post("/approvals/{approvalID}", s.decideToolApproval)
 			workerCtx, cancelWorker := context.WithCancel(ctx)
 			var workers sync.WaitGroup
@@ -152,6 +153,29 @@ func TestChatParkSurvivesWorkerRestartAndPreservesFIFO(t *testing.T) {
 			var id, definition, runID string
 			if err := s.db.QueryRow(ctx, `SELECT a.id,a.request->>'definition',c.run_id FROM tool_approvals a JOIN chat_approval_checkpoints c ON c.approval_id=a.id WHERE a.source_id=$1`, conversation).Scan(&id, &definition, &runID); err != nil {
 				t.Fatal(err)
+			}
+			loadMessages := func() []Message {
+				req := httptest.NewRequest("GET", "/conversations/"+conversation+"/messages", nil).WithContext(context.WithValue(ctx, userContextKey, owner))
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, req)
+				var result struct {
+					Messages []Message `json:"messages"`
+				}
+				if w.Code != 200 {
+					t.Fatalf("transcript: %d %s", w.Code, w.Body.String())
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				return result.Messages
+			}
+			loaded := loadMessages()
+			if len(loaded) != 3 || !loaded[2].IsPending || len(loaded[2].ToolCalls) != 2 || loaded[2].ToolCalls[1].ApprovalID != id {
+				t.Fatalf("missing checkpoint transcript: %+v", loaded)
+			}
+			var savedBeforeApproval int
+			if err := s.db.QueryRow(ctx, `SELECT count(*) FROM messages WHERE conversation_id=$1 AND role='assistant'`, conversation).Scan(&savedBeforeApproval); err != nil || savedBeforeApproval != 0 {
+				t.Fatal("checkpoint was saved as completed answer")
 			}
 			if writes.Load() != 0 || reads.Load() != 1 {
 				t.Fatal("effects before approval or missing prior read")
@@ -265,6 +289,11 @@ func TestChatParkSurvivesWorkerRestartAndPreservesFIFO(t *testing.T) {
 				t.Fatalf("replayed effects: writes=%d reads=%d", writes.Load(), reads.Load())
 			}
 			if terminal == "succeeded" {
+				for _, m := range loadMessages() {
+					if m.IsPending {
+						t.Fatal("terminal transcript still pending")
+					}
+				}
 				var calls []byte
 				if err := s.db.QueryRow(ctx, `SELECT m.tool_calls FROM messages m JOIN chat_turns t ON m.id=t.assistant_message_id WHERE t.run_id=$1`, runID).Scan(&calls); err != nil {
 					t.Fatal(err)

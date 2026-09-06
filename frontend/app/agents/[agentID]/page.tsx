@@ -1,5 +1,6 @@
 'use client';
 
+import {useChatRecovery} from '../../lib/use-chat-recovery';
 import {ToolApprovalProvider} from '../../components/InlineToolApprovals';
 
 import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
@@ -702,6 +703,12 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [chatError, setChatError] = useState('');
+  const submittingRef = useRef(false);
+  useChatRecovery(conversationID, !isSending && messages.some((message) => message.is_pending), {
+    isBusy: () => submittingRef.current,
+    onMessages: setMessages,
+    onError: setChatError,
+  });
   const runID = useRef('');
   // Deltas arrive in bursts, which reads as stuttering. This decouples the
   // display rate from the arrival rate and advances on word and syntax
@@ -761,7 +768,8 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   // sent without being typed into it first.
   async function send(question?: string) {
     const content = (question ?? draft).trim();
-    if (!content || isSending) return;
+    if (!content || submittingRef.current) return;
+    submittingRef.current = true;
     setChatError('');
     setIsSending(true);
     setDraft('');
@@ -816,6 +824,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
         if (transcript) setMessages(transcript.messages);
       }
     } finally {
+      submittingRef.current = false;
       setIsSending(false);
     }
   }
@@ -941,7 +950,8 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
                   {message.role === 'assistant'
                     ? <AnswerWithToolCalls messageID={message.id} calls={message.tool_calls ?? []}>{message.content}</AnswerWithToolCalls>
                     : <Text type="body">{message.content}</Text>}
-                  {message.role === 'assistant' ? (
+                  {message.is_pending && !message.tool_calls?.length ? <Text type="supporting">{t('chat.savedPending')}</Text> : null}
+                  {message.role === 'assistant' && !message.is_pending ? (
                     <HStack gap={2} hAlign="end" width="100%">
                       <CopyButton text={message.content} />
                     </HStack>

@@ -31,6 +31,7 @@ type chatApprovalCheckpoint struct {
 }
 
 type chatToolCheckpoint struct {
+	Pending    ToolCall
 	Round      int
 	Calls      []modelgateway.ToolCall
 	Index      int
@@ -54,6 +55,7 @@ func (s *Server) parkChatApproval(ctx context.Context, checkpoint *chatApprovalC
 	checkpoint.Deadline = execution.Deadline
 	checkpoint.Tools.ApprovalID = approval.ID
 	shown.ApprovalID = approval.ID
+	checkpoint.Tools.Pending = shown
 	raw, err := json.Marshal(checkpoint)
 	if err != nil {
 		return err

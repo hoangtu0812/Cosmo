@@ -787,3 +787,10 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Chỉ điểm parked được tiếp tục tự động. Sau khi worker nhận lại lease, crash vẫn chuyển interrupted và không replay vì có thể đã dispatch. Checkpoint của lượt terminal được dọn, ledger/receipt giữ nguyên để đối soát.
 - Full backend trên PostgreSQL mới qua. Integration một worker chứng minh không bị chiếm lúc chờ, FIFO, dừng/khởi động lại, hai lần duyệt liên tiếp không lặp lệnh trước, từ chối/hết hạn, đổi cấu hình, thu hồi quyền, hủy và crash sau claim đều qua.
 - Chưa triển khai lên server test tại commit này. Phần tiếp theo bổ sung hiển thị điểm chờ khi tải lại trang rồi nghiệm thu rollout; đây chưa phải phục hồi mọi giai đoạn LLM/read/write bị ngắt.
+
+
+### 2026-09-06 — TOOL-01g: mở lại phiên Chat đang chờ
+
+- API transcript chiếu tin nhắn tạm từ hàng đợi/checkpoint với đúng assistant ID và vị trí sau câu hỏi; không ghi placeholder thành câu trả lời hoàn tất. Tool trước đó và approval đang chờ vẫn gắn đúng tin nhắn.
+- Chat và khung thử agent tự đọc lại transcript khi còn tin nhắn pending. Dừng polling khi bắt đầu stream cục bộ/rời hội thoại, không gửi lại câu hỏi để lấy trạng thái. Tin nhắn pending không có thao tác copy/xóa như câu trả lời hoàn tất.
+- Integration kiểm tra transcript khi parked và sau hoàn tất, không có assistant message thật trước duyệt; TypeScript qua. Kiểm tra trình duyệt và rollout sẽ thực hiện cùng migration 40.

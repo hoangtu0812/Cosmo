@@ -734,3 +734,13 @@ Migration 38 lưu từng phiên workflow, input/model, hash graph/tool/gateway, 
 Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở tool đang chờ duyệt, backend chỉ tiếp tục khi có bằng chứng chưa dispatch: không có ledger và approval còn pending/expired; approval cũ bị vô hiệu hóa trong giao dịch rồi mới yêu cầu duyệt mới. Nếu ledger đã succeeded nhưng checkpoint chưa lưu, dùng chính response đã lưu để hoàn tất node, không gửi lại. Executing/uncertain, quyết định từ chối, hoặc node đang chạy mà không có bằng chứng kết quả đều bị từ chối resume. Đối soát thủ công đã thực hiện chưa đủ để tái tạo output cho node sau; không tự đoán kết quả.
 
 Đây là tiếp tục thủ công bằng checkpoint sau gián đoạn, chưa phải worker workflow tự chạy nền hay tự thức dậy sau restart. Node LLM/read đang chạy khi bị ngắt vẫn bị chặn bảo thủ; graph/gateway/tool thay đổi yêu cầu một phiên mới có chủ ý. Checkpoint lưu input/output nghiệp vụ với quyền actor/workspace, chưa có retention riêng. Durable chat checkpoint và giải phóng worker khi chờ duyệt vẫn còn mở.
+
+
+### Nghiệm thu TOOL-01d trên server test (2026-09-06)
+
+- Backend/frontend `209d33f`, migration 38, healthy; backup trước migration đã kiểm tra 447290 bytes, 326 TOC lines tại `.cache/deployments/20260906-workflow-checkpoints/database.dump`; image cũ có tag `before-workflow-checkpoints-20260906`.
+- Full backend tests với PostgreSQL mới, TypeScript và Docker production build đều qua. Kiểm thử checkpoint bao gồm từ chối dispatch khi chưa lưu được admission, không gọi lại tool đã hoàn tất, bảo toàn input khi resume, chặn runtime đổi/actor khác/unknown effect và chặn writer lease cũ.
+- Smoke API xác thực: workflow hai bước ghi; bước đầu hoàn tất, bước hai chờ duyệt; SIGKILL backend rồi restart. Resume giữ input cũ, phát lại kết quả bước đầu từ checkpoint, chỉ tạo xác nhận mới cho bước hai. Endpoint giả lập nhận đúng số lệnh đã duyệt, không ghi trùng.
+- Mô phỏng riêng việc mất checkpoint sau ledger succeeded bằng điều chỉnh bản ghi fixture: resume dùng response đã lưu và không dispatch thêm. Đây là fault injection trên dữ liệu test, không phải kiểm thử SAP thật.
+- Regression approve/reject chat và workflow, chat FIFO/SSE/replay, MCP discovery/rediscovery/invoke và truy xuất 3 tài liệu thực qua gateway đều qua. Fixture và PostgreSQL kiểm thử tạm đã dọn; server giữ 3 tài liệu/67 chunks, không có phiên chạy/job đang thực thi.
+- Còn mở: durable checkpoint/resume cho chat để giải phóng worker khi chờ duyệt; worker workflow tự tiếp tục nền; phê duyệt shared tool; business idempotency/SAP reconciliation và bộ câu hỏi nghiệp vụ nhiều KB được gán nhãn. Chưa nghiệm thu tương tác UI bằng trình duyệt.

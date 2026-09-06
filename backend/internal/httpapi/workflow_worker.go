@@ -20,7 +20,7 @@ func (s *Server) RunWorkflowWorker(ctx context.Context) {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
-		_, err := s.db.Exec(ctx, `UPDATE workflow_executions SET status='interrupted',finished_at=NOW() WHERE status='running' AND lease_until<=NOW()`)
+		_, err := s.db.Exec(ctx, `WITH retired AS (UPDATE workflow_executions SET status='interrupted',finished_at=NOW() WHERE status='running' AND lease_until<=NOW() RETURNING approval_id) UPDATE tool_approvals SET status='expired',lease_until=NOW() WHERE id IN (SELECT approval_id FROM retired) AND status IN ('pending','approved')`)
 		if err == nil {
 			execution, claimErr := s.claimWorkflowJob(ctx)
 			if claimErr != nil {
@@ -48,7 +48,7 @@ func (s *Server) claimWorkflowJob(ctx context.Context) (*workflowExecution, erro
 	defer tx.Rollback(context.Background())
 	execution := &workflowExecution{owner: "wown_" + randomID(18)}
 	var completed []byte
-	err = tx.QueryRow(ctx, `SELECT id,workflow_id,actor_id,workspace_id,input,model,runtime_hash,completed FROM workflow_executions WHERE status='queued' ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&execution.ID, &execution.workflowID, &execution.actorID, &execution.workspaceID, &execution.Input, &execution.Model, &execution.runtimeHash, &completed)
+	err = tx.QueryRow(ctx, `SELECT e.id,e.workflow_id,e.actor_id,e.workspace_id,e.input,e.model,e.runtime_hash,e.completed,e.active_node,e.approval_id,e.deadline FROM workflow_executions e LEFT JOIN tool_approvals a ON a.id=e.approval_id WHERE e.status='queued' OR (e.status='waiting_approval' AND (a.id IS NULL OR a.status<>'pending' OR a.expires_at<=NOW() OR e.deadline<=NOW())) ORDER BY e.created_at,e.id FOR UPDATE OF e SKIP LOCKED LIMIT 1`).Scan(&execution.ID, &execution.workflowID, &execution.actorID, &execution.workspaceID, &execution.Input, &execution.Model, &execution.runtimeHash, &completed, &execution.ActiveNode, &execution.ApprovalID, &execution.deadline)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -58,7 +58,8 @@ func (s *Server) claimWorkflowJob(ctx context.Context) (*workflowExecution, erro
 	if err = json.Unmarshal(completed, &execution.Completed); err != nil {
 		return nil, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE workflow_executions SET status='running',lease_owner=$2,lease_until=NOW()+INTERVAL '5 seconds' WHERE id=$1`, execution.ID, execution.owner); err != nil {
+	execution.resumeNode = execution.ActiveNode
+	if err = tx.QueryRow(ctx, `UPDATE workflow_executions SET status='running',lease_owner=$2,lease_until=NOW()+INTERVAL '5 seconds',deadline=COALESCE(deadline,NOW()+INTERVAL '3 minutes') WHERE id=$1 RETURNING deadline`, execution.ID, execution.owner).Scan(&execution.deadline); err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -78,6 +79,7 @@ func (s *Server) runWorkflowJob(ctx context.Context, execution *workflowExecutio
 		finish, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_, _ = s.db.Exec(finish, `UPDATE workflow_executions SET status='interrupted',finished_at=NOW() WHERE id=$1 AND lease_owner=$2 AND status='running'`, execution.ID, execution.owner)
+		_, _ = s.db.Exec(finish, `UPDATE tool_approvals SET status='expired',lease_until=NOW() WHERE id IN (SELECT approval_id FROM workflow_executions WHERE id=$1 AND status NOT IN ('queued','running','waiting_approval')) AND status IN ('pending','approved')`, execution.ID)
 	}()
 	var user User
 	err := s.db.QueryRow(ctx, `SELECT u.id,u.email,u.name,u.role FROM users u JOIN workspace_memberships m ON m.user_id=u.id WHERE u.id=$1 AND m.workspace_id=$2`, execution.actorID, execution.workspaceID).Scan(&user.ID, &user.Email, &user.Name, &user.Role)
@@ -212,7 +214,7 @@ func (s *Server) followWorkflowExecution(w http.ResponseWriter, r *http.Request,
 			flusher.Flush()
 			return
 		}
-		if status == "interrupted" || status == "failed" {
+		if status == "interrupted" || status == "failed" || status == "cancelled" {
 			writeSSE(w, "error", map[string]string{"message": "Phiên workflow bị gián đoạn. Kiểm tra kết quả các bước trước khi tiếp tục."})
 			flusher.Flush()
 			return
@@ -243,7 +245,7 @@ func (s *Server) cancelWorkflowExecution(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var stopped int
-	err := s.db.QueryRow(r.Context(), `WITH stopped AS (UPDATE workflow_executions SET status='failed',finished_at=NOW() WHERE id=$1 AND actor_id=$2 AND workspace_id=$3 AND workflow_id=$4 AND status IN ('queued','running') RETURNING approval_id), expired AS (UPDATE tool_approvals SET status='expired',lease_until=NOW() WHERE id IN (SELECT approval_id FROM stopped) AND status IN ('pending','approved')) SELECT count(*) FROM stopped`, chi.URLParam(r, "executionID"), user.ID, workspace, workflowID).Scan(&stopped)
+	err := s.db.QueryRow(r.Context(), `WITH stopped AS (UPDATE workflow_executions SET status='cancelled',finished_at=NOW() WHERE id=$1 AND actor_id=$2 AND workspace_id=$3 AND workflow_id=$4 AND status IN ('queued','running','waiting_approval') RETURNING approval_id), expired AS (UPDATE tool_approvals SET status='expired',lease_until=NOW() WHERE id IN (SELECT approval_id FROM stopped) AND status IN ('pending','approved')) SELECT count(*) FROM stopped`, chi.URLParam(r, "executionID"), user.ID, workspace, workflowID).Scan(&stopped)
 	if err != nil {
 		writeError(w, 500, "Không dừng được phiên workflow.")
 		return

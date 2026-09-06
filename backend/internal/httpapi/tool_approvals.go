@@ -81,6 +81,15 @@ func (s *Server) awaitToolApproval(ctx context.Context, kind, source string, too
 	if err != nil {
 		return tools.CallResult{}, err
 	}
+	if park, ok := ctx.Value(workflowParkKey{}).(chatParkHandler); ok {
+		parkErr := park(approval)
+		if !errors.Is(parkErr, errWorkflowSuspended) {
+			finish, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_, _ = s.db.Exec(finish, `UPDATE tool_approvals SET status='expired',lease_until=NOW() WHERE id=$1 AND status IN ('pending','approved')`, approval.ID)
+			cancel()
+		}
+		return tools.CallResult{}, parkErr
+	}
 	if park, ok := ctx.Value(chatParkKey{}).(chatParkHandler); ok {
 		parkErr := park(approval)
 		if !errors.Is(parkErr, errChatSuspended) {
@@ -161,7 +170,7 @@ func (s *Server) listToolApprovals(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Thiếu phạm vi xác nhận.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `WITH scoped AS (SELECT a.id,a.tool_id,CASE WHEN o.status IN ('succeeded','reconciled_succeeded') THEN 'completed' WHEN o.status='reconciled_no_effect' THEN 'failed' WHEN o.status='uncertain' OR (o.status='executing' AND o.created_at<NOW()-INTERVAL '1 minute') THEN 'uncertain' WHEN o.status='executing' THEN 'approved' WHEN a.status IN ('pending','approved') AND (a.expires_at<=NOW() OR a.lease_until<=NOW() OR (a.status='pending' AND NOT (NOT EXISTS(SELECT 1 FROM chat_approval_checkpoints c WHERE c.approval_id=a.id) OR EXISTS(SELECT 1 FROM chat_approval_checkpoints c JOIN chat_turns ct ON ct.run_id=c.run_id JOIN runs cr ON cr.id=ct.run_id WHERE c.approval_id=a.id AND ct.status='waiting_approval' AND cr.status='waiting_approval')))) THEN 'expired' ELSE a.status END AS status,a.request,a.expires_at,COALESCE(o.id,a.operation_id) AS operation_id,a.message_id,a.call_id,a.created_at FROM tool_approvals a JOIN tools t ON t.id=a.tool_id LEFT JOIN tool_write_operations o ON o.actor_id=a.actor_id AND o.workspace_id=a.workspace_id AND o.idempotency_key=a.id WHERE a.actor_id=$1 AND a.workspace_id=$2 AND a.source_kind=$3 AND a.source_id=$4 AND t.owner_user_id=$1)
+	rows, err := s.db.Query(r.Context(), `WITH scoped AS (SELECT a.id,a.tool_id,CASE WHEN o.status IN ('succeeded','reconciled_succeeded') THEN 'completed' WHEN o.status='reconciled_no_effect' THEN 'failed' WHEN o.status='uncertain' OR (o.status='executing' AND o.created_at<NOW()-INTERVAL '1 minute') THEN 'uncertain' WHEN o.status='executing' THEN 'approved' WHEN a.status IN ('pending','approved') AND (a.expires_at<=NOW() OR a.lease_until<=NOW() OR (a.source_kind='workflow' AND NOT EXISTS(SELECT 1 FROM workflow_executions e WHERE e.approval_id=a.id AND (e.status='waiting_approval' OR (e.status='running' AND e.lease_until>NOW())))) OR (a.status='pending' AND NOT (NOT EXISTS(SELECT 1 FROM chat_approval_checkpoints c WHERE c.approval_id=a.id) OR EXISTS(SELECT 1 FROM chat_approval_checkpoints c JOIN chat_turns ct ON ct.run_id=c.run_id JOIN runs cr ON cr.id=ct.run_id WHERE c.approval_id=a.id AND ct.status='waiting_approval' AND cr.status='waiting_approval')))) THEN 'expired' ELSE a.status END AS status,a.request,a.expires_at,COALESCE(o.id,a.operation_id) AS operation_id,a.message_id,a.call_id,a.created_at FROM tool_approvals a JOIN tools t ON t.id=a.tool_id LEFT JOIN tool_write_operations o ON o.actor_id=a.actor_id AND o.workspace_id=a.workspace_id AND o.idempotency_key=a.id WHERE a.actor_id=$1 AND a.workspace_id=$2 AND a.source_kind=$3 AND a.source_id=$4 AND t.owner_user_id=$1)
  SELECT id,tool_id,status,request,expires_at,operation_id,message_id,call_id FROM scoped
  WHERE status IN ('pending','approved','uncertain') OR id IN (SELECT id FROM scoped ORDER BY created_at DESC,id DESC LIMIT 50)
  ORDER BY created_at DESC,id DESC`, user.ID, workspace, kind, source)
@@ -203,7 +212,7 @@ func (s *Server) decideToolApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "approvalID")
-	tag, err := s.db.Exec(r.Context(), `UPDATE tool_approvals a SET status=$4,decided_at=NOW() FROM tools t WHERE a.id=$1 AND a.actor_id=$2 AND a.workspace_id=$3 AND a.status='pending' AND a.expires_at>NOW() AND a.lease_until>NOW() AND (NOT EXISTS(SELECT 1 FROM chat_approval_checkpoints c WHERE c.approval_id=a.id) OR EXISTS(SELECT 1 FROM chat_approval_checkpoints c JOIN chat_turns ct ON ct.run_id=c.run_id JOIN runs cr ON cr.id=ct.run_id WHERE c.approval_id=a.id AND ct.status='waiting_approval' AND cr.status='waiting_approval')) AND a.request->>'definition'=$5 AND t.id=a.tool_id AND t.owner_user_id=$2`, id, user.ID, workspace, input.Decision, input.Definition)
+	tag, err := s.db.Exec(r.Context(), `UPDATE tool_approvals a SET status=$4,decided_at=NOW() FROM tools t WHERE a.id=$1 AND a.actor_id=$2 AND a.workspace_id=$3 AND a.status='pending' AND a.expires_at>NOW() AND a.lease_until>NOW() AND (NOT EXISTS(SELECT 1 FROM chat_approval_checkpoints c WHERE c.approval_id=a.id) OR EXISTS(SELECT 1 FROM chat_approval_checkpoints c JOIN chat_turns ct ON ct.run_id=c.run_id JOIN runs cr ON cr.id=ct.run_id WHERE c.approval_id=a.id AND ct.status='waiting_approval' AND cr.status='waiting_approval')) AND (a.source_kind<>'workflow' OR EXISTS(SELECT 1 FROM workflow_executions e WHERE e.approval_id=a.id AND (e.status='waiting_approval' OR (e.status='running' AND e.lease_until>NOW())))) AND a.request->>'definition'=$5 AND t.id=a.tool_id AND t.owner_user_id=$2`, id, user.ID, workspace, input.Decision, input.Definition)
 	if err != nil {
 		writeToolError(w, err)
 		return

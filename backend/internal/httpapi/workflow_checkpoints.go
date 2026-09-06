@@ -33,6 +33,9 @@ type workflowExecution struct {
 	workspaceID string
 	runtimeHash string
 	owner       string
+	deadline    *time.Time
+	resumeNode  string
+	parked      bool
 }
 
 // Runtime changes require a new reviewed run. Hash gateway data rather than
@@ -160,7 +163,7 @@ func (s *Server) admitWorkflowExecution(ctx context.Context, item workflows.Work
 		if err != nil {
 			return nil, err
 		}
-		_, err = tx.Exec(ctx, `UPDATE workflow_executions SET status='running',completed=$2,active_node='',approval_id='',lease_owner=$3,lease_until=NOW()+INTERVAL '5 seconds',finished_at=NULL WHERE id=$1`, exec.ID, string(raw), exec.owner)
+		_, err = tx.Exec(ctx, `UPDATE workflow_executions SET status='running',completed=$2,active_node='',approval_id='',lease_owner=$3,lease_until=NOW()+INTERVAL '5 seconds',finished_at=NULL,deadline=NULL WHERE id=$1`, exec.ID, string(raw), exec.owner)
 	} else {
 		_, err = tx.Exec(ctx, `INSERT INTO workflow_executions(id,workflow_id,actor_id,workspace_id,input,model,runtime_hash,status,lease_owner,lease_until) VALUES($1,$2,$3,$4,$5,$6,$7,'running',$8,NOW()+INTERVAL '5 seconds')`, exec.ID, item.ID, userID, item.WorkspaceID, input, model, hash, exec.owner)
 	}
@@ -208,8 +211,9 @@ func (s *Server) saveWorkflowCheckpoint(ctx context.Context, exec *workflowExecu
 			}
 		}
 
-		tag, e := s.db.Exec(ctx, `UPDATE workflow_executions SET active_node=$3,approval_id='' WHERE id=$1 AND lease_owner=$2 AND lease_until>NOW() AND status='running'`, exec.ID, exec.owner, step.NodeID)
+		tag, e := s.db.Exec(ctx, `UPDATE workflow_executions SET active_node=$3,approval_id=CASE WHEN active_node=$3 THEN approval_id ELSE '' END WHERE id=$1 AND lease_owner=$2 AND lease_until>NOW() AND status='running'`, exec.ID, exec.owner, step.NodeID)
 		err = e
+		exec.ActiveNode = step.NodeID
 		if e == nil && tag.RowsAffected() != 1 {
 			err = errWorkflowResume
 		}

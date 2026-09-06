@@ -166,6 +166,11 @@ type workflowInvoker struct {
 }
 
 func (invoker workflowInvoker) InvokeAction(ctx context.Context, toolID, actionID string, arguments map[string]any) (string, error) {
+	if execution, _ := ctx.Value(workflowExecutionKey{}).(*workflowExecution); execution != nil && execution.ApprovalID != "" && execution.ActiveNode == execution.resumeNode {
+		result, err := invoker.server.resumeWorkflowApproval(ctx, execution, toolID, actionID)
+		execution.ApprovalID = ""
+		return result.Body, err
+	}
 	return invoker.server.tools.InvokeAction(ctx, invoker.userID, invoker.workspaceID, toolID, actionID, arguments)
 }
 
@@ -231,7 +236,11 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 func (s *Server) executeWorkflowJob(parent context.Context, execution *workflowExecution, item workflows.Workflow, user User, workspaceID string) {
 	models := s.modelsFor(parent, workspaceID)
 	options := modelgateway.Options{Model: execution.Model}
-	ctx, cancel := context.WithTimeout(parent, workflows.RunTimeout)
+	deadline := time.Now().Add(workflows.RunTimeout)
+	if execution.deadline != nil {
+		deadline = *execution.deadline
+	}
+	ctx, cancel := context.WithDeadline(parent, deadline)
 	ctx = context.WithValue(ctx, workflowExecutionKey{}, execution)
 	heartbeatDone := make(chan struct{})
 	go func() {
@@ -272,23 +281,20 @@ func (s *Server) executeWorkflowJob(parent context.Context, execution *workflowE
 	writeSSE(w, "execution", map[string]string{"id": execution.ID})
 	flusher.Flush()
 	toolCtx := tools.WithCaller(ctx, s.callerFor(ctx, user, workspaceID))
+	toolCtx = context.WithValue(toolCtx, workflowParkKey{}, chatParkHandler(func(approval toolApproval) error { return s.parkWorkflowApproval(toolCtx, execution, approval) }))
 	toolCtx = tools.WithApprovalHandler(toolCtx, func(wait context.Context, tool tools.Tool, action tools.Action, args map[string]any) (tools.CallResult, error) {
-		return s.awaitToolApproval(wait, "workflow", item.ID, tool, action, args, func(approval toolApproval) {
-			if approval.Status == "pending" {
-				tag, err := s.db.Exec(wait, `UPDATE workflow_executions SET approval_id=$3 WHERE id=$1 AND lease_owner=$2 AND lease_until>NOW() AND status='running'`, execution.ID, execution.owner, approval.ID)
-				if err != nil || tag.RowsAffected() != 1 {
-					cancel()
-					return
-				}
-			}
-			writeSSE(w, "approval", approval)
-			flusher.Flush()
-		})
+		return s.awaitToolApproval(wait, "workflow", item.ID, tool, action, args, func(toolApproval) {})
 	})
 	runErr := s.workflows.RunCheckpointed(toolCtx, item.Graph, execution.Input, models, options, invoker, execution.Completed, func(step workflows.Step) error { return s.saveWorkflowCheckpoint(toolCtx, execution, step) }, func(step workflows.Step) {
+		if execution.parked {
+			return
+		}
 		writeSSE(w, "step", step)
 		flusher.Flush()
 	})
+	if errors.Is(runErr, errWorkflowSuspended) {
+		return
+	}
 	if runErr != nil {
 		// The failing step already said what went wrong and where; this closes
 		// the stream rather than repeating it.

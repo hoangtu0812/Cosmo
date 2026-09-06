@@ -6,7 +6,7 @@ import {VStack} from '@astryxdesign/core/Layout';
 import {Text} from '@astryxdesign/core/Text';
 import {api, WorkflowExecution} from '../lib/api';
 
-const labels: Record<string,string> = {queued:'Đang chờ',running:'Đang chạy',succeeded:'Hoàn tất',interrupted:'Bị gián đoạn',failed:'Thất bại'};
+const labels: Record<string,string> = {queued:'Đang chờ',waiting_approval:'Chờ xác nhận',cancelled:'Đã dừng',running:'Đang chạy',succeeded:'Hoàn tất',interrupted:'Bị gián đoạn',failed:'Thất bại'};
 export function WorkflowExecutionHistory({workflowID,workspaceID,isRunning,onResume,onFollow}: {workflowID:string;workspaceID:string;isRunning:boolean;onResume:(id:string)=>void;onFollow:(id:string)=>void}) {
   const [items,setItems] = useState<WorkflowExecution[]>([]);
   const [error,setError] = useState('');
@@ -34,11 +34,11 @@ export function WorkflowExecutionHistory({workflowID,workspaceID,isRunning,onRes
     {error ? <Text type="supporting">{error}</Text> : null}
     {items.slice(0,5).map((item) => <VStack key={item.id} gap={1} width="100%">
       <Text type="supporting">{`${new Date(item.created_at).toLocaleString()} · ${labels[item.status] ?? item.status} · ${Object.keys(item.completed).length} bước đã lưu`}</Text>
-      {['queued','running'].includes(item.status) ? <>
+      {['queued','running','waiting_approval'].includes(item.status) ? <>
         <Button label="Theo dõi tiến độ" variant="secondary" isDisabled={isRunning} onClick={() => onFollow(item.id)} />
         <Button label="Dừng phiên" variant="secondary" isDisabled={!!stopping} onClick={() => void stop(item.id)} />
       </> : null}
-      {item.status==='interrupted' ? <Button label="Tiếp tục phiên đã lưu" variant="secondary" isDisabled={isRunning || items.some((run) => ['running','queued'].includes(run.status))} onClick={() => onResume(item.id)} /> : null}
+      {item.status==='interrupted' ? <Button label="Tiếp tục phiên đã lưu" variant="secondary" isDisabled={isRunning || items.some((run) => ['running','queued','waiting_approval'].includes(run.status))} onClick={() => onResume(item.id)} /> : null}
     </VStack>)}
   </VStack>;
 }

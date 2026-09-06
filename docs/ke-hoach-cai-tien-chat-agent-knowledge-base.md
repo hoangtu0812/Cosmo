@@ -829,3 +829,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Regression Chat parked qua SIGKILL, approve/reject, FIFO/disconnect/SSE replay/transcript; MCP discovery/rediscovery/invoke đều qua. Workflow hai bước qua SIGKILL giữ input cũ, không lặp bước đầu; ledger succeeded khôi phục checkpoint thiếu mà không dispatch. Gateway thật truy xuất cả ba tài liệu, nguồn đúng KB.
 - Dữ liệu cuối 3 tài liệu/67 chunks; không còn chat/ingestion/snapshot/write/workflow active. Fixture và PostgreSQL kiểm thử tạm đã dọn. Chưa gọi hoặc đối soát SAP thật.
 - Phần còn mở: giải phóng worker workflow khi chờ xác nhận và phục hồi điểm chờ qua restart; giới hạn hàng đợi/retention sự kiện; shared-tool approval; SAP business idempotency/reconciliation; baseline nghiệp vụ nhiều KB cần bộ câu hỏi được duyệt; tổng hợp accounting và incremental/batch ingest. Chưa coi toàn bộ kế hoạch đã hoàn tất.
+
+
+### 2026-09-06 — Workflow trả worker tại điểm chờ xác nhận
+
+- Migration 42 bổ sung waiting_approval, deadline gốc và cancelled. Lưu yêu cầu duyệt/sự kiện và trả lease trong một transaction; worker nhận công việc khác ngay. Pending qua restart giữ nguyên consent, chỉ thức dậy khi có quyết định/hết hạn.
+- Resume dùng output các bước trước, input/model gốc và đúng tham số/definition/idempotency key đã duyệt. Kiểm tra lại quyền/runtime trước chạy; deadline không kéo dài qua lần chờ. Crash sau claim vẫn interrupted, không tự replay; xác nhận liên quan bị hết hạn.
+- API quyết định yêu cầu workflow có executor đang sống hoặc điểm chờ đã lưu. Giao diện cho phép theo dõi/dừng waiting_approval và hiển thị Đã dừng riêng biệt.
+- Integration qua: worker xử lý workflow khác trong lúc chờ; approve/reject/expiry, đổi cấu hình, thu hồi quyền, crash sau claim, hai lần duyệt không lặp lệnh trước. Các test workflow/inline approval và TypeScript qua. Chưa rollout migration 42 tại commit này.

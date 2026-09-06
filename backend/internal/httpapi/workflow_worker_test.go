@@ -122,7 +122,7 @@ func TestWorkflowQueueDisconnectReplayAndAccessChecks(t *testing.T) {
 			defer func() { stop(); wg.Wait() }()
 			want := "interrupted"
 			if mode == "cancelled" {
-				want = "failed"
+				want = "cancelled"
 			}
 			if mode == "normal" {
 				want = "succeeded"

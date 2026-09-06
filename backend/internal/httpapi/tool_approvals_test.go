@@ -57,6 +57,13 @@ func TestInlineApprovalRequiresExactLiveActorDecision(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("no approval")
 			}
+			// A workflow decision belongs to a durable execution.
+			if _, err = s.db.Exec(base, `INSERT INTO workflows(id,name,owner_user_id,owner_workspace_id) VALUES($1,'Approval executor',$2,$3)`, id, owner.ID, agent.WorkspaceID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.db.Exec(base, `INSERT INTO workflow_executions(id,workflow_id,actor_id,workspace_id,input,model,runtime_hash,status,lease_owner,lease_until,approval_id) VALUES($1,$1,$2,$3,'','fixture','fixture','running','fixture',NOW()+INTERVAL '1 minute',$4)`, id, owner.ID, agent.WorkspaceID, approval.ID); err != nil {
+				t.Fatal(err)
+			}
 			if calls.Load() != 0 {
 				t.Fatal("dispatch before consent")
 			}

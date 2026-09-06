@@ -1,7 +1,7 @@
 # Kế hoạch cải tiến Chat, Agent và Knowledge Base
 
 Ngày lập: 2026-09-05  
-Trạng thái: Đã triển khai 5 nhóm cải tiến khả thi lên server test, migration 45; phạm vi còn lại và bằng chứng nghiệm thu tại cuối mục 13.
+Trạng thái: Đã triển khai tiếp checkpoint ingest, batch upload và accounting RAG lên server test, migration 48; phạm vi còn lại và bằng chứng nghiệm thu tại cuối mục 13.
 Phạm vi: Các vấn đề đã xác định trong đợt rà soát kiến trúc chat, agent và tìm kiếm nhiều Knowledge Base của Cosmo.
 
 ## 1. Mục tiêu và kết luận hiện trạng
@@ -917,3 +917,22 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Ingest chuyển observation qua NDJSON; retrieval chuyển trong kết quả hoặc phản hồi lỗi. Backend lưu độc lập với request đã hủy, gắn actor và workspace sở hữu gateway của KB (workspace chịu chi phí), rồi tổng hợp vào API/dashboard usage hiện có. Ingest retry tạo call mới cho lần gọi thực tế; restore/reuse không tạo model call giả.
 - Chi phí chỉ dùng đơn giá cấu hình đã có. Reranker chỉ trả billed units hoặc thiếu token vẫn chưa có chi phí token đầy đủ. Mất kết nối trước khi nhận observation hoặc process chết trước khi lưu vẫn có thể mất accounting; chưa thay thế hóa đơn gateway.
 - Full backend/PostgreSQL qua trước test mới; test bổ sung ingestion stream, retrieval lỗi, receipt dedupe và actor isolation qua. 132 test RAG từ mã nguồn workspace qua, gồm checkpoint và usage known/zero/missing/failed, rerank, không ghi nội dung. Chưa rollout migration 48 tại commit này.
+
+
+### Nghiệm thu checkpoint, batch upload và accounting RAG (2026-09-06)
+
+- Đã triển khai checkpoint `899aae5`, batch upload `ae71770`, accounting `ff2e666` và sửa API trạng thái lô `5f0ef6d`. Backend ở `5f0ef6d`, frontend/RAG build từ `ff2e666`, migration 48. Lỗi trạng thái lô do manifest lưu dạng text được phát hiện trong smoke, sửa cast JSONB và thêm integration test trước triển khai lại backend.
+- Backup PostgreSQL trước rollout: `.cache/deployments/20260906-ingest-batch/database.dump`, 472502 bytes, 367 dòng TOC kiểm tra bằng pg_restore. Cả ba image trước rollout giữ tag `before-ingest-batch-20260906`.
+- Full backend trên PostgreSQL kiểm thử qua; test endpoint trạng thái lô sau bản sửa qua. TypeScript, 7 test frontend, Docker production build và 132 test RAG từ mã nguồn mới qua.
+- Smoke API xác thực: có một tài liệu đang phục vụ, nhận thêm hai tệp trong một batch; replay giữ cùng job. Tắt backend giữa embedding; generation cũ vẫn truy xuất được, job tiếp tục bằng attempt mới và restore tài liệu đã hoàn tất. Chỉ publish sau khi cả manifest hoàn tất; checkpoint giúp không parse/embed lại các tài liệu đã lưu thành công.
+- Trong ca crash, gateway nhận bốn lần gọi embedding ingest, backend nhận đủ ba observation đã được chuyển về với 30 token. Observation của lần gọi đang treo lúc SIGKILL không được chuyển về; không suy đoán usage cho lần này. Thêm một truy vấn hybrid có embedding/rerank: dashboard ghi nhận tổng 5 observation/45 token, đúng ba phase ingest embedding, search embedding và search rerank.
+- Trình duyệt hiển thị lô hoàn tất 3/3 và giữ nguyên sau reload; dashboard hiển thị các phase/token như API, chi phí chưa biết khi chưa cấu hình đơn giá. Kiểm tra upload/replay/crash được thực hiện qua API; chưa tự động hóa chọn tệp trong file picker trình duyệt.
+- Inspection, snapshot publication và xóa tài liệu fixture qua. Regression Chat FIFO/disconnect/replay/transcript, MCP demo discovery/rediscovery/invoke qua. Gateway thật truy xuất cả ba tài liệu hiện có, evidence đúng KB.
+- Đã dọn fixture, tab UI và PostgreSQL kiểm thử. Dữ liệu thực giữ 3 tài liệu/67 chunks; schema 48; backend/RAG healthy và frontend HTTP 200; không còn job/phiên active. Không gọi hoặc đối soát SAP thật.
+
+### Phần còn lại sau migration 48
+
+- Ba phần có thể triển khai nội bộ vừa thống nhất đã hoàn tất trong phạm vi trên. Checkpoint áp dụng trong các attempt của cùng một job/manifest; job mới vẫn parse lại và có thể reuse embedding từ live generation.
+- Batch upload công bố index nguyên tử; không có nghĩa upload byte lên object storage là một transaction. Byte chưa tải lên thành công cần người dùng gửi lại; UI giữ request ID để retry trong trang đang mở.
+- Accounting vẫn có thể thiếu khi process/kết nối mất trước khi observation được nhận và lưu. Không có usage token hoặc đơn giá thì chi phí để trống; chưa đối chiếu hóa đơn gateway hay tính theo billed units riêng của nhà cung cấp.
+- SAP business idempotency/reconciliation cần hợp đồng API và phương thức kiểm tra kết quả từ phía SAP. Baseline chất lượng nhiều KB cần bộ câu hỏi, đáp án và evidence được xác nhận nghiệp vụ. Hai mục này chưa được nghiệm thu chỉ bằng test kỹ thuật hiện có.

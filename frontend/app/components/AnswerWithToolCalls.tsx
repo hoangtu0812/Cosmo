@@ -16,6 +16,7 @@ import {Markdown} from '@astryxdesign/core/Markdown';
 import {Spinner} from '@astryxdesign/core/Spinner';
 import {Text} from '@astryxdesign/core/Text';
 import {StatusLabel} from './StatusLabel';
+import {ToolCallApproval} from './InlineToolApprovals';
 import {MessageToolCall} from '../lib/api';
 import {ChartSpec, ChartView, chartFromResult} from './ChartView';
 import {useTranslation} from '../lib/i18n';
@@ -29,8 +30,9 @@ import {useTranslation} from '../lib/i18n';
  * the part that explains the pause. Each call carries the point in the answer
  * it was made at, so the text is split there and the pill dropped in.
  */
-export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart}: {
+export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, messageID}: {
   calls: MessageToolCall[];
+  messageID?: string;
   children: string;
   isStreaming?: boolean;
   /** Given where there is somewhere to open a chart into - the chat's side
@@ -58,7 +60,7 @@ export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart}:
     if (text.trim()) {
       parts.push(<Markdown autolink="gfm" headingLevelStart={2} key={`text-${index}`}>{text}</Markdown>);
     }
-    parts.push(<ToolCallPill call={call} key={call.id} onOpenChart={onOpenChart} />);
+    parts.push(<VStack key={call.id} gap={2} width="100%"><ToolCallPill call={call} onOpenChart={onOpenChart} /><ToolCallApproval call={call} messageID={messageID} /></VStack>);
     cursor = at;
   });
 

@@ -1,6 +1,6 @@
 'use client';
 
-import {InlineToolApprovals} from '../../components/InlineToolApprovals';
+import {ToolApprovalProvider} from '../../components/InlineToolApprovals';
 
 import {Suspense, useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
@@ -836,6 +836,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
   // sheet: a different ground and a rounded inner edge, so what is being
   // configured and what is being tried are told apart at a glance.
   return (
+    <ToolApprovalProvider key={`${workspaceID}.${conversationID}`} workspaceID={workspaceID} kind="conversation" sourceID={conversationID}>
     <VStack className="rounded-l-2xl bg-[var(--color-background-body)]" gap={0} height="100%" width={768}>
       <HStack gap={2} hAlign="between" padding={3} vAlign="center" width="100%">
         <HStack gap={2} vAlign="center">
@@ -938,7 +939,7 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
                 <VStack gap={1}>
                   <Text color="secondary" type="supporting">{message.role === 'user' ? agent.owner_name || 'You' : agent.name}</Text>
                   {message.role === 'assistant'
-                    ? <AnswerWithToolCalls calls={message.tool_calls ?? []}>{message.content}</AnswerWithToolCalls>
+                    ? <AnswerWithToolCalls messageID={message.id} calls={message.tool_calls ?? []}>{message.content}</AnswerWithToolCalls>
                     : <Text type="body">{message.content}</Text>}
                   {message.role === 'assistant' ? (
                     <HStack gap={2} hAlign="end" width="100%">
@@ -956,7 +957,6 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
                 </VStack>
               </Card>
             ) : null}
-            {conversationID ? <InlineToolApprovals key={conversationID} workspaceID={workspaceID} kind="conversation" sourceID={conversationID} /> : null}
             {suggestions.length > 0 && !isSending ? (
               /* Taking one sends it. Filling the box instead made a suggestion
                  a draft to edit, which is a step nobody wanted - and the chips
@@ -1001,5 +1001,6 @@ function AgentChatPanel({agent, t, workspaceID}: {agent: Agent; t: ReturnType<ty
         </>
       )}
     </VStack>
+    </ToolApprovalProvider>
   );
 }

@@ -34,10 +34,11 @@ func (set toolSet) isEmpty() bool { return len(set.definitions) == 0 }
 // went and how long it took. It is streamed twice - once running, once
 // settled - and the settled set is stored on the message it produced.
 type ToolCall struct {
-	ID     string `json:"id"`
-	Tool   string `json:"tool"`
-	Action string `json:"action"`
-	Status string `json:"status"`
+	ApprovalID string `json:"approval_id,omitempty"`
+	ID         string `json:"id"`
+	Tool       string `json:"tool"`
+	Action     string `json:"action"`
+	Status     string `json:"status"`
 	// Arguments as the model wrote them, so the reader can see what was asked
 	// and not only what came back.
 	Arguments  string `json:"arguments,omitempty"`
@@ -188,7 +189,10 @@ func (s *Server) runToolRounds(
 				callCtx := ctx
 				if execution := currentChatExecution(ctx); execution != nil {
 					callCtx = tools.WithApprovalHandler(ctx, func(wait context.Context, tool tools.Tool, action tools.Action, args map[string]any) (tools.CallResult, error) {
+						wait = context.WithValue(wait, approvalAnchorKey{}, approvalAnchor{MessageID: execution.Identity.AssistantID, CallID: call.ID})
 						return s.awaitToolApproval(wait, "conversation", execution.Conversation, tool, action, args, func(approval toolApproval) {
+							shown.ApprovalID = approval.ID
+							writeSSE(w, "tool", shown)
 							writeSSE(w, "approval", approval)
 							writeSSE(w, "status", map[string]string{"stage": "approval", "message": "Chờ xác nhận thao tác."})
 							flusher.Flush()

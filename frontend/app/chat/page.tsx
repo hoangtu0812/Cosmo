@@ -35,7 +35,7 @@ import {TextArea} from '@astryxdesign/core/TextArea';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Agent, api, APIError, Attachment, ChatUsage, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
-import {InlineToolApprovals} from '../components/InlineToolApprovals';
+import {ToolApprovalProvider} from '../components/InlineToolApprovals';
 import {AnswerWithToolCalls} from '../components/AnswerWithToolCalls';
 import {CopyButton} from '../components/CopyButton';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
@@ -714,7 +714,7 @@ export default function ChatPage() {
   );
 
   return (
-    <>
+    <ToolApprovalProvider key={`${workspace?.id}.${conversationID}`} workspaceID={workspace?.id ?? ''} kind="conversation" sourceID={conversationID}>
       <Layout
         end={preview ? (
           <>
@@ -936,6 +936,7 @@ export default function ChatPage() {
                           {message.content
                             ? <VStack gap={3}>
                               <AnswerWithToolCalls
+                                messageID={message.id}
                                 onOpenChart={(drawn) => setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')})}
                                 calls={isActiveStream ? liveToolCalls : message.tool_calls ?? []}
                                 isStreaming={isActiveStream}
@@ -946,6 +947,7 @@ export default function ChatPage() {
                             </VStack>
                             : (streaming ? <VStack gap={3}>
                               <AnswerWithToolCalls
+                                messageID={message.id}
                                 calls={liveToolCalls}
                                 onOpenChart={(drawn) => setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')})}
                               >{''}</AnswerWithToolCalls>
@@ -956,7 +958,6 @@ export default function ChatPage() {
                       </ChatMessage>
                       );
                     })())}
-                    {workspace && conversationID ? <InlineToolApprovals key={conversationID} workspaceID={workspace.id} kind="conversation" sourceID={conversationID} /> : null}
                     {/* What to ask next, where the answer ended. Taking one
                         sends it: a suggestion you have to edit before it works
                         is a draft, not a suggestion. */}
@@ -1018,7 +1019,7 @@ export default function ChatPage() {
         title={t('conv.deleteTitle')}
       />
 
-    </>
+    </ToolApprovalProvider>
   );
 }
 

@@ -107,7 +107,7 @@ export type ToolParameter = {
   value?: string;
 };
 
-export type ToolApproval = {id: string; tool_id: string; status: string; expires_at: string; operation_id: string; request: {destination: string; action: string; method: string; path: string; arguments: Record<string, unknown>; definition: string}};
+export type ToolApproval = {id: string; message_id: string; call_id: string; tool_id: string; status: string; expires_at: string; operation_id: string; request: {destination: string; action: string; method: string; path: string; arguments: Record<string, unknown>; definition: string}};
 
 export type ToolActionPolicy = {effect: 'read' | 'approval' | 'blocked'; definition: string; destination: string; action: string; method: string; path: string; parameters: ToolParameter[]};
 export type ToolWriteOperation = {id: string; idempotency_key: string; action_id: string; status: string; result: ToolCallResult; created_at: string; reconciliation_note: string; request: Record<string, unknown>};
@@ -344,7 +344,7 @@ export type Citation = {index: number; kb_id: string; document_id: string; snaps
 // One call a turn made, as the transcript shows it: what was reached, how it
 // went, how long it took.
 export type ToolCallStatus = 'running' | 'complete' | 'error';
-export type MessageToolCall = {id: string; tool: string; action: string; status: ToolCallStatus; arguments?: string; duration_ms?: number; detail?: string; at: number};
+export type MessageToolCall = {id: string; approval_id?: string; tool: string; action: string; status: ToolCallStatus; arguments?: string; duration_ms?: number; detail?: string; at: number};
 /** A file handed over with a question: read once, answered about, kept with
     the message. Names and sizes only - the text went to the model. */
 /** What a turn cost, as the gateway counted it, and where it went. */

@@ -13,7 +13,12 @@ import (
 
 var errApprovalClosed = errors.New("Yêu cầu xác nhận đã bị từ chối, hết hạn hoặc phiên chạy đã dừng.")
 
+type approvalAnchorKey struct{}
+type approvalAnchor struct{ MessageID, CallID string }
+
 type toolApproval struct {
+	MessageID   string          `json:"message_id"`
+	CallID      string          `json:"call_id"`
 	ID          string          `json:"id"`
 	ToolID      string          `json:"tool_id"`
 	Status      string          `json:"status"`
@@ -60,7 +65,9 @@ func (s *Server) awaitToolApproval(ctx context.Context, kind, source string, too
 		expires = deadline
 	}
 	approval := toolApproval{ID: "tap_" + randomID(18), ToolID: tool.ID, Status: "pending", Request: review, ExpiresAt: expires}
-	_, err = s.db.Exec(ctx, `INSERT INTO tool_approvals(id,actor_id,workspace_id,tool_id,source_kind,source_id,request,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, approval.ID, caller.UserID, caller.WorkspaceID, tool.ID, kind, source, string(review), expires)
+	anchor, _ := ctx.Value(approvalAnchorKey{}).(approvalAnchor)
+	approval.MessageID, approval.CallID = anchor.MessageID, anchor.CallID
+	_, err = s.db.Exec(ctx, `INSERT INTO tool_approvals(id,actor_id,workspace_id,tool_id,source_kind,source_id,request,expires_at,message_id,call_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, approval.ID, caller.UserID, caller.WorkspaceID, tool.ID, kind, source, string(review), expires, approval.MessageID, approval.CallID)
 	if err != nil {
 		return tools.CallResult{}, err
 	}
@@ -133,7 +140,7 @@ func (s *Server) listToolApprovals(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Thiếu phạm vi xác nhận.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT a.id,a.tool_id,CASE WHEN o.status IN ('succeeded','reconciled_succeeded') THEN 'completed' WHEN o.status='reconciled_no_effect' THEN 'failed' WHEN o.status='uncertain' OR (o.status='executing' AND o.created_at<NOW()-INTERVAL '1 minute') THEN 'uncertain' WHEN o.status='executing' THEN 'approved' WHEN a.status IN ('pending','approved') AND (a.expires_at<=NOW() OR a.lease_until<=NOW()) THEN 'expired' ELSE a.status END,a.request,a.expires_at,COALESCE(o.id,a.operation_id) FROM tool_approvals a JOIN tools t ON t.id=a.tool_id LEFT JOIN tool_write_operations o ON o.actor_id=a.actor_id AND o.workspace_id=a.workspace_id AND o.idempotency_key=a.id WHERE a.actor_id=$1 AND a.workspace_id=$2 AND a.source_kind=$3 AND a.source_id=$4 AND t.owner_user_id=$1 ORDER BY a.created_at DESC LIMIT 50`, user.ID, workspace, kind, source)
+	rows, err := s.db.Query(r.Context(), `SELECT a.id,a.tool_id,CASE WHEN o.status IN ('succeeded','reconciled_succeeded') THEN 'completed' WHEN o.status='reconciled_no_effect' THEN 'failed' WHEN o.status='uncertain' OR (o.status='executing' AND o.created_at<NOW()-INTERVAL '1 minute') THEN 'uncertain' WHEN o.status='executing' THEN 'approved' WHEN a.status IN ('pending','approved') AND (a.expires_at<=NOW() OR a.lease_until<=NOW()) THEN 'expired' ELSE a.status END,a.request,a.expires_at,COALESCE(o.id,a.operation_id),a.message_id,a.call_id FROM tool_approvals a JOIN tools t ON t.id=a.tool_id LEFT JOIN tool_write_operations o ON o.actor_id=a.actor_id AND o.workspace_id=a.workspace_id AND o.idempotency_key=a.id WHERE a.actor_id=$1 AND a.workspace_id=$2 AND a.source_kind=$3 AND a.source_id=$4 AND t.owner_user_id=$1 ORDER BY a.created_at DESC LIMIT 50`, user.ID, workspace, kind, source)
 	if err != nil {
 		writeToolError(w, err)
 		return
@@ -142,7 +149,7 @@ func (s *Server) listToolApprovals(w http.ResponseWriter, r *http.Request) {
 	items := []toolApproval{}
 	for rows.Next() {
 		var item toolApproval
-		if err = rows.Scan(&item.ID, &item.ToolID, &item.Status, &item.Request, &item.ExpiresAt, &item.OperationID); err != nil {
+		if err = rows.Scan(&item.ID, &item.ToolID, &item.Status, &item.Request, &item.ExpiresAt, &item.OperationID, &item.MessageID, &item.CallID); err != nil {
 			writeToolError(w, err)
 			return
 		}

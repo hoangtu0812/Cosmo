@@ -744,3 +744,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Mô phỏng riêng việc mất checkpoint sau ledger succeeded bằng điều chỉnh bản ghi fixture: resume dùng response đã lưu và không dispatch thêm. Đây là fault injection trên dữ liệu test, không phải kiểm thử SAP thật.
 - Regression approve/reject chat và workflow, chat FIFO/SSE/replay, MCP discovery/rediscovery/invoke và truy xuất 3 tài liệu thực qua gateway đều qua. Fixture và PostgreSQL kiểm thử tạm đã dọn; server giữ 3 tài liệu/67 chunks, không có phiên chạy/job đang thực thi.
 - Còn mở: durable checkpoint/resume cho chat để giải phóng worker khi chờ duyệt; worker workflow tự tiếp tục nền; phê duyệt shared tool; business idempotency/SAP reconciliation và bộ câu hỏi nghiệp vụ nhiều KB được gán nhãn. Chưa nghiệm thu tương tác UI bằng trình duyệt.
+
+
+### 2026-09-06 — Sửa vị trí xác nhận trong Chat và khung thử agent
+
+- Khung xác nhận/đối soát nằm ngay dưới lần gọi tool trong tin nhắn tương ứng. Yêu cầu cũ cần đối soát thu gọn phần tham số; mở chi tiết tại chỗ. Không còn khung chung ở cuối toàn bộ hội thoại.
+- Migration 39 lưu message_id/call_id; tool event và transcript mới giữ approval_id. Backfill chỉ dùng thứ tự SSE đã lưu trong đúng lượt, không suy đoán theo tên tool/tham số hoặc call ID có thể lặp. Yêu cầu legacy thiếu sự kiện liên kết vẫn có ledger ở màn hình tool, không gắn bừa vào tin nhắn khác.
+- Full backend/PostgreSQL, hai test liên kết frontend, TypeScript và Docker production build qua. Trình duyệt server test đã xác minh yêu cầu cũ đứng trước câu hỏi giờ phía sau, mở chi tiết đúng vị trí; yêu cầu mới hiển thị trong lượt streaming và từ chối tiếp tục Chat. Không có browser console error trong ca thử.
+- Backup trước migration: `.cache/deployments/20260906-approval-anchors/database.dump`, 452030 bytes, 334 dòng TOC; backend/frontend healthy. Smoke approve/reject/replay và executor chết khi chờ duyệt qua, liên kết message/call/approval mới được kiểm tra qua API/SSE. Không gọi hay đối soát SAP thật.

@@ -56,6 +56,9 @@ type Config struct {
 	RetrievalCandidates   int
 	ChatWorkers           int
 	ChatTimeout           time.Duration
+	RuntimeQueueLimit     int
+	WorkspaceQueueLimit   int
+	RuntimeRetentionDays  int
 }
 
 func Load() (Config, error) {
@@ -128,6 +131,9 @@ func Load() (Config, error) {
 		RetrievalCandidates:    intEnv("KNOWLEDGE_RETRIEVAL_CANDIDATES", 24),
 		ChatWorkers:            min(intEnv("CHAT_WORKERS", 2), 16),
 		ChatTimeout:            chatTimeout,
+		RuntimeQueueLimit:      max(1, min(intEnv("RUNTIME_QUEUE_LIMIT", 1000), 100000)),
+		WorkspaceQueueLimit:    max(1, min(intEnv("WORKSPACE_QUEUE_LIMIT", 50), 10000)),
+		RuntimeRetentionDays:   max(1, min(intEnv("RUNTIME_RETENTION_DAYS", 30), 3650)),
 	}
 
 	if len(cfg.SessionSecret) < 32 {

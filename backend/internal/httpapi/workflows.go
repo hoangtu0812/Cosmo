@@ -226,6 +226,11 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 	}
 	execution, err := s.admitWorkflowExecution(context.WithValue(r.Context(), workflowQueueKey{}, input.RequestKey), item, user.ID, input.Input, models.ResolveModel(options), input.Resume)
 	if err != nil {
+		if errors.Is(err, errRuntimeCapacity) {
+			w.Header().Set("Retry-After", "5")
+			writeError(w, 429, errRuntimeCapacity.Error())
+			return
+		}
 		writeError(w, 409, errWorkflowResume.Error())
 		return
 	}

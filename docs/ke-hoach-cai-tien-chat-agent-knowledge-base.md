@@ -837,3 +837,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Resume dùng output các bước trước, input/model gốc và đúng tham số/definition/idempotency key đã duyệt. Kiểm tra lại quyền/runtime trước chạy; deadline không kéo dài qua lần chờ. Crash sau claim vẫn interrupted, không tự replay; xác nhận liên quan bị hết hạn.
 - API quyết định yêu cầu workflow có executor đang sống hoặc điểm chờ đã lưu. Giao diện cho phép theo dõi/dừng waiting_approval và hiển thị Đã dừng riêng biệt.
 - Integration qua: worker xử lý workflow khác trong lúc chờ; approve/reject/expiry, đổi cấu hình, thu hồi quyền, crash sau claim, hai lần duyệt không lặp lệnh trước. Các test workflow/inline approval và TypeScript qua. Chưa rollout migration 42 tại commit này.
+
+
+### 2026-09-06 — Giới hạn hàng đợi và retention payload vận hành
+
+- Chat/workflow dùng chung admission có khóa, mặc định tối đa 1000 phiên active toàn hệ thống và 50 mỗi workspace (RUNTIME_QUEUE_LIMIT/WORKSPACE_QUEUE_LIMIT). Đếm cả điểm chờ xác nhận. Đầy trả 429/Retry-After trước khi ghi câu hỏi hoặc nhận việc; đọc lại receipt được phép dù hàng đợi đầy.
+- Cleanup theo giờ, mặc định 30 ngày (RUNTIME_RETENTION_DAYS), mỗi batch tối đa 1000 sự kiện/100 payload. Dọn SSE Chat và workflow terminal, request payload Chat đã kết thúc, input/output workflow không còn được resume, manifest job KB terminal và sự kiện tài liệu cũ; giữ sự kiện tài liệu cuối cùng.
+- Giữ transcript, request identity/hash, ledger cần đối soát, model accounting, các tham chiếu snapshot và checkpoint interrupted/waiting. Không xóa remote data hoặc tự gửi lại thao tác. Migration 43 thêm index retention.
+- Integration xác nhận capacity chặn admission mới, replay vẫn hoạt động khi đầy/sau pruning, transcript/receipt còn nguyên và checkpoint waiting/interrupted không bị dọn. Các kiểm thử workflow/Chat admission qua. Giới hạn admission trên đây áp dụng Chat/workflow; ingestion vẫn giới hạn một job active mỗi KB và số worker đã cấu hình.

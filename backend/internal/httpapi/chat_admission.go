@@ -26,6 +26,9 @@ func (s *Server) acceptChatQuestion(ctx context.Context, question Message, runIn
 	} else if existing != nil {
 		return nil, runs.Run{}, false, existing
 	}
+	if err := s.checkRuntimeCapacity(ctx, tx, runInput.WorkspaceID); err != nil {
+		return nil, runs.Run{}, false, err
+	}
 	var first bool
 	if err := tx.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM messages WHERE conversation_id=$1)`, id).Scan(&first); err != nil {
 		return nil, runs.Run{}, false, err

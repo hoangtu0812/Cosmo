@@ -98,6 +98,11 @@ func (s *Server) admitWorkflowExecution(ctx context.Context, item workflows.Work
 		}
 	}
 
+	if queued {
+		if err = s.checkRuntimeCapacity(ctx, tx, item.WorkspaceID); err != nil {
+			return nil, err
+		}
+	}
 	if _, err = tx.Exec(ctx, `UPDATE workflow_executions SET status='interrupted' WHERE workflow_id=$1 AND actor_id=$2 AND workspace_id=$3 AND status='running' AND lease_until<=NOW()`, item.ID, userID, item.WorkspaceID); err != nil {
 		return nil, err
 	}

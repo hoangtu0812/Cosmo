@@ -56,6 +56,8 @@ func main() {
 	}
 	chatWorkers.Add(1)
 	go func() { defer chatWorkers.Done(); api.RunWorkflowWorker(workerCtx) }()
+	chatWorkers.Add(1)
+	go func() { defer chatWorkers.Done(); api.RunRuntimeCleanup(workerCtx) }()
 	for i := 0; i < cfg.ChatWorkers; i++ {
 		chatWorkers.Add(1)
 		go func() {

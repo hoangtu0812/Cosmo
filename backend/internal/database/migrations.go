@@ -88,6 +88,10 @@ var migrations = []Migration{
 	{Version: 40, Name: "chat_approval_checkpoints", Statements: chatApprovalCheckpointStatements},
 	{Version: 41, Name: "workflow_background_queue", Statements: workflowQueueStatements},
 	{Version: 42, Name: "workflow_approval_parking", Statements: workflowParkingStatements},
+	{Version: 43, Name: "runtime_retention_indexes", Statements: []string{
+		`CREATE INDEX chat_turns_finished_retention ON chat_turns(finished_at) WHERE status IN ('succeeded','interrupted')`,
+		`CREATE INDEX workflow_finished_retention ON workflow_executions(finished_at) WHERE status IN ('succeeded','failed','cancelled')`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

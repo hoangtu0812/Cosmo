@@ -99,6 +99,11 @@ func (s *Server) writeChatTurnError(w http.ResponseWriter, r *http.Request, conv
 		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]string{"code": "chat_turn_exists", "message": message}, "turn": existing})
 		return
 	}
+	if errors.Is(err, errRuntimeCapacity) {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, 429, errRuntimeCapacity.Error())
+		return
+	}
 	if errors.Is(err, errChatTurnBusy) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]string{"code": "chat_turn_busy", "message": "Hội thoại đang trả lời câu hỏi trước. Vui lòng chờ rồi gửi lại."}})
 		return

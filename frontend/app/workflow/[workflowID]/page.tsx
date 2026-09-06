@@ -1,5 +1,7 @@
 'use client';
 
+import {InlineToolApprovals} from '../../components/InlineToolApprovals';
+
 import '@xyflow/react/dist/style.css';
 
 import {Suspense, useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -407,6 +409,7 @@ function WorkflowEditor() {
       </VStack>
 
       <VStack className="border-l border-[var(--color-border)]" gap={4} height="100%" isScrollable padding={4} width={320}>
+        <InlineToolApprovals key={workflow.id} workspaceID={workspaceID} kind="workflow" sourceID={workflow.id} />
         {selected ? (
           <NodeSettings
             actions={typeof selectedToolID === 'string' ? actionsByTool[selectedToolID] ?? [] : []}

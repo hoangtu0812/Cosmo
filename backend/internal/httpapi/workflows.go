@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"cosmo/backend/internal/modelgateway"
+	"cosmo/backend/internal/tools"
 	"cosmo/backend/internal/workflows"
 
 	"github.com/go-chi/chi/v5"
@@ -219,7 +220,11 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	invoker := workflowInvoker{server: s, userID: user.ID, workspaceID: workspaceID}
-	runErr := s.workflows.Run(r.Context(), item.Graph, input.Input, models, options, invoker, func(step workflows.Step) {
+	toolCtx := tools.WithCaller(r.Context(), s.callerFor(r.Context(), user, workspaceID))
+	toolCtx = tools.WithApprovalHandler(toolCtx, func(wait context.Context, tool tools.Tool, action tools.Action, args map[string]any) (tools.CallResult, error) {
+		return s.awaitToolApproval(wait, "workflow", item.ID, tool, action, args, func(approval toolApproval) { writeSSE(w, "approval", approval); flusher.Flush() })
+	})
+	runErr := s.workflows.Run(toolCtx, item.Graph, input.Input, models, options, invoker, func(step workflows.Step) {
 		writeSSE(w, "step", step)
 		flusher.Flush()
 	})

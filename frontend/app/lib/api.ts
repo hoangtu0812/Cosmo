@@ -107,6 +107,8 @@ export type ToolParameter = {
   value?: string;
 };
 
+export type ToolApproval = {id: string; tool_id: string; status: string; expires_at: string; operation_id: string; request: {destination: string; action: string; method: string; path: string; arguments: Record<string, unknown>; definition: string}};
+
 export type ToolActionPolicy = {effect: 'read' | 'approval' | 'blocked'; definition: string; destination: string; action: string; method: string; path: string; parameters: ToolParameter[]};
 export type ToolWriteOperation = {id: string; idempotency_key: string; action_id: string; status: string; result: ToolCallResult; created_at: string; reconciliation_note: string; request: Record<string, unknown>};
 
@@ -653,6 +655,8 @@ export const api = {
     ),
   deleteToolAction: (toolID: string, actionID: string, workspaceID?: string) =>
     request<void>(`/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
+  toolApprovals: (workspace: string, kind: string, source: string) => request<{approvals: ToolApproval[]}>(`/api/tool-approvals?workspace=${encodeURIComponent(workspace)}&kind=${encodeURIComponent(kind)}&source=${encodeURIComponent(source)}`),
+  decideToolApproval: (id: string, workspace: string, decision: string, definition: string) => request<void>(`/api/tool-approvals/${encodeURIComponent(id)}/decision?workspace=${encodeURIComponent(workspace)}`, {method:'POST',body:JSON.stringify({decision,definition})}),
   toolActionPolicy: (toolID: string, actionID: string, workspaceID: string) =>
     request<ToolActionPolicy>(`/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}/policy?workspace=${encodeURIComponent(workspaceID)}`),
   setToolActionPolicy: (toolID: string, actionID: string, workspaceID: string, effect: string, definition: string) =>

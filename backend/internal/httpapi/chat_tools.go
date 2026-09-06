@@ -185,7 +185,17 @@ func (s *Server) runToolRounds(
 				// Never perform an external action without a persisted execution step.
 				callErr = fmt.Errorf("Không thể ghi nhận bước thực thi tool")
 			} else {
-				result, callErr = s.tools.InvokeInSet(ctx, set.tools, set.actions, call.Name, call.Arguments)
+				callCtx := ctx
+				if execution := currentChatExecution(ctx); execution != nil {
+					callCtx = tools.WithApprovalHandler(ctx, func(wait context.Context, tool tools.Tool, action tools.Action, args map[string]any) (tools.CallResult, error) {
+						return s.awaitToolApproval(wait, "conversation", execution.Conversation, tool, action, args, func(approval toolApproval) {
+							writeSSE(w, "approval", approval)
+							writeSSE(w, "status", map[string]string{"stage": "approval", "message": "Chờ xác nhận thao tác."})
+							flusher.Flush()
+						})
+					})
+				}
+				result, callErr = s.tools.InvokeInSet(callCtx, set.tools, set.actions, call.Name, call.Arguments)
 				if callErr == nil && (result.Status < 200 || result.Status >= 300) {
 					callErr = fmt.Errorf("Tool trả trạng thái lỗi %d", result.Status)
 				}

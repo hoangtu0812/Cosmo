@@ -35,6 +35,7 @@ import {TextArea} from '@astryxdesign/core/TextArea';
 import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Agent, api, APIError, Attachment, ChatUsage, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
+import {InlineToolApprovals} from '../components/InlineToolApprovals';
 import {AnswerWithToolCalls} from '../components/AnswerWithToolCalls';
 import {CopyButton} from '../components/CopyButton';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
@@ -955,6 +956,7 @@ export default function ChatPage() {
                       </ChatMessage>
                       );
                     })())}
+                    {workspace && conversationID ? <InlineToolApprovals key={conversationID} workspaceID={workspace.id} kind="conversation" sourceID={conversationID} /> : null}
                     {/* What to ask next, where the answer ended. Taking one
                         sends it: a suggestion you have to edit before it works
                         is a draft, not a suggestion. */}

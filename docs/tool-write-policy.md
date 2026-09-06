@@ -29,3 +29,14 @@ Backend/PostgreSQL đã kiểm tra quyền, hash cấu hình, lời gọi đồn
 - Đã SIGKILL backend sau khi endpoint giả lập nhận lệnh. Sau restart vẫn đúng một dispatch, ledger còn nguyên và đối soát được. Chỉ điều chỉnh thời điểm tạo của bản ghi fixture để kiểm tra cửa sổ đối soát một phút. Fixture không gọi SAP thật và đã được dọn sạch.
 - Regression chat FIFO, subscriber ngắt kết nối, SSE Last-Event-ID/replay, MCP discovery/rediscovery/invoke đã qua; MCP count_words được chủ sở hữu fixture phân loại read trước khi gọi. Truy xuất 3 tài liệu thực qua gateway hiện tại đã qua, passage thuộc đúng KB. Dữ liệu cuối: 3 tài liệu, 67 chunks; không còn job chat/ingestion/snapshot/write đang chạy.
 - Full backend với PostgreSQL đã qua cho phần policy; kiểm thử tools chạy lại sau bản sửa recovery cũng qua, gồm trường hợp hơn 50 operation mới không che mất operation chưa đối soát. TypeScript và Docker production build đã qua. Chưa nghiệm thu thao tác UI bằng trình duyệt hoặc business write SAP thật.
+
+
+## TOOL-01c — xác nhận ngay trong chat/workflow (2026-09-06)
+
+Màn hình chat và sidebar workflow nay tải yêu cầu xác nhận trực tiếp theo actor/workspace/conversation hoặc workflow. Người tạo tool xem đích, action, method/path và arguments đã áp dụng giá trị cố định, rồi xác nhận hoặc từ chối. Quyết định ghi một lần vào PostgreSQL; model không được cung cấp cờ để tự cấp quyền. Worker đang chờ mới được gọi `InvokeConfirmed` với key do backend sinh, sau đó tiếp tục lịch sử tool hoặc node tiếp theo bằng kết quả thật.
+
+Yêu cầu chờ tối đa 90 giây và luôn nằm trong deadline phiên chạy. Lease 5 giây giữ yêu cầu gắn với executor còn sống; context hủy, lease hết hoặc từ chối đều không dispatch. Trước dispatch vẫn kiểm tra membership, chủ sở hữu tool và hash định nghĩa qua ledger. Sau mất tiến trình, API đọc kết quả từ ledger ngay cả khi approval row chưa được cập nhật, nên uncertain vẫn dẫn tới màn hình đối soát.
+
+Phạm vi quyền hiện tại vẫn là người tạo tool tự xác nhận thao tác của mình. Chưa triển khai người phê duyệt riêng cho shared tool. Chat đóng tab vẫn có worker tiếp tục và có thể tải lại yêu cầu đang chờ; workflow đóng kết nối trước admission thì dừng phiên. Chờ phê duyệt vẫn chiếm một worker chat; chưa có checkpoint để giải phóng worker và tự khôi phục phần còn lại sau restart. Restart không tự tiếp tục hay phát lại lệnh đã duyệt. Đây là giới hạn còn mở của durable approval/resume, không phải xác nhận hoàn thành toàn bộ TOOL-01.
+
+Kiểm thử PostgreSQL: actor khác, sai definition, quyết định lặp, approve/reject, hết lease, hủy phiên, thay đổi tool, mất membership và khôi phục operation từ ledger; full backend tests và TypeScript đã qua. Rollout API được ghi riêng sau triển khai.

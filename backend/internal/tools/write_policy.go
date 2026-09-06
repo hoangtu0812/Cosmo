@@ -16,13 +16,22 @@ const EffectRead = "read"
 const EffectApproval = "approval"
 const EffectBlocked = "blocked"
 
-var ErrApprovalRequired = errors.New("Thao tác này cần xác nhận trước khi thực hiện. Mở tool để kiểm tra tham số và xác nhận; chat/workflow chưa được tự gọi thao tác ghi.")
+var ErrApprovalRequired = errors.New("Thao tác này cần xác nhận trước khi thực hiện. Kiểm tra đích và tham số trước khi xác nhận.")
 var ErrActionBlocked = errors.New("Action đã bị chặn bởi chính sách tool.")
 var ErrWriteUncertain = errors.New("Chưa xác định kết quả thao tác. Không gửi lại; hãy kiểm tra hệ thống đích và đối soát.")
 var ErrWriteKey = errors.New("Mã thao tác không hợp lệ hoặc đã được dùng với nội dung khác.")
 var ErrWritePolicy = errors.New("Chính sách tool không hợp lệ.")
 
 type confirmedWriteKey struct{}
+type approvalHandlerKey struct{}
+
+// ApprovalHandler is installed only by the authenticated execution boundary.
+// A model's arguments never grant permission to dispatch a write.
+type ApprovalHandler func(context.Context, Tool, Action, map[string]any) (CallResult, error)
+
+func WithApprovalHandler(ctx context.Context, handler ApprovalHandler) context.Context {
+	return context.WithValue(ctx, approvalHandlerKey{}, handler)
+}
 
 func definitionHash(tool Tool, action Action) string {
 	// Canonicalize JSONB and omit credentials, while binding fixed parameters,
@@ -100,6 +109,9 @@ func (repository *Repository) invokeAutomatic(ctx context.Context, tool Tool, ac
 		return CallResult{}, ErrActionBlocked
 	}
 	if effect != EffectRead {
+		if handler, ok := ctx.Value(approvalHandlerKey{}).(ApprovalHandler); ok {
+			return handler(ctx, tool, action, args)
+		}
 		return CallResult{}, ErrApprovalRequired
 	}
 	return repository.Invoke(ctx, tool, action, args)

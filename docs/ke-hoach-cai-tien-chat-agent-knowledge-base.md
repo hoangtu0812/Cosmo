@@ -715,3 +715,8 @@ TOOL-01 chưa đóng toàn bộ: còn approval/resume trong chat/workflow và t�
 - Đã SIGKILL backend sau khi endpoint giả lập nhận lệnh. Sau restart vẫn đúng một dispatch, ledger còn nguyên và đối soát được. Chỉ điều chỉnh thời điểm tạo của bản ghi fixture để kiểm tra cửa sổ đối soát một phút. Fixture không gọi SAP thật và đã được dọn sạch.
 - Regression chat FIFO, subscriber ngắt kết nối, SSE Last-Event-ID/replay, MCP discovery/rediscovery/invoke đã qua; MCP count_words được chủ sở hữu fixture phân loại read trước khi gọi. Truy xuất 3 tài liệu thực qua gateway hiện tại đã qua, passage thuộc đúng KB. Dữ liệu cuối: 3 tài liệu, 67 chunks; không còn job chat/ingestion/snapshot/write đang chạy.
 - Full backend với PostgreSQL đã qua cho phần policy; kiểm thử tools chạy lại sau bản sửa recovery cũng qua, gồm trường hợp hơn 50 operation mới không che mất operation chưa đối soát. TypeScript và Docker production build đã qua. Chưa nghiệm thu thao tác UI bằng trình duyệt hoặc business write SAP thật.
+
+
+### 2026-09-06 — TOOL-01c: xác nhận trong phiên chat/workflow
+
+Đã thêm migration 37, yêu cầu phê duyệt gắn actor/phạm vi/tham số với thời hạn và lease executor; UI xác nhận hoặc từ chối tại chat/workflow, rồi tiếp tục dùng kết quả qua write ledger. Full backend/PostgreSQL và TypeScript qua kiểm tra. [Phạm vi và giới hạn hiện tại](tool-write-policy.md): cần tiếp tục durable checkpoint/resume sau restart, phê duyệt shared tool, business idempotency và SAP reconciliation.

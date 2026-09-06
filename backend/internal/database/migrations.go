@@ -82,6 +82,7 @@ var migrations = []Migration{
 	{Version: 34, Name: "durable_knowledge_ingestion", Statements: knowledgeIngestionStatements},
 	{Version: 35, Name: "tool_write_policy", Statements: toolWritePolicyStatements},
 	{Version: 36, Name: "tool_write_review_payload", Statements: []string{`ALTER TABLE tool_write_operations ADD COLUMN request JSONB NOT NULL DEFAULT '{}'::jsonb`}},
+	{Version: 37, Name: "inline_tool_approvals", Statements: inlineToolApprovalStatements},
 }
 
 var knowledgeSnapshotStatements = []string{

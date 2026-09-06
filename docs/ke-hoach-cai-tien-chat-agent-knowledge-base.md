@@ -794,3 +794,12 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - API transcript chiếu tin nhắn tạm từ hàng đợi/checkpoint với đúng assistant ID và vị trí sau câu hỏi; không ghi placeholder thành câu trả lời hoàn tất. Tool trước đó và approval đang chờ vẫn gắn đúng tin nhắn.
 - Chat và khung thử agent tự đọc lại transcript khi còn tin nhắn pending. Dừng polling khi bắt đầu stream cục bộ/rời hội thoại, không gửi lại câu hỏi để lấy trạng thái. Tin nhắn pending không có thao tác copy/xóa như câu trả lời hoàn tất.
 - Integration kiểm tra transcript khi parked và sau hoàn tất, không có assistant message thật trước duyệt; TypeScript qua. Kiểm tra trình duyệt và rollout sẽ thực hiện cùng migration 40.
+
+
+### Nghiệm thu TOOL-01f/g trên server test (2026-09-06)
+
+- Backend/frontend `89992af` gồm checkpoint worker `b36df95`; migration 40. Backup PostgreSQL sau drain: `.cache/deployments/20260906-chat-park/database.dump`, 453929 bytes, 335 dòng TOC đã đọc bằng pg_restore. Image cũ giữ tag `before-chat-park-20260906`.
+- Smoke API có xác thực: SIGKILL backend khi Chat waiting_approval; restart giữ nguyên approval ID, tham số và transcript pending. Replay đúng client_message_id rồi duyệt chỉ một dispatch. Chat/workflow approve/reject và workflow executor cũ hết hạn sau crash vẫn qua; tổng lệnh nhận đúng hai lần duyệt trong smoke.
+- Trình duyệt: gửi câu hỏi tới tool giả lập, tải lại trang khi đang chờ, khung duyệt hiện đúng tin nhắn. Duyệt từ trang đã tải lại tự cập nhật câu trả lời và loại khung pending; fixture nhận đúng một lệnh, không có console error. Không gọi SAP thật.
+- Regression chat FIFO/disconnect/SSE replay/transcript và MCP discovery/rediscovery/invocation qua. Gateway thật truy xuất cả ba tài liệu, nguồn đúng KB. Dữ liệu cuối 3 tài liệu/67 chunks; backend/frontend healthy, không có công việc queued/executing/waiting_approval còn lại. Fixture và hai PostgreSQL kiểm thử đã dọn.
+- Chat đã giải phóng worker và phục hồi điểm chờ xác nhận qua restart. Chưa tự phục hồi lần thực thi bị ngắt sau khi đã claim checkpoint; trường hợp đó vẫn interrupted/đối soát. Các mục còn lại gồm workflow worker nền, shared-tool approval, SAP business idempotency/reconciliation, baseline nghiệp vụ nhiều KB, tổng hợp accounting và incremental/batch ingest.

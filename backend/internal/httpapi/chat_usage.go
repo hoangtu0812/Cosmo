@@ -14,6 +14,18 @@ func (s *Server) observeChatModel(runID string) func(modelgateway.CallObservatio
 	return func(call modelgateway.CallObservation) {
 		// Several tool decisions share a phase; auxiliary calls can finish concurrently.
 		mutex.Lock()
+		if _, known := attempts[call.Phase]; !known {
+			seed, stop := context.WithTimeout(context.Background(), 2*time.Second)
+			var previous int
+			err := s.db.QueryRow(seed, `SELECT COALESCE(MAX(attempt),0) FROM run_steps WHERE run_id=$1 AND node_id=$2`, runID, "model_call:"+call.Phase).Scan(&previous)
+			stop()
+			if err != nil {
+				mutex.Unlock()
+				s.logger.Warn("model accounting unavailable", "run_id", runID)
+				return
+			}
+			attempts[call.Phase] = previous
+		}
 		attempts[call.Phase]++
 		attempt := attempts[call.Phase]
 		mutex.Unlock()

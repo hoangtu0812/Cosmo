@@ -1115,17 +1115,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	metadataCancel()
 	r = r.WithContext(modelgateway.WithObserver(r.Context(), s.observeChatModel(chatRun.ID)))
 	toolCtx = tools.WithCaller(r.Context(), caller)
-	history = withResponsePresentation(history)
-
-	// What the agent remembers about this person joins the conversation before
-	// grounding does, so retrieved passages end up closest to the exchange
-	// they explain.
-	if agentRemembers {
-		if memory := s.agents.Memory(r.Context(), conversationAgentID, user.ID); memory != "" {
-			history = append([]modelgateway.Message{{Role: "system", Content: agents.MemoryHeader + memory}}, history...)
-		}
-	}
-
+	var citations []Citation
+	var toolCalls []ToolCall
+	contextParts := map[string]int{}
+	var evidenceAnswer string
+	var assistant strings.Builder
+	var decidedAnswer string
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "Streaming không được hỗ trợ.")
@@ -1137,147 +1132,173 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	assistantID := identity.AssistantID
 
-	// What the turn needs, decided before it is done. Searching the documents
-	// for a question that has nothing to do with them produced an answer with
-	// a citation to a procedure it never read, which is worse than no citation.
-	writeSSE(w, "status", map[string]string{"stage": "planning", "message": "Đang đọc câu hỏi…"})
-	flusher.Flush()
-	planCtx, cancelPlan := context.WithTimeout(r.Context(), 15*time.Second)
-	attachedNames := make([]string, 0, len(readable))
-	for _, file := range readable {
-		attachedNames = append(attachedNames, file.Name)
-	}
-	topics, topicsErr := s.knowledgeTopicsFor(planCtx, conversationWorkspaceID, agentKnowledge)
-	plan := fallbackTurnPlan(input.Content, "chưa đọc được danh sách Knowledge Base; thử tra cứu lại")
-	if topicsErr == nil {
-		plan = s.planTurn(planCtx, models, options, input.Content, history, topics, attachedNames)
-	}
-	cancelPlan()
-	writeSSE(w, "status", map[string]string{
-		"stage":   "planned",
-		"message": "Đã đọc câu hỏi",
-		"detail":  plan.Reason,
-	})
-	flusher.Flush()
-	if runErr == nil {
-		var planStep runs.Step
-		planStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "plan", Type: "plan", Name: "Turn plan", TimeoutMS: 15000})
-		if runErr == nil {
-			planStep, runErr = s.runs.TransitionStep(r.Context(), planStep.ID, runs.Running, nil, "", "", "")
+	if execution.Resuming {
+		cp := execution.Checkpoint
+		if cp.ReadableHash != chatRuntimeHash(readable) {
+			writeError(w, 409, "Tệp đính kèm đã thay đổi trong lúc chờ xác nhận.")
+			return
 		}
-		if runErr == nil {
-			_, runErr = s.runs.TransitionStep(r.Context(), planStep.ID, runs.Succeeded,
-				map[string]any{"needs_knowledge": plan.NeedsKnowledge, "query_rewritten": plan.QueryRewritten, "reason": plan.Reason}, "", "", "")
+		history = cp.Tools.History
+		citations = cp.Citations
+		contextParts = cp.ContextParts
+		assistant.WriteString(cp.Tools.Answer)
+		for _, citation := range citations {
+			var visible bool
+			accessErr := s.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=$3 AND (`+workspaceVisibleKnowledgeSQL+`))`, user.ID, conversationWorkspaceID, citation.KBID).Scan(&visible)
+			if accessErr != nil || !visible {
+				writeError(w, 403, "Quyền truy cập nguồn đã thay đổi trong lúc chờ xác nhận.")
+				return
+			}
 		}
-	}
+	} else {
+		history = withResponsePresentation(history)
 
-	var citations []Citation
-	// What the turn called, for the transcript to keep beside the answer.
-	var toolCalls []ToolCall
-	// What each part of the prompt came to, in characters. The gateway counts
-	// the tokens; this is what says which of them were the knowledge base and
-	// which were the file somebody attached.
-	contextParts := map[string]int{}
-	var passages []knowledgePassage
-	var evidenceAnswer string
-	var partialKnowledge bool
+		// What the agent remembers about this person joins the conversation before
+		// grounding does, so retrieved passages end up closest to the exchange
+		// they explain.
+		if agentRemembers {
+			if memory := s.agents.Memory(r.Context(), conversationAgentID, user.ID); memory != "" {
+				history = append([]modelgateway.Message{{Role: "system", Content: agents.MemoryHeader + memory}}, history...)
+			}
+		}
 
-	// Retrieval happens before model generation, but it must not look like the
-	// reply is stuck. Sources deliberately remain server-side until generation
-	// finishes: showing evidence before the answer makes the evidence look like
-	// the answer and creates a large, shifting block above the streamed text.
-	if plan.NeedsKnowledge {
-		writeSSE(w, "status", map[string]string{"stage": "retrieving", "message": "Đang tìm trong Knowledge Base…"})
+		// What the turn needs, decided before it is done. Searching the documents
+		// for a question that has nothing to do with them produced an answer with
+		// a citation to a procedure it never read, which is worse than no citation.
+		writeSSE(w, "status", map[string]string{"stage": "planning", "message": "Đang đọc câu hỏi…"})
 		flusher.Flush()
-		var retrievalStep runs.Step
+		planCtx, cancelPlan := context.WithTimeout(r.Context(), 15*time.Second)
+		attachedNames := make([]string, 0, len(readable))
+		for _, file := range readable {
+			attachedNames = append(attachedNames, file.Name)
+		}
+		topics, topicsErr := s.knowledgeTopicsFor(planCtx, conversationWorkspaceID, agentKnowledge)
+		plan := fallbackTurnPlan(input.Content, "chưa đọc được danh sách Knowledge Base; thử tra cứu lại")
+		if topicsErr == nil {
+			plan = s.planTurn(planCtx, models, options, input.Content, history, topics, attachedNames)
+		}
+		cancelPlan()
+		writeSSE(w, "status", map[string]string{
+			"stage":   "planned",
+			"message": "Đã đọc câu hỏi",
+			"detail":  plan.Reason,
+		})
+		flusher.Flush()
 		if runErr == nil {
-			retrievalStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "retrieval", Type: "retrieval", Name: "Knowledge retrieval", TimeoutMS: s.knowledgeRetrievalPolicy().timeout.Milliseconds()})
+			var planStep runs.Step
+			planStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "plan", Type: "plan", Name: "Turn plan", TimeoutMS: 15000})
 			if runErr == nil {
-				retrievalStep, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Running, nil, "", "", "")
+				planStep, runErr = s.runs.TransitionStep(r.Context(), planStep.ID, runs.Running, nil, "", "", "")
+			}
+			if runErr == nil {
+				_, runErr = s.runs.TransitionStep(r.Context(), planStep.ID, runs.Succeeded,
+					map[string]any{"needs_knowledge": plan.NeedsKnowledge, "query_rewritten": plan.QueryRewritten, "reason": plan.Reason}, "", "", "")
 			}
 		}
 
-		// The log records which answer this search fed, so a relevance floor
-		// can later be chosen from what the answers actually used.
-		retrieval, retrievalErr := s.retrieveKnowledgeSelection(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, plan.SearchQuery, agentKnowledge, knowledgePins, knowledgeMode != "workspace")
-		passages = retrieval.Passages
-		incomplete := retrievalErr != nil || retrieval.incomplete()
-		partialKnowledge = incomplete && len(passages) > 0
-		evidenceAnswer = missingKnowledgeAnswer(true, len(passages), incomplete)
-		if retrievalErr != nil {
-			s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
-		}
-		if incomplete && !partialKnowledge {
-			writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
+		// What the turn called, for the transcript to keep beside the answer.
+		// What each part of the prompt came to, in characters. The gateway counts
+		// the tokens; this is what says which of them were the knowledge base and
+		// which were the file somebody attached.
+		var passages []knowledgePassage
+		var partialKnowledge bool
+
+		// Retrieval happens before model generation, but it must not look like the
+		// reply is stuck. Sources deliberately remain server-side until generation
+		// finishes: showing evidence before the answer makes the evidence look like
+		// the answer and creates a large, shifting block above the streamed text.
+		if plan.NeedsKnowledge {
+			writeSSE(w, "status", map[string]string{"stage": "retrieving", "message": "Đang tìm trong Knowledge Base…"})
 			flusher.Flush()
-		}
-		if partialKnowledge {
-			writeSSE(w, "status", map[string]string{"stage": "retrieval_partial", "message": "Chỉ truy cập được một phần nguồn Knowledge Base.", "detail": describePassages(passages)})
-			flusher.Flush()
-		}
-		if !incomplete {
-			writeSSE(w, "status", map[string]string{
-				"stage":   "retrieved",
-				"message": "Đã tra Knowledge Base",
-				"detail":  describePassages(passages),
-			})
-			flusher.Flush()
-		}
-		if runErr == nil {
-			output := map[string]any{"passage_count": len(passages), "sources": retrieval.Sources, "partial": partialKnowledge}
+			var retrievalStep runs.Step
+			if runErr == nil {
+				retrievalStep, runErr = s.runs.CreateStep(r.Context(), runs.NewStep{RunID: chatRun.ID, NodeID: "retrieval", Type: "retrieval", Name: "Knowledge retrieval", TimeoutMS: s.knowledgeRetrievalPolicy().timeout.Milliseconds()})
+				if runErr == nil {
+					retrievalStep, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Running, nil, "", "", "")
+				}
+			}
+
+			// The log records which answer this search fed, so a relevance floor
+			// can later be chosen from what the answers actually used.
+			retrieval, retrievalErr := s.retrieveKnowledgeSelection(withRetrievalTurn(r.Context(), assistantID), conversationWorkspaceID, plan.SearchQuery, agentKnowledge, knowledgePins, knowledgeMode != "workspace")
+			passages = retrieval.Passages
+			incomplete := retrievalErr != nil || retrieval.incomplete()
+			partialKnowledge = incomplete && len(passages) > 0
+			evidenceAnswer = missingKnowledgeAnswer(true, len(passages), incomplete)
+			if retrievalErr != nil {
+				s.logger.Error("knowledge retrieval failed", "conversation_id", conversationID, "error", retrievalErr)
+			}
 			if incomplete && !partialKnowledge {
-				_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Failed, output, "", "retrieval_failed", "Knowledge retrieval incomplete")
-			} else {
-				_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Succeeded, output, "", "", "")
+				writeSSE(w, "status", map[string]string{"stage": "retrieval_failed", "message": "Không thể truy xuất Knowledge Base."})
+				flusher.Flush()
+			}
+			if partialKnowledge {
+				writeSSE(w, "status", map[string]string{"stage": "retrieval_partial", "message": "Chỉ truy cập được một phần nguồn Knowledge Base.", "detail": describePassages(passages)})
+				flusher.Flush()
+			}
+			if !incomplete {
+				writeSSE(w, "status", map[string]string{
+					"stage":   "retrieved",
+					"message": "Đã tra Knowledge Base",
+					"detail":  describePassages(passages),
+				})
+				flusher.Flush()
+			}
+			if runErr == nil {
+				output := map[string]any{"passage_count": len(passages), "sources": retrieval.Sources, "partial": partialKnowledge}
+				if incomplete && !partialKnowledge {
+					_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Failed, output, "", "retrieval_failed", "Knowledge retrieval incomplete")
+				} else {
+					_, runErr = s.runs.TransitionStep(r.Context(), retrievalStep.ID, runs.Succeeded, output, "", "", "")
+				}
 			}
 		}
-	}
-	if len(passages) > 0 {
-		// Grounding goes in front of the conversation so the passages frame
-		// the whole exchange rather than arriving as the latest turn.
-		grounding := buildGroundingPrompt(passages)
+		if len(passages) > 0 {
+			// Grounding goes in front of the conversation so the passages frame
+			// the whole exchange rather than arriving as the latest turn.
+			grounding := buildGroundingPrompt(passages)
+			if partialKnowledge {
+				grounding = "Some knowledge sources could not be searched. Answer only the parts supported by the available passages; identify any unverified parts. Do not claim a complete cross-source comparison or treat an unavailable source as having no matching information.\n" + grounding
+			}
+			contextParts["knowledge"] = len([]rune(grounding))
+			history = append([]modelgateway.Message{{Role: "system", Content: grounding}}, history...)
+			for index, passage := range passages {
+				citations = append(citations, Citation{
+					SnapshotID: passage.SnapshotID,
+					Index:      index + 1,
+					KBID:       passage.KBID,
+					DocumentID: passage.DocumentID,
+					Title:      passage.Title,
+					Source:     passage.Source,
+					Section:    passage.Section,
+					Page:       passage.Page,
+				})
+			}
+		}
+		// The attached files go in front of the exchange like grounding does, and
+		// are labelled as the reader's own so an answer does not present them as
+		// indexed workspace knowledge.
+		if block := attachmentPrompt(readable); block != "" {
+			contextParts["files"] = len([]rune(block))
+			history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
+		}
+
+		// Who is asking and where. The prompt gets it as a block below; the tools
+		// get it on the context, where the Profile built-in reads it - a model
+		// that could name whose profile it wanted would be reading other people's.
+		if block := conversationContext(caller, s.workspaceContext(r.Context(), conversationWorkspaceID)); block != "" {
+			contextParts["context"] = len([]rune(block))
+			history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
+		}
+
+		// The answer is accumulated across both phases: a tool round can narrate
+		// before it calls, and that narration is part of the same answer.
 		if partialKnowledge {
-			grounding = "Some knowledge sources could not be searched. Answer only the parts supported by the available passages; identify any unverified parts. Do not claim a complete cross-source comparison or treat an unavailable source as having no matching information.\n" + grounding
+			assistant.WriteString(partialKnowledgeNotice)
+			writeSSE(w, "delta", map[string]string{"content": partialKnowledgeNotice})
+			flusher.Flush()
 		}
-		contextParts["knowledge"] = len([]rune(grounding))
-		history = append([]modelgateway.Message{{Role: "system", Content: grounding}}, history...)
-		for index, passage := range passages {
-			citations = append(citations, Citation{
-				SnapshotID: passage.SnapshotID,
-				Index:      index + 1,
-				KBID:       passage.KBID,
-				DocumentID: passage.DocumentID,
-				Title:      passage.Title,
-				Source:     passage.Source,
-				Section:    passage.Section,
-				Page:       passage.Page,
-			})
-		}
-	}
-	// The attached files go in front of the exchange like grounding does, and
-	// are labelled as the reader's own so an answer does not present them as
-	// indexed workspace knowledge.
-	if block := attachmentPrompt(readable); block != "" {
-		contextParts["files"] = len([]rune(block))
-		history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
-	}
-
-	// Who is asking and where. The prompt gets it as a block below; the tools
-	// get it on the context, where the Profile built-in reads it - a model
-	// that could name whose profile it wanted would be reading other people's.
-	if block := conversationContext(caller, s.workspaceContext(r.Context(), conversationWorkspaceID)); block != "" {
-		contextParts["context"] = len([]rune(block))
-		history = append([]modelgateway.Message{{Role: "system", Content: block}}, history...)
-	}
-
-	// The answer is accumulated across both phases: a tool round can narrate
-	// before it calls, and that narration is part of the same answer.
-	var assistant strings.Builder
-	var decidedAnswer string
-	if partialKnowledge {
-		assistant.WriteString(partialKnowledgeNotice)
-		writeSSE(w, "delta", map[string]string{"content": partialKnowledgeNotice})
-		flusher.Flush()
+		execution.Checkpoint = &chatApprovalCheckpoint{Citations: citations, ContextParts: contextParts, ReadableHash: chatRuntimeHash(readable)}
 	}
 	// What this turn may call. An agent brings what it was wired to; a plain
 	// chat brings what the workspace installed and switched on - nothing at
@@ -1293,6 +1314,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			contextParts["tools"] = len([]rune(string(described)))
 		}
 		history, toolCalls, decidedAnswer, err = s.runToolRounds(toolCtx, w, flusher, set, history, options, models, chatRun.ID, &assistant)
+		if errors.Is(err, errChatSuspended) {
+			return
+		}
 		if err != nil {
 			writeSSE(w, "error", map[string]string{"message": err.Error()})
 			flusher.Flush()

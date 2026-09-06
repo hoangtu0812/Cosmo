@@ -777,3 +777,13 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Sau rollout: regression chat FIFO/subscriber disconnect/SSE replay/transcript, MCP discovery/rediscovery/invocation qua; gateway thật truy xuất đúng KB cho cả ba tài liệu. Smoke approve/reject, replay và crash trong lúc chờ duyệt vẫn qua sau thay đổi luồng xác nhận.
 - Các fixture user/workspace/tool và hai PostgreSQL kiểm thử đã dọn. Browser đã kiểm tra vị trí đối soát lịch sử, mở chi tiết và từ chối yêu cầu mới; không thay policy hay đối soát SAP thật.
 - Công việc lớn còn mở: durable chat checkpoint và giải phóng worker khi chờ duyệt; workflow worker tự tiếp tục nền; shared-tool approval; SAP business idempotency/reconciliation; baseline nhiều KB cần dữ liệu nghiệp vụ được duyệt; tổng hợp accounting và tối ưu incremental/batch ingest.
+
+
+### 2026-09-06 — TOOL-01f: lưu điểm chờ xác nhận Chat và trả worker
+
+- Migration 40 lưu checkpoint gồm history đã chuẩn bị, citations, kết quả tool trước đó, vị trí trong batch/vòng tool, nội dung đã phát, bộ đếm và deadline ban đầu. Trạng thái waiting_approval, checkpoint và SSE xác nhận commit nguyên tử trước khi executor trả worker. Nội dung không vượt 3 MiB ở admission; không lưu credential cấu hình tool/model trong checkpoint.
+- Worker xử lý hội thoại khác trong lúc chờ; câu hỏi sau cùng hội thoại vẫn giữ FIFO. Quyết định chỉ lưu consent, worker nhận lease mới rồi tiếp tục với cùng approval/idempotency key. Restart khi đang parked giữ nguyên yêu cầu đến thời hạn; hết hạn/từ chối đưa lỗi tool vào câu trả lời, không dispatch. Deadline không được kéo dài qua các lần chờ.
+- Resume kiểm tra quyền hội thoại/workspace, fingerprint runtime, nguồn KB và tệp đính kèm trước dùng lại history. Tool dùng tham số và definition đã duyệt; admission kiểm tra lại chính sách/owner/ledger. Các callback model sau resume tiếp tục số attempt, không mất accounting.
+- Chỉ điểm parked được tiếp tục tự động. Sau khi worker nhận lại lease, crash vẫn chuyển interrupted và không replay vì có thể đã dispatch. Checkpoint của lượt terminal được dọn, ledger/receipt giữ nguyên để đối soát.
+- Full backend trên PostgreSQL mới qua. Integration một worker chứng minh không bị chiếm lúc chờ, FIFO, dừng/khởi động lại, hai lần duyệt liên tiếp không lặp lệnh trước, từ chối/hết hạn, đổi cấu hình, thu hồi quyền, hủy và crash sau claim đều qua.
+- Chưa triển khai lên server test tại commit này. Phần tiếp theo bổ sung hiển thị điểm chờ khi tải lại trang rồi nghiệm thu rollout; đây chưa phải phục hồi mọi giai đoạn LLM/read/write bị ngắt.

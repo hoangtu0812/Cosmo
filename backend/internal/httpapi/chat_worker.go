@@ -21,6 +21,9 @@ type chatExecution struct {
 	Question     Message
 	Run          runs.Run
 	First        bool
+	Resuming     bool
+	Checkpoint   *chatApprovalCheckpoint
+	Deadline     time.Time
 	Owner        string
 }
 
@@ -76,11 +79,13 @@ func (s *Server) claimChatTurn(ctx context.Context, owner string, lease time.Dur
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	var execution chatExecution
 	execution.Owner = owner
-	err = tx.QueryRow(ctx, `SELECT t.conversation_id,t.client_message_id,t.request_hash,t.user_message_id,t.assistant_message_id,t.run_id,t.request_payload,t.runtime_hash,t.readable_ids,t.is_first_turn
+	err = tx.QueryRow(ctx, `SELECT t.conversation_id,t.client_message_id,t.request_hash,t.user_message_id,t.assistant_message_id,t.run_id,t.request_payload,t.runtime_hash,t.readable_ids,t.is_first_turn,t.status='waiting_approval'
 	FROM chat_turns t JOIN runs r ON r.id=t.run_id
-	WHERE t.status='queued' AND r.status='queued' AND NOT EXISTS(
-	 SELECT 1 FROM chat_turns earlier WHERE earlier.conversation_id=t.conversation_id AND earlier.sequence<t.sequence AND earlier.status IN ('queued','executing'))
-	ORDER BY t.sequence FOR UPDATE OF t SKIP LOCKED LIMIT 1`).Scan(&execution.Conversation, &execution.Identity.ClientMessageID, &execution.Identity.RequestHash, &execution.Question.ID, &execution.Identity.AssistantID, &execution.Run.ID, &execution.Identity.Payload, &execution.Identity.RuntimeHash, &execution.Identity.ReadableIDs, &execution.First)
+	WHERE ((t.status='queued' AND r.status='queued') OR (t.status='waiting_approval' AND r.status='waiting_approval' AND EXISTS(
+ SELECT 1 FROM chat_approval_checkpoints c LEFT JOIN tool_approvals a ON a.id=c.approval_id WHERE c.run_id=t.run_id AND (a.id IS NULL OR a.status<>'pending' OR a.expires_at<=NOW())
+ ))) AND NOT EXISTS(
+	 SELECT 1 FROM chat_turns earlier WHERE earlier.conversation_id=t.conversation_id AND earlier.sequence<t.sequence AND earlier.status IN ('queued','executing','waiting_approval'))
+	ORDER BY t.sequence FOR UPDATE OF t SKIP LOCKED LIMIT 1`).Scan(&execution.Conversation, &execution.Identity.ClientMessageID, &execution.Identity.RequestHash, &execution.Question.ID, &execution.Identity.AssistantID, &execution.Run.ID, &execution.Identity.Payload, &execution.Identity.RuntimeHash, &execution.Identity.ReadableIDs, &execution.First, &execution.Resuming)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -112,7 +117,8 @@ func (s *Server) recoverChatTurns(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, `WITH stale AS (
 	 SELECT t.conversation_id,t.client_message_id,t.run_id FROM chat_turns t LEFT JOIN runs r ON r.id=t.run_id
 	 WHERE (t.status='executing' AND t.lease_expires_at<NOW()) OR
-	 (t.status='queued' AND (r.id IS NULL OR r.status IN ('cancelled','failed','timed_out','succeeded')))
+ (t.status='waiting_approval' AND NOT EXISTS(SELECT 1 FROM chat_approval_checkpoints c WHERE c.run_id=t.run_id)) OR
+	 (t.status IN ('queued','waiting_approval') AND (r.id IS NULL OR r.status IN ('cancelled','failed','timed_out','succeeded')))
 	 FOR UPDATE OF t SKIP LOCKED
 	), closed AS (
 	 UPDATE chat_turns t SET status='interrupted',finished_at=NOW(),lease_owner='',lease_expires_at=NULL FROM stale
@@ -122,11 +128,22 @@ func (s *Server) recoverChatTurns(ctx context.Context) error {
 	 WHERE id IN (SELECT run_id FROM closed) AND status IN ('queued','running','waiting_approval') RETURNING id
 	) UPDATE run_steps SET status='failed',finished_at=NOW(),error_code='chat_execution_interrupted',error_message='Execution interrupted'
 	WHERE run_id IN (SELECT run_id FROM closed) AND status IN ('queued','running','waiting_approval')`)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.cleanupChatCheckpoints(ctx, "")
 }
 
 func (s *Server) executeChatTurn(parent context.Context, execution *chatExecution, options ChatWorkerOptions) {
-	ctx, cancel := context.WithTimeout(parent, options.Timeout)
+	if execution.Resuming {
+		if err := s.loadChatCheckpoint(parent, execution); err != nil {
+			s.finishChatExecution(execution)
+			return
+		}
+	} else {
+		execution.Deadline = time.Now().Add(options.Timeout)
+	}
+	ctx, cancel := context.WithDeadline(parent, execution.Deadline)
 	defer cancel()
 	ctx = context.WithValue(ctx, chatExecutionKey{}, execution)
 	done := make(chan struct{})
@@ -143,7 +160,7 @@ func (s *Server) executeChatTurn(parent context.Context, execution *chatExecutio
 				return
 			case <-ticker.C:
 				heartbeatCtx, stop := context.WithTimeout(ctx, min(options.Lease/3, 2*time.Second))
-				tag, err := s.db.Exec(heartbeatCtx, `UPDATE chat_turns t SET lease_expires_at=NOW()+$4::interval FROM runs r WHERE t.conversation_id=$1 AND t.client_message_id=$2 AND t.lease_owner=$3 AND t.status IN ('executing','succeeded') AND t.lease_expires_at>NOW() AND r.id=t.run_id AND r.status IN ('queued','running','succeeded')`, execution.Conversation, execution.Identity.ClientMessageID, execution.Owner, options.Lease.String())
+				tag, err := s.db.Exec(heartbeatCtx, `UPDATE chat_turns t SET lease_expires_at=NOW()+$4::interval FROM runs r WHERE t.conversation_id=$1 AND t.client_message_id=$2 AND t.lease_owner=$3 AND t.status IN ('executing','succeeded') AND t.lease_expires_at>NOW() AND r.id=t.run_id AND r.status IN ('queued','running','succeeded','waiting_approval')`, execution.Conversation, execution.Identity.ClientMessageID, execution.Owner, options.Lease.String())
 				stop()
 				if err != nil || tag.RowsAffected() != 1 {
 					cancel()
@@ -193,6 +210,7 @@ func (s *Server) finishChatExecution(execution *chatExecution) {
 	WHERE id IN (SELECT run_id FROM closed) AND status IN ('queued','running','waiting_approval') RETURNING id
 	) UPDATE run_steps SET status='failed',finished_at=NOW(),error_code='chat_execution_interrupted',error_message='Execution interrupted'
 	WHERE run_id IN (SELECT run_id FROM closed) AND status IN ('queued','running','waiting_approval')`, execution.Conversation, execution.Identity.ClientMessageID, execution.Owner)
+	_ = s.cleanupChatCheckpoints(ctx, execution.Run.ID)
 	if err != nil {
 		s.logger.Error("finish chat worker", "run_id", execution.Run.ID, "error", err)
 	}

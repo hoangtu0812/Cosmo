@@ -67,7 +67,7 @@ func lookupChatTurn(ctx context.Context, db interface {
 func (s *Server) writeChatTurnError(w http.ResponseWriter, r *http.Request, conversation string, err error) {
 	var existing *chatTurn
 	if errors.As(err, &existing) {
-		if existing.Status == "queued" || existing.Status == "executing" {
+		if existing.Status == "queued" || existing.Status == "executing" || existing.Status == "waiting_approval" {
 			s.followChatTurn(w, r, conversation, existing.ClientMessageID, existing.RequestHash)
 			return
 		}

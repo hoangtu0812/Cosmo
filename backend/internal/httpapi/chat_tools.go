@@ -102,59 +102,77 @@ func (s *Server) runToolRounds(
 	runID string,
 	answer *strings.Builder,
 ) ([]modelgateway.Message, []ToolCall, string, error) {
-	reported := []ToolCall{}
-	blocked := map[string]error{}
-	attempts := map[string]int{}
-	for round := 0; round < maxToolRounds; round++ {
-		definitions := make([]modelgateway.ToolDefinition, 0, len(set.definitions))
-		for _, definition := range set.definitions {
-			if blocked[definition.Name] == nil {
-				definitions = append(definitions, definition)
+	checkpoint := &chatApprovalCheckpoint{}
+	if execution := currentChatExecution(ctx); execution != nil && execution.Checkpoint != nil {
+		checkpoint = execution.Checkpoint
+	}
+	state := &checkpoint.Tools
+	reported := state.Reported
+	blocked := state.Blocked
+	if blocked == nil {
+		blocked = map[string]string{}
+	}
+	attempts := state.Attempts
+	if attempts == nil {
+		attempts = map[string]int{}
+	}
+	for round := state.Round; round < maxToolRounds; round++ {
+		state.Round = round
+		if state.Calls == nil {
+			definitions := make([]modelgateway.ToolDefinition, 0, len(set.definitions))
+			for _, definition := range set.definitions {
+				if blocked[definition.Name] == "" {
+					definitions = append(definitions, definition)
+				}
 			}
-		}
-		narration, calls, err := models.Decide(modelgateway.WithPhase(ctx, "tool_decision"), history, definitions, options)
-		if err != nil {
-			if errors.Is(err, modelgateway.ErrContextBudget) || errors.Is(err, modelgateway.ErrToolHistory) {
-				return history, reported, "", err
+			narration, calls, err := models.Decide(modelgateway.WithPhase(ctx, "tool_decision"), history, definitions, options)
+			if err != nil {
+				if errors.Is(err, modelgateway.ErrContextBudget) || errors.Is(err, modelgateway.ErrToolHistory) {
+					return history, reported, "", err
+				}
+				// A failed round is not a failed answer: the model can still reply
+				// from what it already has, so this is reported and stepped over.
+				s.logger.Error("tool round failed", "source", set.source, "error", err)
+				writeSSE(w, "status", map[string]string{"stage": "tool_failed", "message": "Không gọi được tool."})
+				flusher.Flush()
+				return history, reported, "", nil
 			}
-			// A failed round is not a failed answer: the model can still reply
-			// from what it already has, so this is reported and stepped over.
-			s.logger.Error("tool round failed", "source", set.source, "error", err)
-			writeSSE(w, "status", map[string]string{"stage": "tool_failed", "message": "Không gọi được tool."})
-			flusher.Flush()
-			return history, reported, "", nil
-		}
-		if len(calls) == 0 {
-			return history, reported, strings.TrimSpace(narration), nil
-		}
-
-		// What the model said on its way to calling is part of the answer, not
-		// scaffolding: "let me look that up" is what makes the pause legible.
-		if trimmed := strings.TrimSpace(narration); trimmed != "" {
-			if answer.Len() > 0 {
-				trimmed = "\n\n" + trimmed
+			if len(calls) == 0 {
+				return history, reported, strings.TrimSpace(narration), nil
 			}
-			answer.WriteString(trimmed)
-			writeSSE(w, "delta", map[string]string{"content": trimmed})
-			flusher.Flush()
-		}
 
-		// The assistant turn that asked has to be echoed before its results, or
-		// the gateway has nothing to attach them to.
-		requested := make([]map[string]any, 0, len(calls))
-		for _, call := range calls {
-			requested = append(requested, map[string]any{
-				"id":   call.ID,
-				"type": "function",
-				"function": map[string]any{
-					"name":      call.Name,
-					"arguments": call.Arguments,
-				},
-			})
-		}
-		history = append(history, modelgateway.Message{Role: "assistant", ToolCalls: requested})
+			// What the model said on its way to calling is part of the answer, not
+			// scaffolding: "let me look that up" is what makes the pause legible.
+			if trimmed := strings.TrimSpace(narration); trimmed != "" {
+				if answer.Len() > 0 {
+					trimmed = "\n\n" + trimmed
+				}
+				answer.WriteString(trimmed)
+				writeSSE(w, "delta", map[string]string{"content": trimmed})
+				flusher.Flush()
+			}
 
-		for _, call := range calls {
+			// The assistant turn that asked has to be echoed before its results, or
+			// the gateway has nothing to attach them to.
+			requested := make([]map[string]any, 0, len(calls))
+			for _, call := range calls {
+				requested = append(requested, map[string]any{
+					"id":   call.ID,
+					"type": "function",
+					"function": map[string]any{
+						"name":      call.Name,
+						"arguments": call.Arguments,
+					},
+				})
+			}
+			history = append(history, modelgateway.Message{Role: "assistant", ToolCalls: requested})
+
+			state.Calls = calls
+			state.Index = 0
+		}
+		for index := state.Index; index < len(state.Calls); index++ {
+			state.Index = index
+			call := state.Calls[index]
 			toolName, actionName := tools.SplitCallName(call.Name)
 			if err := s.checkChatExecution(ctx); err != nil {
 				return history, reported, "", nil
@@ -167,6 +185,7 @@ func (s *Server) runToolRounds(
 				Arguments: call.Arguments,
 				At:        len([]rune(answer.String())),
 			}
+			shown.ApprovalID = state.ApprovalID
 			writeSSE(w, "tool", shown)
 			// The one-line status stays for readers of the plain stream; the
 			// event above is what the transcript draws from.
@@ -174,17 +193,28 @@ func (s *Server) runToolRounds(
 			flusher.Flush()
 			startedAt := time.Now()
 
-			attempts[call.Name]++
-			step, stepErr := s.runs.CreateStep(ctx, runs.NewStep{
-				RunID:     runID,
-				NodeID:    "tool:" + call.Name,
-				Type:      "tool",
-				Name:      call.Name,
-				Attempt:   attempts[call.Name],
-				TimeoutMS: 20000,
-			})
-			if stepErr == nil {
-				step, stepErr = s.runs.TransitionStep(ctx, step.ID, runs.Running, nil, "", "", "")
+			var step runs.Step
+			var stepErr error
+			if state.ApprovalID != "" {
+				shown.ApprovalID = state.ApprovalID
+				step, stepErr = s.resumeChatStep(ctx, state)
+				if stepErr != nil {
+					return history, reported, "", stepErr
+				}
+			} else {
+				attempts[call.Name]++
+				step, stepErr = s.runs.CreateStep(ctx, runs.NewStep{
+					RunID:     runID,
+					NodeID:    "tool:" + call.Name,
+					Type:      "tool",
+					Name:      call.Name,
+					Attempt:   attempts[call.Name],
+					TimeoutMS: 20000,
+				})
+				if stepErr == nil {
+					step, stepErr = s.runs.TransitionStep(ctx, step.ID, runs.Running, nil, "", "", "")
+				}
+
 			}
 
 			if err := s.checkChatExecution(ctx); err != nil {
@@ -192,16 +222,30 @@ func (s *Server) runToolRounds(
 			}
 			var result tools.CallResult
 			var callErr error
-			if blocked[call.Name] != nil {
+			if blocked[call.Name] != "" {
 				// Enforce the stop even if the model requests a removed definition.
-				callErr = blocked[call.Name]
+				callErr = errors.New(blocked[call.Name])
 			} else if stepErr != nil {
 				// Never perform an external action without a persisted execution step.
 				callErr = fmt.Errorf("Không thể ghi nhận bước thực thi tool")
+			} else if state.ApprovalID != "" {
+				result, callErr = s.resumeChatApproval(ctx, state)
+				state.ApprovalID = ""
 			} else {
 				callCtx := ctx
 				if execution := currentChatExecution(ctx); execution != nil {
 					callCtx = tools.WithApprovalHandler(ctx, func(wait context.Context, tool tools.Tool, action tools.Action, args map[string]any) (tools.CallResult, error) {
+						wait = context.WithValue(wait, chatParkKey{}, chatParkHandler(func(approval toolApproval) error {
+							state.History = history
+							state.Answer = answer.String()
+							state.Reported = reported
+							state.Blocked = blocked
+							state.Attempts = attempts
+							state.StepID = step.ID
+							state.ToolID = tool.ID
+							state.ActionID = action.ID
+							return s.parkChatApproval(wait, checkpoint, approval, shown)
+						}))
 						wait = context.WithValue(wait, approvalAnchorKey{}, approvalAnchor{MessageID: execution.Identity.AssistantID, CallID: call.ID})
 						return s.awaitToolApproval(wait, "conversation", execution.Conversation, tool, action, args, func(approval toolApproval) {
 							shown.ApprovalID = approval.ID
@@ -217,9 +261,12 @@ func (s *Server) runToolRounds(
 					callErr = fmt.Errorf("Tool trả trạng thái lỗi %d", result.Status)
 				}
 			}
+			if errors.Is(callErr, errChatSuspended) || errors.Is(callErr, errChatCheckpoint) {
+				return history, reported, "", callErr
+			}
 			if callErr != nil && (shown.ApprovalID != "" || errors.Is(callErr, tools.ErrWriteUncertain) || errors.Is(callErr, tools.ErrActionBlocked) || errors.Is(callErr, tools.ErrApprovalRequired)) {
-				blocked[call.Name] = fmt.Errorf("Không gọi lại thao tác này trong lượt hiện tại, kể cả đổi tham số: %w", callErr)
-				callErr = blocked[call.Name]
+				blocked[call.Name] = "Không gọi lại thao tác này trong lượt hiện tại, kể cả đổi tham số: " + callErr.Error()
+				callErr = errors.New(blocked[call.Name])
 			}
 			content := result.Body
 			if callErr != nil {
@@ -262,6 +309,8 @@ func (s *Server) runToolRounds(
 				Content:    content,
 			})
 		}
+		state.Calls = nil
+		state.Index = 0
 	}
 	return history, reported, "", nil
 }

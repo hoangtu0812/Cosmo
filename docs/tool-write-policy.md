@@ -74,3 +74,13 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - API giữ toàn bộ yêu cầu pending/approved/uncertain trong phạm vi được phép cùng 50 bản ghi mới nhất. Kết quả ledger quyết định trạng thái, nên lịch sử mới không che mất yêu cầu cũ cần đối soát.
 - Full backend trên PostgreSQL mới qua. Integration model cố gọi cùng action hai lần trong một batch và lặp lại ở vòng sau với tham số khác: đúng một approval, từ chối không dispatch, duyệt rồi HTTP 503 chỉ một dispatch; tool đọc chạy cả hai vòng. Ca 60 receipt mới không che operation cũ và preflight không phát sinh approval cũng qua.
 - Đây chưa phải durable chat checkpoint hay giải phóng worker đang chờ duyệt; các phần đó vẫn còn mở.
+
+
+### 2026-09-06 — TOOL-01f: lưu điểm chờ xác nhận Chat và trả worker
+
+- Migration 40 lưu checkpoint gồm history đã chuẩn bị, citations, kết quả tool trước đó, vị trí trong batch/vòng tool, nội dung đã phát, bộ đếm và deadline ban đầu. Trạng thái waiting_approval, checkpoint và SSE xác nhận commit nguyên tử trước khi executor trả worker. Nội dung không vượt 3 MiB ở admission; không lưu credential cấu hình tool/model trong checkpoint.
+- Worker xử lý hội thoại khác trong lúc chờ; câu hỏi sau cùng hội thoại vẫn giữ FIFO. Quyết định chỉ lưu consent, worker nhận lease mới rồi tiếp tục với cùng approval/idempotency key. Restart khi đang parked giữ nguyên yêu cầu đến thời hạn; hết hạn/từ chối đưa lỗi tool vào câu trả lời, không dispatch. Deadline không được kéo dài qua các lần chờ.
+- Resume kiểm tra quyền hội thoại/workspace, fingerprint runtime, nguồn KB và tệp đính kèm trước dùng lại history. Tool dùng tham số và definition đã duyệt; admission kiểm tra lại chính sách/owner/ledger. Các callback model sau resume tiếp tục số attempt, không mất accounting.
+- Chỉ điểm parked được tiếp tục tự động. Sau khi worker nhận lại lease, crash vẫn chuyển interrupted và không replay vì có thể đã dispatch. Checkpoint của lượt terminal được dọn, ledger/receipt giữ nguyên để đối soát.
+- Full backend trên PostgreSQL mới qua. Integration một worker chứng minh không bị chiếm lúc chờ, FIFO, dừng/khởi động lại, hai lần duyệt liên tiếp không lặp lệnh trước, từ chối/hết hạn, đổi cấu hình, thu hồi quyền, hủy và crash sau claim đều qua.
+- Chưa triển khai lên server test tại commit này. Phần tiếp theo bổ sung hiển thị điểm chờ khi tải lại trang rồi nghiệm thu rollout; đây chưa phải phục hồi mọi giai đoạn LLM/read/write bị ngắt.

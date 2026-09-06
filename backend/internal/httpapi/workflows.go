@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -246,6 +247,17 @@ func (s *Server) executeWorkflowJob(parent context.Context, execution *workflowE
 		deadline = *execution.deadline
 	}
 	ctx, cancel := context.WithDeadline(parent, deadline)
+	ctx = modelgateway.WithObserver(ctx, func(call modelgateway.CallObservation) {
+		finish, stop := context.WithTimeout(context.Background(), 2*time.Second)
+		defer stop()
+		raw, err := json.Marshal(call)
+		if err == nil {
+			_, err = s.db.Exec(finish, `INSERT INTO workflow_model_calls(execution_id,observation) VALUES($1,$2)`, execution.ID, raw)
+		}
+		if err != nil {
+			s.logger.Warn("workflow model accounting unavailable", "execution_id", execution.ID)
+		}
+	})
 	ctx = context.WithValue(ctx, workflowExecutionKey{}, execution)
 	heartbeatDone := make(chan struct{})
 	go func() {

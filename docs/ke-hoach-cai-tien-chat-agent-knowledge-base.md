@@ -853,3 +853,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Actor chỉ duyệt yêu cầu của chính mình. Admission kiểm tra lại definition, policy, membership và installation; khóa grant đến khi ledger được ghi. Thu hồi trước admission chặn dispatch. Chủ tool không được duyệt thay actor khác và người sử dụng không được đổi policy/credential.
 - Giao diện chủ tool có lựa chọn chính sách mới; người dùng shared tool xem được receipt/đối soát của chính mình, không thấy operation của actor khác. Test action thủ công vẫn dành cho chủ tool; Chat/Agent/workflow dùng consent inline.
 - Integration qua approve, thu hồi policy, uninstall, thu hồi membership, đổi definition; không gửi lệnh trước duyệt và đúng một dispatch khi được phép. Các test confirmed-write/inline/workflow parking và TypeScript qua. Chưa rollout migration 44 tại commit này.
+
+
+### 2026-09-06 — Tổng hợp usage và thời gian Chat/workflow
+
+- Migration 45 lưu model observation của workflow; phase gắn node để phân biệt các lần gọi. API /api/usage tổng hợp Chat/Agent từ run_steps và workflow từ observation, kể cả call phụ; tách token đã biết, số call thiếu usage, lỗi, tổng thời gian call và thời gian toàn phiên trung bình (bao gồm chờ).
+- Màn hình Số liệu sử dụng có chọn workspace/thời gian, phạm vi Của tôi/Toàn workspace, bảng model-phase và số liệu theo ngày UTC. Chỉ owner/admin workspace xem được tổng hợp của mọi thành viên; payload không có prompt/câu trả lời.
+- Chi phí ước tính chỉ dùng MODEL_PRICES_JSON do vận hành cấu hình: object workspace_id → model alias → {input,output}, đơn vị USD/triệu token. Thiếu đơn giá hoặc usage giữ tổng cost null và cung cấp known_cost/unpriced_calls khi tính được một phần. Không gọi bảng giá ngoài hoặc suy đoán giá model nội bộ.
+- Integration qua phạm vi actor/workspace, chặn member xem toàn workspace, cộng call phụ, phân biệt null/0 và cost thiếu một phần. TypeScript qua. Embedding/rerank ở RAG chưa có usage token từ gateway đưa về nên chưa được tính là token/chi phí đã biết; không coi số liệu này là hóa đơn đầy đủ.

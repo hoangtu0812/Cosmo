@@ -234,6 +234,7 @@ func (s *Server) Router() http.Handler {
 		protected.Post("/api/workspaces/{workspaceID}/invitations", s.createInvitation)
 		protected.Delete("/api/workspaces/{workspaceID}/invitations/{invitationID}", s.revokeInvitation)
 		protected.Post("/api/invitations/accept", s.acceptInvitation)
+		protected.Get("/api/usage", s.usageSummary)
 		protected.Get("/api/runs", s.listRuns)
 		protected.Get("/api/runs/{runID}", s.getRun)
 		protected.Get("/api/runs/{runID}/steps", s.listRunSteps)

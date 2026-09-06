@@ -59,6 +59,7 @@ type Config struct {
 	RuntimeQueueLimit     int
 	WorkspaceQueueLimit   int
 	RuntimeRetentionDays  int
+	ModelPricesJSON       string
 }
 
 func Load() (Config, error) {
@@ -95,6 +96,7 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
+		ModelPricesJSON:     os.Getenv("MODEL_PRICES_JSON"),
 		Address:             env("APP_ADDRESS", ":8080"),
 		DatabaseURL:         env("DATABASE_URL", "postgres://cosmo:cosmo@localhost:5432/cosmo?sslmode=disable"),
 		FrontendURL:         strings.TrimRight(env("FRONTEND_URL", "http://localhost:3000"), "/"),

@@ -2,6 +2,7 @@
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8080';
 
+export type UsageSummary = {executions:number; model_calls:number; unknown_usage_calls:number; known_total_tokens:number|null; cost:number|null; avg_elapsed_ms:number|null; groups:Array<{model:string;phase:string;calls:number;unknown_usage_calls:number;failed_calls:number;total_tokens:number|null;call_duration_ms:number|null}>;daily:Array<{day:string;executions:number;failed_or_stopped:number;avg_elapsed_ms:number|null}>};
 export type User = {id: string; email: string; name: string; role: 'admin' | 'user'; last_workspace_id?: string; has_avatar: boolean};
 export type Workspace = {
   id: string;
@@ -799,6 +800,7 @@ export const api = {
   revokeInvitation: (workspaceID: string, invitationID: string) =>
     request<void>(`/api/workspaces/${encodeURIComponent(workspaceID)}/invitations/${encodeURIComponent(invitationID)}`, {method: 'DELETE'}),
   acceptInvitation: (token: string) => request<{workspace: Workspace}>('/api/invitations/accept', {method: 'POST', body: JSON.stringify({token})}),
+  usage: (workspaceID:string,days:number,audience:string) => request<UsageSummary>(`/api/usage?workspace=${encodeURIComponent(workspaceID)}&days=${days}&audience=${encodeURIComponent(audience)}`),
   runs: (workspaceID: string, limit = 50) => request<{runs: Run[]}>(`/api/runs?workspace=${encodeURIComponent(workspaceID)}&limit=${limit}`),
   run: (runID: string) => request<{run: Run}>(`/api/runs/${encodeURIComponent(runID)}`),
   runSteps: (runID: string) => request<{steps: RunStep[]}>(`/api/runs/${encodeURIComponent(runID)}/steps`),

@@ -96,6 +96,10 @@ var migrations = []Migration{
 		`ALTER TABLE tool_action_policies DROP CONSTRAINT tool_action_policies_effect_check`,
 		`ALTER TABLE tool_action_policies ADD CONSTRAINT tool_action_policies_effect_check CHECK(effect IN ('read','approval','approval_shared','blocked'))`,
 	}},
+	{Version: 45, Name: "workflow_model_accounting", Statements: []string{
+		`CREATE TABLE workflow_model_calls(id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,execution_id TEXT NOT NULL REFERENCES workflow_executions(id) ON DELETE CASCADE,observation JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		`CREATE INDEX workflow_model_call_execution ON workflow_model_calls(execution_id,created_at)`,
+	}},
 }
 
 var knowledgeSnapshotStatements = []string{

@@ -124,7 +124,7 @@ func (repository *Repository) RunCheckpointed(ctx context.Context, graph Graph, 
 		}
 
 		startedAt := time.Now()
-		output, taken, err := repository.runNode(ctx, node, input, ordered, outputs, models, options, tools)
+		output, taken, err := repository.runNode(modelgateway.WithPhase(ctx, "workflow:"+node.ID), node, input, ordered, outputs, models, options, tools)
 		elapsed := time.Since(startedAt).Milliseconds()
 		if err != nil {
 			report(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusError,

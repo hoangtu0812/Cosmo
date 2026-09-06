@@ -159,7 +159,7 @@ func (s *Server) listKnowledgeIngestionJobs(w http.ResponseWriter, r *http.Reque
 	err := s.db.QueryRow(r.Context(), `SELECT COALESCE(jsonb_agg(j ORDER BY j.created_at DESC),'[]') FROM (
  SELECT id,status,error_code,attempts,created_at,finished_at,jsonb_array_length(upload_document_ids) AS files,
  (SELECT count(*) FROM knowledge_ingestion_checkpoints c WHERE c.job_id=i.id) AS completed_documents,
- jsonb_array_length(COALESCE(manifest->'documents','[]')) AS total_documents
+ jsonb_array_length(COALESCE(manifest::jsonb->'documents','[]')) AS total_documents
  FROM knowledge_ingestion_jobs i WHERE kb_id=$1 ORDER BY created_at DESC LIMIT 20) j`, kb).Scan(&raw)
 	if err != nil {
 		writeError(w, 500, "Không đọc được trạng thái ingest.")

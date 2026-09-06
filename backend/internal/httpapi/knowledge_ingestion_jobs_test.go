@@ -311,6 +311,7 @@ func TestBatchAdmissionReplayAndValidation(t *testing.T) {
 	s.knowledge = knowledge.New(rag.URL, time.Second)
 	router := chi.NewRouter()
 	router.Post("/knowledge/{kbID}/document-batches", s.uploadKnowledgeBatch)
+	router.Get("/knowledge/{kbID}/ingestion-jobs", s.listKnowledgeIngestionJobs)
 	send := func(id string, names []string, content string) *httptest.ResponseRecorder {
 		var body bytes.Buffer
 		form := multipart.NewWriter(&body)
@@ -340,6 +341,12 @@ func TestBatchAdmissionReplayAndValidation(t *testing.T) {
 	w := send("batch", []string{"one.txt", "two.txt"}, "test")
 	if w.Code != 202 {
 		t.Fatal(w.Code, w.Body.String())
+	}
+	receipt := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "/knowledge/"+kb+"/ingestion-jobs", nil).WithContext(context.WithValue(ctx, userContextKey, owner))
+	router.ServeHTTP(receipt, request)
+	if receipt.Code != 200 || !strings.Contains(receipt.Body.String(), `"total_documents":4`) {
+		t.Fatal("job progress", receipt.Code, receipt.Body.String())
 	}
 	before := calls
 	if w = send("batch", []string{"one.txt", "two.txt"}, "test"); w.Code != 202 || calls != before {

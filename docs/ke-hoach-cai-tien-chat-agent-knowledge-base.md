@@ -819,3 +819,13 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Phiên chạy đã lưu hiển thị trạng thái queued/running, cho phép theo dõi tiến độ sau tải lại trang và dừng phiên. Theo dõi dùng GET sự kiện, không lưu lại graph hoặc gửi yêu cầu thực thi mới.
 - Khi mất mạng trước nhận execution ID, client gửi lại cùng request_id; sau nhận ID chuyển sang GET cùng cursor. Tối đa ba lần kết nối lại; lỗi nghiệp vụ/quyền được hiển thị ngay, không tự chạy lại workflow.
 - Hai kiểm thử frontend xác minh giữ mã yêu cầu khi mất phản hồi admission, chuyển GET theo execution/cursor, theo dõi sau reload không POST và lỗi terminal không retry. TypeScript qua; nghiệm thu trình duyệt/rollout ở bước kế tiếp.
+
+
+### Nghiệm thu workflow chạy nền trên server test (2026-09-06)
+
+- Backend `c3ce2bf`, frontend `e579201`, migration 41; Docker production build và health check qua. Backup sau drain tại `.cache/deployments/20260906-workflow-queue/database.dump`: 458160 bytes, 343 dòng TOC đã kiểm tra bằng pg_restore. Image trước rollout giữ tag `before-workflow-queue-20260906`.
+- Smoke API xác thực: đóng subscriber khi chờ duyệt rồi duyệt vẫn hoàn tất trong worker; đọc lại đủ step/done; gửi lại request_id không tạo phiên/lệnh mới. Xếp workflow thứ hai sau phiên đang chờ duyệt, SIGKILL backend rồi restart: phiên queued tiếp tục; xác nhận của phiên running cũ không còn hiệu lực. Dừng phiên chờ duyệt hết hạn consent và không dispatch; resume thủ công phiên bị ngắt vẫn giữ execution ID và mã yêu cầu ban đầu. Endpoint giả lập nhận đúng hai lệnh đã duyệt.
+- Trình duyệt: chạy workflow, tải lại trang khi pending, theo dõi lại thấy bước Start và Submit đang chờ; duyệt hoàn tất với kết quả endpoint. Phiên thứ hai tải lại rồi dừng: nút theo dõi/dừng và xác nhận pending biến mất sau cập nhật. Fixture nhận đúng một lệnh. Hiện thao tác dừng dùng trạng thái terminal failed, giao diện hiển thị “Thất bại”; chưa phân biệt nhãn hủy với lỗi thực thi.
+- Regression Chat parked qua SIGKILL, approve/reject, FIFO/disconnect/SSE replay/transcript; MCP discovery/rediscovery/invoke đều qua. Workflow hai bước qua SIGKILL giữ input cũ, không lặp bước đầu; ledger succeeded khôi phục checkpoint thiếu mà không dispatch. Gateway thật truy xuất cả ba tài liệu, nguồn đúng KB.
+- Dữ liệu cuối 3 tài liệu/67 chunks; không còn chat/ingestion/snapshot/write/workflow active. Fixture và PostgreSQL kiểm thử tạm đã dọn. Chưa gọi hoặc đối soát SAP thật.
+- Phần còn mở: giải phóng worker workflow khi chờ xác nhận và phục hồi điểm chờ qua restart; giới hạn hàng đợi/retention sự kiện; shared-tool approval; SAP business idempotency/reconciliation; baseline nghiệp vụ nhiều KB cần bộ câu hỏi được duyệt; tổng hợp accounting và incremental/batch ingest. Chưa coi toàn bộ kế hoạch đã hoàn tất.

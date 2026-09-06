@@ -1,14 +1,14 @@
 # Kế hoạch cải tiến Chat, Agent và Knowledge Base
 
 Ngày lập: 2026-09-05  
-Trạng thái: Đang triển khai tuần tự; tiến độ chi tiết tại mục 13
+Trạng thái: Đã triển khai 5 nhóm cải tiến khả thi lên server test, migration 45; phạm vi còn lại và bằng chứng nghiệm thu tại cuối mục 13.
 Phạm vi: Các vấn đề đã xác định trong đợt rà soát kiến trúc chat, agent và tìm kiếm nhiều Knowledge Base của Cosmo.
 
 ## 1. Mục tiêu và kết luận hiện trạng
 
 Cosmo đã có nền phù hợp để tiếp tục phát triển: Go modular monolith, chat và agent dùng chung pipeline, Model Gateway, tool registry, agent/tool versioning, Run/Step/Event và RAG service riêng.
 
-Tuy nhiên, việc có các thành phần này chưa đồng nghĩa luồng sử dụng đã bảo đảm độ tin cậy. Chat vẫn chạy trong HTTP request; Run chủ yếu ghi nhận hoạt động. Tìm kiếm nhiều KB trong chat gọi từng KB rồi so sánh trực tiếp điểm trả về, chưa dùng đầy đủ cơ chế gộp và xếp hạng chung của RAG service.
+Tại thời điểm rà soát ban đầu, Chat vẫn chạy trong HTTP request; Run chủ yếu ghi nhận hoạt động. Tìm kiếm nhiều KB trong chat gọi từng KB rồi so sánh trực tiếp điểm trả về, chưa dùng đầy đủ cơ chế gộp và xếp hạng chung của RAG service. Đây là mô tả vấn đề đầu vào; trạng thái sau từng thay đổi và kiểm thử được ghi tại mục 13.
 
 Kế hoạch này nhằm đạt bốn kết quả:
 
@@ -869,3 +869,28 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Chỉ embed các text thiếu, gộp text trùng trong tài liệu rồi gửi batch 16. Metadata/version/citation luôn lấy từ parsing mới; lexical vector được tính lại. Upsert vào generation đích cách ly, chỉ publish khi mọi tài liệu thành công. Nguồn thiếu/lỗi quay lại embed mới; KNOWLEDGE_REUSE_EMBEDDINGS=false ép tính lại.
 - 128 kiểm thử RAG qua: reuse đoạn không đổi, tính lại đoạn đổi, metadata mới, cache lỗi/force rebuild và cách ly document/KB/profile. Vẫn parsing toàn tài liệu và dựng generation đầy đủ; chưa checkpoint từng tài liệu hoặc batch-upload nguyên tử nhiều tệp. Tối ưu này giảm embedding cho phần không đổi, không tuyên bố đã loại bỏ mọi chi phí ingest.
 - Full backend trên PostgreSQL mới, TypeScript và 7 kiểm thử frontend qua trước chỉnh nguồn từ manifest; phần nối nguồn được kiểm tra tiếp qua smoke rollout. Các biến vận hành mới đã ghi trong .env.example, không tự đặt đơn giá model.
+
+### Nghiệm thu 5 nhóm cải tiến khả thi trên server test (2026-09-06)
+
+| Phần đã triển khai | Commit | Phạm vi đã nghiệm thu |
+|---|---|---|
+| Workflow chờ duyệt trả worker | `962c9bd` | Giữ điểm chờ qua restart; tiếp tục đúng consent; dừng có trạng thái riêng |
+| Giới hạn hàng đợi và retention | `1c6a476` | Admission Chat/workflow; dọn payload terminal; giữ receipt và checkpoint cần phục hồi |
+| Xác nhận tool dùng chung | `16def0f` | Chủ tool bật theo action; actor tự duyệt; kiểm tra lại quyền trước dispatch |
+| Tổng hợp usage/thời gian/chi phí cấu hình | `03148c8` | Chat/Agent/workflow theo workspace, actor và model-phase; usage thiếu không thành 0 |
+| Ingest tái sử dụng embedding | `b43a58c` | Tái sử dụng text không đổi trong cùng document/KB/profile; generation cách ly |
+
+- Backend/frontend/RAG đã build và triển khai tại `b43a58c`, schema 45. Backup PostgreSQL sau drain tại `.cache/deployments/20260906-runtime-next/database.dump`: 465908 bytes, 357 dòng TOC đọc được bằng pg_restore. Backend/frontend giữ image trước rollout với tag `before-runtime-next-20260906`; image RAG dự phòng được dựng lại từ mã nguồn `03148c8` vì blob image cũ không còn trong Docker cache.
+- Full backend trên PostgreSQL mới, TypeScript, 7 kiểm thử frontend và 128 kiểm thử RAG qua. Các ca integration bao gồm tranh lease, worker rảnh khi chờ, consent hết hạn/thu hồi, quyền shared tool, admission đầy, retention và accounting thiếu usage/đơn giá. Thay đổi cuối lấy generation nguồn từ manifest được kiểm chứng bằng ingest qua API trên bản triển khai.
+- Smoke workflow: ngắt subscriber vẫn chạy nền; pending qua SIGKILL giữ nguyên approval; duyệt chỉ một dispatch; workflow khác chạy được trong lúc chờ; dừng chặn consent. Shared tool của chủ khác được actor duyệt đúng policy; receipt không lộ operation của người khác.
+- Trình duyệt: tải lại workflow khi pending, theo dõi và duyệt tiếp tục thành công; endpoint giả lập nhận đúng một lệnh. Màn hình usage hiển thị một model call thiếu usage với token/chi phí chưa biết. Chọn chính sách “Người sử dụng xác nhận” trên action fixture rồi tải lại vẫn giữ giá trị đã lưu.
+- Ingest ba tài liệu nối tiếp chỉ tạo ba lần gọi embedding, giữ đủ kết quả truy xuất của các tài liệu trước. Fault injection riêng: tắt backend giữa embedding của generation mới; generation cũ tiếp tục tra cứu được, attempt mới phục hồi, chỉ phát một sự kiện hoàn tất và publish đầy đủ. Inspection, snapshot publication và xóa tài liệu fixture đều qua.
+- Regression Chat pending qua SIGKILL, approve/reject, FIFO, mất subscriber, request/event replay và transcript qua. MCP demo discovery/rediscovery giữ action ID và gọi tool đọc qua. Gateway thật truy xuất cả ba tài liệu hiện có qua API xác thực, evidence thuộc đúng KB được yêu cầu; đây chưa phải đánh giá chất lượng nhiều KB bằng câu hỏi nghiệp vụ.
+- Dữ liệu cuối giữ 3 tài liệu/67 chunks; schema 45; backend/frontend HTTP 200; không còn Chat/workflow/ingestion/snapshot/write active. Fixture, tab UI và hai PostgreSQL kiểm thử tạm đã dọn. Không gọi, đổi chính sách hoặc đối soát SAP thật.
+
+### Phạm vi còn lại sau rollout migration 45
+
+- **Phụ thuộc hệ thống SAP:** xác định hợp đồng business idempotency, cách tra trạng thái kết quả và quy trình reconciliation. Ledger phía Cosmo không tự chứng minh exactly-once ở SAP.
+- **Phụ thuộc dữ liệu nghiệp vụ:** bộ câu hỏi nhiều KB được gán nhãn và duyệt, evidence/đáp án mong đợi, tiêu chí chất lượng; cần baseline trên bộ này trước kết luận chất lượng tìm kiếm đã đạt yêu cầu.
+- **Có thể tiếp tục phát triển nội bộ:** accounting embedding/rerank khi nối được usage từ RAG; checkpoint ingest từng tài liệu và batch-upload nguyên tử nhiều tệp. Hiện vẫn parsing toàn bộ tài liệu và dựng generation đầy đủ. Các hạng mục này chưa được coi là hoàn tất bởi tối ưu reuse embedding.
+- **Cấu hình vận hành:** đơn giá model nội bộ cần được cung cấp trong MODEL_PRICES_JSON để tính chi phí; giới hạn queue/retention hiện dùng giá trị mặc định cấu hình được. Metadata chống replay và ledger vẫn được giữ, không tuyên bố đã có retention cho mọi bản ghi.

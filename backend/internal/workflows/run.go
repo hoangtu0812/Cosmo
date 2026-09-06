@@ -54,9 +54,26 @@ func (repository *Repository) Run(
 	tools Invoker,
 	report func(Step),
 ) error {
+	return repository.RunCheckpointed(ctx, graph, input, models, options, tools, nil, nil, report)
+}
+
+// Completed checkpoints are trusted server state. Save must durably admit a
+// running step before side effects, and commit its result before continuing.
+func (repository *Repository) RunCheckpointed(ctx context.Context, graph Graph, input string, models *modelgateway.Client, options modelgateway.Options, tools Invoker, completed map[string]Step, save func(Step) error, report func(Step)) error {
 	ctx, cancel := context.WithTimeout(ctx, RunTimeout)
 	defer cancel()
-
+	persist := func(step Step) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if save != nil {
+			if err := save(step); err != nil {
+				return err
+			}
+		}
+		report(step)
+		return nil
+	}
 	ordered := Order(graph)
 	// What each node produced, so a later node can quote it.
 	outputs := map[string]string{}
@@ -64,24 +81,45 @@ func (repository *Repository) Run(
 	// into is skipped rather than run.
 	closed := map[string]bool{}
 
+	closeBranches := func(node Node, taken string) {
+		if node.Kind == KindCondition {
+			for _, edge := range graph.Edges {
+				if edge.Source == node.ID && branchOf(edge) != taken {
+					closed[edge.ID] = true
+				}
+			}
+		}
+	}
 	for _, node := range ordered {
+		if previous, ok := completed[node.ID]; ok {
+			if previous.Status == StatusComplete {
+				outputs[node.ID] = previous.Output
+				closeBranches(node, previous.Branch)
+			}
+			report(previous)
+			continue
+		}
 		// Asked fresh each time, because the answer changes as conditions
 		// decide - a node two branches meet at is reachable until both are
 		// closed, and the last condition to run is what settles it.
 		if !ReachableFromStart(graph, closed)[node.ID] {
-			report(Step{NodeID: node.ID, Kind: node.Kind, Name: nameOf(node), Status: StatusSkipped,
-				Error: "Nhánh này không được chọn."})
+			if err := persist(Step{NodeID: node.ID, Kind: node.Kind, Name: nameOf(node), Status: StatusSkipped, Error: "Nhánh này không được chọn."}); err != nil {
+				return err
+			}
 			continue
 		}
 		label := nameOf(node)
-		report(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusRunning})
+		if err := persist(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusRunning}); err != nil {
+			return err
+		}
 
 		if !Runnable(node.Kind) {
 			// Reported rather than refused: the reader put a shell on the
 			// canvas to see the shape, and the rest of the run is still worth
 			// watching.
-			report(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusSkipped,
-				Error: ErrNotRunnable.Error()})
+			if err := persist(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusSkipped, Error: ErrNotRunnable.Error()}); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -102,8 +140,9 @@ func (repository *Repository) Run(
 				}
 			}
 		}
-		report(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusComplete,
-			Output: output, Branch: taken, DurationMS: elapsed})
+		if err := persist(Step{NodeID: node.ID, Kind: node.Kind, Name: label, Status: StatusComplete, Output: output, Branch: taken, DurationMS: elapsed}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -249,6 +288,12 @@ func text(config map[string]any, key string) string {
 	}
 	value, _ := config[key].(string)
 	return strings.TrimSpace(value)
+}
+
+// RestoreToolStep rebuilds the same checkpoint shape from a successful ledger
+// response when the process stopped before persisting the node completion.
+func RestoreToolStep(node Node, output string, durationMS int64) Step {
+	return Step{NodeID: node.ID, Kind: node.Kind, Name: nameOf(node), Status: StatusComplete, Output: trim(output), DurationMS: durationMS}
 }
 
 func trim(raw string) string {

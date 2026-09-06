@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"cosmo/backend/internal/modelgateway"
 	"cosmo/backend/internal/tools"
@@ -181,8 +182,9 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Input string `json:"input"`
-		Model string `json:"model"`
+		Input  string `json:"input"`
+		Model  string `json:"model"`
+		Resume string `json:"execution_id"`
 	}
 	if r.Body != nil && r.ContentLength != 0 && !decodeJSON(w, r, &input) {
 		return
@@ -204,6 +206,40 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Trình duyệt không nhận được dữ liệu streaming.")
 		return
 	}
+	execution, err := s.admitWorkflowExecution(r.Context(), item, user.ID, input.Input, models.ResolveModel(options), input.Resume)
+	if err != nil {
+		writeError(w, 409, errWorkflowResume.Error())
+		return
+	}
+	options.Model = execution.Model
+	ctx, cancel := context.WithCancel(r.Context())
+	ctx = context.WithValue(ctx, workflowExecutionKey{}, execution)
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			tag, err := s.db.Exec(ctx, `UPDATE workflow_executions SET lease_until=NOW()+INTERVAL '5 seconds' WHERE id=$1 AND lease_owner=$2 AND lease_until>NOW() AND status='running'`, execution.ID, execution.owner)
+			if err != nil || tag.RowsAffected() != 1 {
+				cancel()
+				return
+			}
+		}
+	}()
+	finalStatus := "interrupted"
+	defer func() {
+		cancel()
+		<-heartbeatDone
+		finish, stop := context.WithTimeout(context.Background(), 3*time.Second)
+		defer stop()
+		_, _ = s.db.Exec(finish, `UPDATE workflow_executions SET status=$3,finished_at=NOW() WHERE id=$1 AND lease_owner=$2 AND status='running'`, execution.ID, execution.owner, finalStatus)
+	}()
 	// Recorded before the stream opens rather than after it closes: a workflow
 	// calls tools, and the record that one was set running has to survive the
 	// reader closing the tab halfway through.
@@ -220,11 +256,23 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	invoker := workflowInvoker{server: s, userID: user.ID, workspaceID: workspaceID}
-	toolCtx := tools.WithCaller(r.Context(), s.callerFor(r.Context(), user, workspaceID))
+	writeSSE(w, "execution", map[string]string{"id": execution.ID})
+	flusher.Flush()
+	toolCtx := tools.WithCaller(ctx, s.callerFor(ctx, user, workspaceID))
 	toolCtx = tools.WithApprovalHandler(toolCtx, func(wait context.Context, tool tools.Tool, action tools.Action, args map[string]any) (tools.CallResult, error) {
-		return s.awaitToolApproval(wait, "workflow", item.ID, tool, action, args, func(approval toolApproval) { writeSSE(w, "approval", approval); flusher.Flush() })
+		return s.awaitToolApproval(wait, "workflow", item.ID, tool, action, args, func(approval toolApproval) {
+			if approval.Status == "pending" {
+				tag, err := s.db.Exec(wait, `UPDATE workflow_executions SET approval_id=$3 WHERE id=$1 AND lease_owner=$2 AND lease_until>NOW() AND status='running'`, execution.ID, execution.owner, approval.ID)
+				if err != nil || tag.RowsAffected() != 1 {
+					cancel()
+					return
+				}
+			}
+			writeSSE(w, "approval", approval)
+			flusher.Flush()
+		})
 	})
-	runErr := s.workflows.Run(toolCtx, item.Graph, input.Input, models, options, invoker, func(step workflows.Step) {
+	runErr := s.workflows.RunCheckpointed(toolCtx, item.Graph, execution.Input, models, options, invoker, execution.Completed, func(step workflows.Step) error { return s.saveWorkflowCheckpoint(toolCtx, execution, step) }, func(step workflows.Step) {
 		writeSSE(w, "step", step)
 		flusher.Flush()
 	})
@@ -235,6 +283,7 @@ func (s *Server) runWorkflow(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		return
 	}
-	writeSSE(w, "done", map[string]any{"workflow_id": item.ID})
+	finalStatus = "succeeded"
+	writeSSE(w, "done", map[string]any{"workflow_id": item.ID, "execution_id": execution.ID})
 	flusher.Flush()
 }

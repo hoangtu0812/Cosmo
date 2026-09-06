@@ -78,6 +78,9 @@ func (s *Server) awaitToolApproval(ctx context.Context, kind, source string, too
 			return tools.CallResult{}, ctx.Err()
 		case <-ticker.C:
 		}
+		if err = s.checkWorkflowExecution(ctx); err != nil {
+			return tools.CallResult{}, err
+		}
 		if err = s.checkChatExecution(ctx); err != nil {
 			return tools.CallResult{}, err
 		}

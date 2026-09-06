@@ -1,5 +1,6 @@
 'use client';
 
+import {WorkflowExecutionHistory} from '../../components/WorkflowExecutionHistory';
 import {InlineToolApprovals} from '../../components/InlineToolApprovals';
 
 import '@xyflow/react/dist/style.css';
@@ -215,12 +216,12 @@ function WorkflowEditor() {
 
   // A run has to see the graph on screen, so it is saved first. Running a
   // stale copy and animating the new one would light up the wrong nodes.
-  async function run() {
+  async function run(executionID?: string) {
     setSteps([]);
     setError('');
     setIsRunning(true);
     try {
-      await api.saveWorkflowGraph(workflowID, graph, workspaceID);
+      if (!executionID) await api.saveWorkflowGraph(workflowID, graph, workspaceID);
       await streamWorkflowRun(workflowID, input, workspaceID, {
         onStep: (step) => {
           setSteps((current) => {
@@ -232,7 +233,7 @@ function WorkflowEditor() {
           });
           paint(step);
         },
-      });
+      }, executionID);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : t('workflow.runFailed'));
     } finally {
@@ -409,6 +410,7 @@ function WorkflowEditor() {
       </VStack>
 
       <VStack className="border-l border-[var(--color-border)]" gap={4} height="100%" isScrollable padding={4} width={320}>
+        <WorkflowExecutionHistory key={`history-${workflow.id}`} workflowID={workflow.id} workspaceID={workspaceID} isRunning={isRunning} onResume={(id) => void run(id)} />
         <InlineToolApprovals key={workflow.id} workspaceID={workspaceID} kind="workflow" sourceID={workflow.id} />
         {selected ? (
           <NodeSettings

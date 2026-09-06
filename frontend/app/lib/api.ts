@@ -655,6 +655,7 @@ export const api = {
     ),
   deleteToolAction: (toolID: string, actionID: string, workspaceID?: string) =>
     request<void>(`/api/tools/${encodeURIComponent(toolID)}/actions/${encodeURIComponent(actionID)}${workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : ''}`, {method: 'DELETE'}),
+  workflowExecutions: (workflowID: string, workspaceID: string) => request<{executions: WorkflowExecution[]}>(`/api/workflows/${encodeURIComponent(workflowID)}/executions?workspace=${encodeURIComponent(workspaceID)}`),
   toolApprovals: (workspace: string, kind: string, source: string) => request<{approvals: ToolApproval[]}>(`/api/tool-approvals?workspace=${encodeURIComponent(workspace)}&kind=${encodeURIComponent(kind)}&source=${encodeURIComponent(source)}`),
   decideToolApproval: (id: string, workspace: string, decision: string, definition: string) => request<void>(`/api/tool-approvals/${encodeURIComponent(id)}/decision?workspace=${encodeURIComponent(workspace)}`, {method:'POST',body:JSON.stringify({decision,definition})}),
   toolActionPolicy: (toolID: string, actionID: string, workspaceID: string) =>
@@ -945,6 +946,8 @@ export type Workflow = {
   updated_at: string;
 };
 
+export type WorkflowExecution = {id: string; status: string; input: string; model: string; completed: Record<string, WorkflowStep>; active_node: string; created_at: string};
+
 export type WorkflowStep = {
   node_id: string;
   kind: string;
@@ -968,13 +971,14 @@ export async function streamWorkflowRun(
   input: string,
   workspaceID: string | undefined,
   handlers: {onStep: (step: WorkflowStep) => void; onDone?: () => void},
+  executionID?: string,
 ): Promise<void> {
   const query = workspaceID ? `?workspace=${encodeURIComponent(workspaceID)}` : '';
   const response = await fetch(`${API_BASE}/api/workflows/${encodeURIComponent(workflowID)}/run${query}`, {
     method: 'POST',
     credentials: 'include',
     headers: {'Content-Type': 'application/json', Accept: 'text/event-stream'},
-    body: JSON.stringify({input}),
+    body: JSON.stringify({input, execution_id: executionID}),
   });
   if (!response.ok) {
     let body: APIErrorShape = {};
@@ -986,6 +990,7 @@ export async function streamWorkflowRun(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let completed = false;
   while (true) {
     const {done, value} = await reader.read();
     if (done) break;
@@ -999,8 +1004,9 @@ export async function streamWorkflowRun(
       if (!event || !rawData) continue;
       const data = JSON.parse(rawData) as Record<string, unknown>;
       if (event === 'step') handlers.onStep(data as unknown as WorkflowStep);
-      if (event === 'done') handlers.onDone?.();
+      if (event === 'done') {completed = true; handlers.onDone?.();}
       if (event === 'error') throw new APIError(String(data.message ?? 'Workflow dừng giữa chừng.'), 502);
     }
   }
+  if (!completed) throw new APIError('Phiên streaming bị ngắt. Kiểm tra tiến độ đã lưu trước khi tiếp tục.', 502);
 }

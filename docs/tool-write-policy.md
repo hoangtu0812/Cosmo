@@ -45,3 +45,12 @@ Kiểm thử PostgreSQL: actor khác, sai definition, quyết định lặp, app
 ### Nghiệm thu TOOL-01c trên server test
 
 Backend `be36bff`, frontend bổ sung khung thử agent tại `fa70910`, migration 37. Backup trước migration đã kiểm tra: 426988 bytes, 319 TOC lines. Smoke xác thực qua API cho chat approve/reject và workflow approve/reject: đúng 2 lệnh được nhận cho 2 lần duyệt, 0 lệnh khi từ chối; replay chat và lặp quyết định không dispatch thêm. SIGKILL backend trong lúc workflow đang chờ duyệt rồi restart: yêu cầu cũ hết hạn và không thể gửi lệnh. Regression chat FIFO/SSE/replay, MCP discovery/invoke và 3 tài liệu KB thực đều qua. Fixture đã dọn sạch. Chưa kiểm tra tương tác UI bằng trình duyệt.
+
+
+### TOOL-01d — checkpoint và tiếp tục workflow đã lưu
+
+Migration 38 lưu từng phiên workflow, input/model, hash graph/tool/gateway, node đang chạy và output/branch của bước đã hoàn tất. Trước khi gọi node phải lưu admission; sau khi chạy phải lưu kết quả rồi mới sang node kế tiếp. Giao diện liệt kê phiên gần đây và cho phép tiếp tục phiên bị gián đoạn. Resume dùng input/model cũ, kiểm tra actor/workspace/quyền workflow và hash runtime, cấp lease owner mới để chặn writer cũ. Mỗi actor/workflow chỉ có một phiên đang chạy.
+
+Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở tool đang chờ duyệt, backend chỉ tiếp tục khi có bằng chứng chưa dispatch: không có ledger và approval còn pending/expired; approval cũ bị vô hiệu hóa trong giao dịch rồi mới yêu cầu duyệt mới. Nếu ledger đã succeeded nhưng checkpoint chưa lưu, dùng chính response đã lưu để hoàn tất node, không gửi lại. Executing/uncertain, quyết định từ chối, hoặc node đang chạy mà không có bằng chứng kết quả đều bị từ chối resume. Đối soát thủ công đã thực hiện chưa đủ để tái tạo output cho node sau; không tự đoán kết quả.
+
+Đây là tiếp tục thủ công bằng checkpoint sau gián đoạn, chưa phải worker workflow tự chạy nền hay tự thức dậy sau restart. Node LLM/read đang chạy khi bị ngắt vẫn bị chặn bảo thủ; graph/gateway/tool thay đổi yêu cầu một phiên mới có chủ ý. Checkpoint lưu input/output nghiệp vụ với quyền actor/workspace, chưa có retention riêng. Durable chat checkpoint và giải phóng worker khi chờ duyệt vẫn còn mở.

@@ -951,3 +951,12 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Commit 42bf22c so sánh nội dung đã chuẩn hóa sau validation; Save không đổi nội dung rollback phần cập nhật timestamp và giữ policy. Thay đổi nội dung thật vẫn cập nhật revision và vô hiệu hóa grant cũ. Giao diện đọc lại policy sau Save để hiển thị trạng thái hiện hành.
 - Toàn bộ test tools và các test HTTP approval/shared-tool/workflow trên PostgreSQL qua; TypeScript và Docker build qua. Đã triển khai backend/frontend lên server test, không migration mới.
 - Trình duyệt trên tool MCP fixture: chọn Chỉ đọc, bấm Save, reload và mở lại action vẫn giữ Chỉ đọc. Không gọi endpoint tool; fixture ghi nhận 0 lệnh. Đã dọn fixture/tab/PostgreSQL test; không sửa chính sách hoặc đối soát SAP thật.
+
+
+### 2026-09-07 — Sửa tương thích stream và giữ nguyên nhân lượt Chat thất bại
+
+- Hai lượt trong ảnh là hai request ID khác nhau, đều interrupted; run ghi model_gateway / model stream contained an invalid response ở bước generation sau khi web_search thành công. Gửi lại ID đã tiếp nhận trả 409 chung, làm mất nguyên nhân ban đầu trên giao diện.
+- Commit c2b9e02 cho phép frame metadata có object=chat.completion.chunk, choices=[] và usage=null; vẫn từ chối JSON hỏng, frame lỗi, thiếu choices và stream không kết thúc. Retry ID của lượt lỗi gateway trả thông báo đúng nguyên nhân, giữ nguyên cơ chế không chạy lại tool/lượt cũ.
+- Regression bao gồm metadata trước/giữa delta, giữ nguyên nội dung, error frame và EOF; integration test retry lỗi gateway không tạo lượt mới. Toàn bộ go test ./... trên PostgreSQL kiểm thử qua.
+- Đã build và triển khai backend test, không migration mới. Smoke qua API xác thực với gateway giả lập phát metadata: Chat FIFO/disconnect/replay/cursor/transcript đều qua; MCP demo và retrieval contract qua. Đã dọn fixture và PostgreSQL kiểm thử; dữ liệu thực giữ 3 tài liệu/67 chunks, schema 48.
+- Log gateway gần đây có lỗi xử lý choices rỗng, nhưng không còn raw frame của hai lượt cũ để chứng minh chúng gặp đúng trường hợp này. Bản sửa xác nhận khắc phục tương thích metadata và thông báo retry; không khẳng định loại bỏ mọi lỗi từ nhà cung cấp model. Hai lượt cũ không được tự chạy lại.

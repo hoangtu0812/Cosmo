@@ -943,3 +943,11 @@ Bước hoàn tất được phục hồi từ checkpoint. Nếu bị ngắt ở
 - Chọn hai tệp giả lập cùng lúc bằng nút Add documents trên KB test rỗng. Giao diện chuyển sang Đang chờ 0/2, tải lại trang hiển thị Hoàn tất 2/2, có đủ hai tài liệu/hai chunks.
 - Đối chiếu PostgreSQL: đúng một job succeeded, upload_document_ids gồm hai tài liệu; reload không tạo thêm job. Browser console không có error trong ca thử. Kết quả này bổ sung phần file picker chưa kiểm thử ở mục rollout phía trên.
 - Đã dọn fixture và tab UI; đây là tải tài liệu giả lập vào KB tạm, không cập nhật các KB thực.
+
+
+### 2026-09-07 — Save action không làm mất chính sách đã chọn
+
+- Nguyên nhân: selector chính sách lưu ngay, nhưng Save action luôn cập nhật tool.updated_at; definition hash thay đổi dù nội dung giữ nguyên, khiến policy quay lại approval.
+- Commit 42bf22c so sánh nội dung đã chuẩn hóa sau validation; Save không đổi nội dung rollback phần cập nhật timestamp và giữ policy. Thay đổi nội dung thật vẫn cập nhật revision và vô hiệu hóa grant cũ. Giao diện đọc lại policy sau Save để hiển thị trạng thái hiện hành.
+- Toàn bộ test tools và các test HTTP approval/shared-tool/workflow trên PostgreSQL qua; TypeScript và Docker build qua. Đã triển khai backend/frontend lên server test, không migration mới.
+- Trình duyệt trên tool MCP fixture: chọn Chỉ đọc, bấm Save, reload và mở lại action vẫn giữ Chỉ đọc. Không gọi endpoint tool; fixture ghi nhận 0 lệnh. Đã dọn fixture/tab/PostgreSQL test; không sửa chính sách hoặc đối soát SAP thật.

@@ -306,4 +306,16 @@ func TestChatWorkerDoesNotSaveTruncatedModelStream(t *testing.T) {
 	if answers != 0 || strings.Contains(w.Body.String(), "event: done") {
 		t.Fatal("truncated response was saved as completed")
 	}
+	// Retrying an accepted identity must explain the recorded gateway failure,
+	// without admitting another turn or presenting the partial answer as complete.
+	retry := httptest.NewRequest(http.MethodPost, "/conversations/"+conversation+"/messages", strings.NewReader(`{"content":"Question","client_message_id":"truncated"}`)).WithContext(context.WithValue(ctx, userContextKey, owner))
+	replayed := httptest.NewRecorder()
+	router.ServeHTTP(replayed, retry)
+	if replayed.Code != http.StatusConflict || !strings.Contains(replayed.Body.String(), "Model Gateway") {
+		t.Fatalf("lost gateway failure on retry: %d %s", replayed.Code, replayed.Body.String())
+	}
+	var turns int
+	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE conversation_id=$1`, conversation).Scan(&turns); err != nil || turns != 1 {
+		t.Fatalf("retry admitted another turn: %d %v", turns, err)
+	}
 }

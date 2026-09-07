@@ -95,6 +95,10 @@ func (s *Server) writeChatTurnError(w http.ResponseWriter, r *http.Request, conv
 		}
 		if existing.Status == "interrupted" {
 			message = "Lượt này đã bị gián đoạn và không được chạy lại tự động. Vui lòng kiểm tra lịch sử."
+			var code string
+			if s.db.QueryRow(r.Context(), `SELECT error_code FROM runs WHERE id=$1`, existing.RunID).Scan(&code) == nil && code == "model_gateway" {
+				message = "Model Gateway lỗi khi tạo câu trả lời. Lượt này chưa hoàn tất; yêu cầu cũ không được tự chạy lại."
+			}
 		}
 		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]string{"code": "chat_turn_exists", "message": message}, "turn": existing})
 		return

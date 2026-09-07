@@ -12,6 +12,7 @@ import (
 
 func TestStreamRequiresTerminalAndValidFrames(t *testing.T) {
 	delta := "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n"
+	metadata := "data: {\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":null}\n\n"
 	for _, tc := range []struct {
 		name, body string
 		want       error
@@ -21,6 +22,11 @@ func TestStreamRequiresTerminalAndValidFrames(t *testing.T) {
 		{"upstream-error", delta + "data: {\"error\":{\"message\":\"secret\"}}\n\n", ErrInvalidStream},
 		{"token-limit", delta + "data: {\"choices\":[{\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n", ErrIncompleteStream},
 		{"finished", delta + "data: [DONE]\n\n", nil},
+		{"metadata-between-deltas", metadata + delta + metadata + "data: [DONE]\n\n", nil},
+		{"metadata-without-terminal", metadata + delta, ErrIncompleteStream},
+		{"unknown-empty-frame", delta + "data: {}\n\n", ErrInvalidStream},
+		{"missing-choices", delta + "data: {\"object\":\"chat.completion.chunk\"}\n\n", ErrInvalidStream},
+		{"metadata-with-error", delta + "data: {\"object\":\"chat.completion.chunk\",\"choices\":[],\"error\":{\"message\":\"secret\"}}\n\n", ErrInvalidStream},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +39,9 @@ func TestStreamRequiresTerminalAndValidFrames(t *testing.T) {
 			err := client.Stream(context.Background(), nil, Options{}, func(s string) error { answer.WriteString(s); return nil })
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("got %v want %v", err, tc.want)
+			}
+			if answer.String() != "partial" {
+				t.Fatalf("streamed text changed: %q", answer.String())
 			}
 		})
 	}

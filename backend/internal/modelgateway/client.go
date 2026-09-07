@@ -213,6 +213,7 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 			continue
 		}
 		var chunk struct {
+			Object  string          `json:"object"`
 			Error   json.RawMessage `json:"error"`
 			Choices []struct {
 				FinishReason string `json:"finish_reason"`
@@ -234,6 +235,10 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 			return usage, ErrInvalidStream
 		}
 		if len(chunk.Choices) == 0 && chunk.Usage == nil {
+			// Some gateways send metadata-only chunks before or between deltas.
+			if chunk.Object == "chat.completion.chunk" && chunk.Choices != nil {
+				continue
+			}
 			return usage, ErrInvalidStream
 		}
 		if len(chunk.Choices) > 0 {

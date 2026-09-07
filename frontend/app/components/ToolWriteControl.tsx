@@ -125,5 +125,5 @@ export function useToolWriteControl(toolID: string, actionID: string, workspaceI
       </HStack></LayoutFooter>} />
     </Dialog>
   </VStack>;
-  return {test, controls, isBlocked:busy || networkUnknown || operation?.status === 'executing' || operation?.status === 'uncertain'};
+  return {test, refresh, controls, isBlocked:busy || networkUnknown || operation?.status === 'executing' || operation?.status === 'uncertain'};
 }

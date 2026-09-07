@@ -196,3 +196,42 @@ func prepareWriteTool(t *testing.T, repo *Repository, tool Tool, ctx context.Con
 	}
 	return current
 }
+
+func TestUnchangedActionSaveKeepsReviewedPolicy(t *testing.T) {
+	repo, tool, action, ctx := writeFixture(t)
+	caller, _ := CallerFrom(ctx)
+	tool = prepareWriteTool(t, repo, tool, ctx, "https://example.com")
+	for _, effect := range []string{EffectRead, EffectSharedApproval, EffectBlocked} {
+		if err := repo.SetActionEffect(ctx, tool, action, caller.UserID, effect); err != nil {
+			t.Fatal(err)
+		}
+		original := tool.UpdatedAt
+		saved, err := repo.SaveAction(ctx, tool.ID, action.ID, action)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, err := repo.Get(ctx, tool.ID, caller.UserID, caller.WorkspaceID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := repo.ActionEffect(ctx, current, saved)
+		if err != nil || got != effect || current.UpdatedAt != original {
+			t.Fatalf("unchanged save reset %s: %s %v", effect, got, err)
+		}
+	}
+	if err := repo.SetActionEffect(ctx, tool, action, caller.UserID, EffectRead); err != nil {
+		t.Fatal(err)
+	}
+	action.Path = "/changed"
+	saved, err := repo.SaveAction(ctx, tool.ID, action.ID, action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := repo.Get(ctx, tool.ID, caller.UserID, caller.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.ActionEffect(ctx, current, saved); err != nil || got != EffectApproval {
+		t.Fatal("changed contract retained read policy", got, err)
+	}
+}

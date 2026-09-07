@@ -871,6 +871,7 @@ function ActionEditor({action, toolID, workspaceID, isEditable, onSaved, onDelet
         mcp_tool: action.mcp_tool,
       }, workspaceID);
       onSaved(saved.action);
+      await writeControl.refresh();
     } catch (caught) {
       setFailure(caught instanceof Error ? caught.message : t('tool.saveFailed'));
     } finally {

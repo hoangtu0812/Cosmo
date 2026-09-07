@@ -404,14 +404,33 @@ func (repository *Repository) SaveAction(ctx context.Context, toolID, actionID s
 		return Action{}, err
 	}
 	defer tx.Rollback(ctx)
-	saved, err := (&Repository{db: tx}).saveAction(ctx, toolID, actionID, input)
+	draft := &Repository{db: tx}
+	var previous Action
+	if actionID != "" {
+		previous, err = draft.Action(ctx, toolID, actionID)
+		if err != nil {
+			return Action{}, err
+		}
+	}
+	saved, err := draft.saveAction(ctx, toolID, actionID, input)
 	if err != nil {
 		return Action{}, err
+	}
+	// Saving the unchanged editor must not invalidate reviewed action policies.
+	// Compare normalized, persisted fields so omitted MCP contracts and JSONB
+	// canonicalization follow the same rules as normal action validation.
+	if actionID != "" && sameActionContent(previous, saved) {
+		return previous, nil // deferred rollback also restores action.updated_at
 	}
 	if _, err = tx.Exec(ctx, `UPDATE tools SET updated_at=clock_timestamp() WHERE id=$1`, toolID); err != nil {
 		return Action{}, err
 	}
 	return saved, tx.Commit(ctx)
+}
+
+func sameActionContent(a, b Action) bool {
+	return definitionHash(Tool{}, a) == definitionHash(Tool{}, b) &&
+		a.Description == b.Description && a.ResultType == b.ResultType && a.ResultDescription == b.ResultDescription
 }
 
 func (repository *Repository) saveAction(ctx context.Context, toolID, actionID string, input Action) (Action, error) {

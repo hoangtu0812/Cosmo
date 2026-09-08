@@ -113,6 +113,7 @@ var migrations = []Migration{
 		`CREATE INDEX rag_model_call_scope ON rag_model_calls(workspace_id,created_at,actor_id)`,
 	}},
 	{Version: 49, Name: "tool_auth_policy_revision", Statements: toolAuthPolicyRevisionStatements},
+	{Version: 50, Name: "message_suggestions", Statements: []string{`ALTER TABLE messages ADD COLUMN suggestions JSONB NOT NULL DEFAULT '[]'::jsonb`}},
 }
 
 var knowledgeSnapshotStatements = []string{

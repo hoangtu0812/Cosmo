@@ -73,11 +73,12 @@ func (s *Server) writeChatTurnError(w http.ResponseWriter, r *http.Request, conv
 		}
 		if existing.Status == "succeeded" {
 			var message Message
-			var citations, calls, usage []byte
-			err := s.db.QueryRow(r.Context(), `SELECT id,conversation_id,role,content,model,citations,tool_calls,usage,created_at FROM messages WHERE conversation_id=$1 AND id=$2 AND role='assistant'`, conversation, existing.AssistantID).Scan(&message.ID, &message.ConversationID, &message.Role, &message.Content, &message.Model, &citations, &calls, &usage, &message.CreatedAt)
+			var citations, calls, usage, suggestions []byte
+			err := s.db.QueryRow(r.Context(), `SELECT id,conversation_id,role,content,model,citations,tool_calls,usage,created_at,suggestions FROM messages WHERE conversation_id=$1 AND id=$2 AND role='assistant'`, conversation, existing.AssistantID).Scan(&message.ID, &message.ConversationID, &message.Role, &message.Content, &message.Model, &citations, &calls, &usage, &message.CreatedAt, &suggestions)
 			if err == nil {
 				_ = json.Unmarshal(citations, &message.Citations)
 				_ = json.Unmarshal(calls, &message.ToolCalls)
+				_ = json.Unmarshal(suggestions, &message.Suggestions)
 				if len(usage) > 0 {
 					_ = json.Unmarshal(usage, &message.Usage)
 				}

@@ -74,6 +74,19 @@ func TestChatUsesDecisionAnswerWithoutAnotherGeneration(t *testing.T) {
 	if answer != "The existing final answer" || decisions.Load() != 1 || generations.Load() > 1 {
 		t.Fatalf("answer was regenerated: %q decisions=%d other=%d", answer, decisions.Load(), generations.Load())
 	}
+	var suggestions []byte
+	if err := s.db.QueryRow(ctx, `SELECT suggestions FROM messages WHERE conversation_id=$1 AND role='assistant'`, conversation).Scan(&suggestions); err != nil || string(suggestions) != `["unexpected rewrite"]` {
+		t.Fatalf("suggestions not saved with answer: %s %v", suggestions, err)
+	}
+	if !strings.Contains(recorder.Body.String(), `"suggestions":["unexpected rewrite"]`) {
+		t.Fatal("terminal reply lost suggestions")
+	}
+	replay := httptest.NewRecorder()
+	replayReq := httptest.NewRequest("POST", "/conversations/"+conversation+"/messages", strings.NewReader(`{"content":"Question","client_message_id":"decision-answer"}`)).WithContext(context.WithValue(ctx, userContextKey, owner))
+	router.ServeHTTP(replay, replayReq)
+	if !strings.Contains(replay.Body.String(), `"suggestions":["unexpected rewrite"]`) {
+		t.Fatal("replayed reply lost suggestions")
+	}
 	var decisionAccounting int
 	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM run_steps s JOIN chat_turns t ON t.run_id=s.run_id WHERE t.conversation_id=$1 AND s.type='model_call' AND s.output->>'phase'='tool_decision' AND s.output->'usage'='null'::jsonb`, conversation).Scan(&decisionAccounting); err != nil || decisionAccounting != 1 {
 		t.Fatalf("missing per-call accounting: count=%d err=%v", decisionAccounting, err)

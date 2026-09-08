@@ -44,7 +44,7 @@ export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, 
   // rules skip code spans and existing links, and Astryx opens an external one
   // in a new tab, so following a source does not lose the conversation.
   if (calls.length === 0) {
-    return <Markdown autolink="gfm" headingLevelStart={2} isStreaming={isStreaming}>{children}</Markdown>;
+    return <Markdown className="w-full min-w-0 [&_table]:table-auto [&_table]:min-w-max [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap" autolink="gfm" headingLevelStart={2} isStreaming={isStreaming}>{children}</Markdown>;
   }
 
   // Runes, because `at` counts runes: splitting a UTF-16 string by code unit
@@ -58,7 +58,7 @@ export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, 
     const at = Math.min(Math.max(call.at, cursor), runes.length);
     const text = runes.slice(cursor, at).join('');
     if (text.trim()) {
-      parts.push(<Markdown autolink="gfm" headingLevelStart={2} key={`text-${index}`}>{text}</Markdown>);
+      parts.push(<Markdown className="w-full min-w-0 [&_table]:table-auto [&_table]:min-w-max [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap" autolink="gfm" headingLevelStart={2} key={`text-${index}`}>{text}</Markdown>);
     }
     parts.push(<VStack key={call.id} gap={2} width="100%"><ToolCallPill call={call} onOpenChart={onOpenChart} /><ToolCallApproval call={call} messageID={messageID} /></VStack>);
     cursor = at;
@@ -66,10 +66,10 @@ export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, 
 
   const tail = runes.slice(cursor).join('');
   if (tail.trim()) {
-    parts.push(<Markdown autolink="gfm" headingLevelStart={2} isStreaming={isStreaming} key="tail">{tail}</Markdown>);
+    parts.push(<Markdown className="w-full min-w-0 [&_table]:table-auto [&_table]:min-w-max [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap" autolink="gfm" headingLevelStart={2} isStreaming={isStreaming} key="tail">{tail}</Markdown>);
   }
 
-  return <VStack gap={2} width="100%">{parts}</VStack>;
+  return <VStack className="min-w-0" gap={2} width="100%">{parts}</VStack>;
 }
 
 /**

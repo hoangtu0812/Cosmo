@@ -37,6 +37,7 @@ import {Timestamp} from '@astryxdesign/core/Timestamp';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {Agent, api, APIError, Attachment, ChatUsage, Citation, Conversation, GatewayModel, Message, MessageToolCall, streamChat, User, Workspace} from '../lib/api';
 import {ToolApprovalProvider} from '../components/InlineToolApprovals';
+import {answerActions} from '../lib/answer-actions';
 import {AnswerWithToolCalls} from '../components/AnswerWithToolCalls';
 import {CopyButton} from '../components/CopyButton';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
@@ -886,7 +887,7 @@ export default function ChatPage() {
                     {messages.map((message) => message.role === 'user' ? (
                       <ChatMessage key={message.id} sender="user">
                         <ChatMessageBubble metadata={<ChatMessageMetadata timestamp={<Timestamp format="time" value={message.created_at} />} />}>
-                          {message.content}
+                          <Text className="whitespace-pre-wrap break-words">{message.content}</Text>
                         </ChatMessageBubble>
                         {/* What the question arrived with, so reopening the
                             conversation still shows what was being discussed. */}
@@ -900,6 +901,8 @@ export default function ChatPage() {
                       </ChatMessage>
                     ) : (() => {
                       const isActiveStream = streaming && message.id.startsWith('stream-');
+                      const presentation = isActiveStream ? {body: message.content, actions: []} : answerActions(message.content);
+                      const nextActions = presentation.actions.length ? presentation.actions : message.suggestions?.length ? message.suggestions : message.id === messages.at(-1)?.id ? followUps : [];
                       return (
                       <ChatMessage
                         avatar={<Avatar
@@ -938,6 +941,7 @@ export default function ChatPage() {
                           ) : undefined}
                           name={selectedAgent?.name || 'Cosmo'}
                           variant="ghost"
+                          width="100%"
                         >
                           {message.content || message.is_pending
                             ? <VStack gap={3}>
@@ -947,10 +951,15 @@ export default function ChatPage() {
                                 calls={isActiveStream ? liveToolCalls : message.tool_calls ?? []}
                                 isStreaming={isActiveStream}
                               >
-                                {answerForDisplay(message.content, message.citations ?? [], isActiveStream)}
+                                {answerForDisplay(presentation.body, message.citations ?? [], isActiveStream)}
                               </AnswerWithToolCalls>
                               {message.is_pending && !message.tool_calls?.length ? <Text type="supporting">{t('chat.savedPending')}</Text> : null}
                               {isActiveStream ? null : <CitationList citations={message.citations ?? []} onOpen={setPreview} />}
+                              {!isActiveStream && nextActions.length > 0 ? (
+                                <HStack gap={2} wrap="wrap" width="100%">
+                                  {nextActions.map((question) => <Button key={question} label={question} size="sm" variant="secondary" isDisabled={streaming} onClick={() => void submit(question)} />)}
+                                </HStack>
+                              ) : null}
                             </VStack>
                             : (streaming ? <VStack gap={3}>
                               <AnswerWithToolCalls
@@ -965,22 +974,6 @@ export default function ChatPage() {
                       </ChatMessage>
                       );
                     })())}
-                    {/* What to ask next, where the answer ended. Taking one
-                        sends it: a suggestion you have to edit before it works
-                        is a draft, not a suggestion. */}
-                    {followUps.length > 0 && !streaming ? (
-                      <HStack gap={2} vAlign="center" wrap="wrap">
-                        {followUps.map((question) => (
-                          <Button
-                            key={question}
-                            label={question}
-                            onClick={() => void submit(question)}
-                            size="sm"
-                            variant="secondary"
-                          />
-                        ))}
-                      </HStack>
-                    ) : null}
                   </ChatMessageList>
                 )}
               </ChatLayout>

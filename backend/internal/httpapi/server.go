@@ -99,6 +99,7 @@ type Conversation struct {
 }
 
 type Message struct {
+	Suggestions    []string   `json:"suggestions,omitempty"`
 	IsPending      bool       `json:"is_pending,omitempty"`
 	ID             string     `json:"id"`
 	ConversationID string     `json:"conversation_id"`
@@ -835,11 +836,11 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.db.Query(r.Context(), `WITH transcript AS (
- SELECT id,conversation_id,role,content,model,citations,tool_calls,usage,created_at,false AS is_pending FROM messages WHERE conversation_id=$1
+ SELECT id,conversation_id,role,content,model,citations,tool_calls,usage,created_at,false AS is_pending,suggestions FROM messages WHERE conversation_id=$1
  UNION ALL
  SELECT t.assistant_message_id,t.conversation_id,'assistant',COALESCE(c.state->'Tools'->>'Answer',''),COALESCE(t.request_payload->>'model',''), '[]'::jsonb,
  CASE WHEN c.run_id IS NULL THEN '[]'::jsonb ELSE COALESCE(NULLIF(c.state->'Tools'->'Reported','null'::jsonb),'[]'::jsonb)||jsonb_build_array(c.state->'Tools'->'Pending') END,
- NULL::jsonb,t.created_at,true
+ NULL::jsonb,t.created_at,true,'[]'::jsonb
  FROM chat_turns t LEFT JOIN chat_approval_checkpoints c ON c.run_id=t.run_id
  WHERE t.conversation_id=$1 AND t.status IN ('queued','executing','waiting_approval') AND NOT EXISTS(SELECT 1 FROM messages m WHERE m.id=t.assistant_message_id)
  )
@@ -850,7 +851,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		               'byte_size', a.byte_size, 'chars', LENGTH(a.text), 'is_truncated', a.is_truncated
 		           ) ORDER BY a.created_at)
 		           FROM conversation_attachments a WHERE a.message_id = m.id
-		       ), '[]'::jsonb),m.is_pending
+		       ), '[]'::jsonb),m.is_pending,m.suggestions
 		FROM transcript m LEFT JOIN chat_turns t ON t.conversation_id=m.conversation_id AND (t.user_message_id=m.id OR t.assistant_message_id=m.id)
 		WHERE m.conversation_id = $1 ORDER BY COALESCE(t.sequence,0),
 		CASE WHEN t.sequence IS NOT NULL AND m.role='assistant' THEN 1 ELSE 0 END,m.created_at,m.id`, conversationID)
@@ -865,9 +866,10 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		var citationsJSON []byte
 		var toolCallsJSON []byte
 		var attachmentsJSON []byte
+		var suggestionsJSON []byte
 		var usageJSON []byte
 		if rows.Scan(&item.ID, &item.ConversationID, &item.Role, &item.Content, &item.Model,
-			&citationsJSON, &toolCallsJSON, &usageJSON, &item.CreatedAt, &attachmentsJSON, &item.IsPending) == nil {
+			&citationsJSON, &toolCallsJSON, &usageJSON, &item.CreatedAt, &attachmentsJSON, &item.IsPending, &suggestionsJSON) == nil {
 			if len(usageJSON) > 0 {
 				var counted modelgateway.Usage
 				if json.Unmarshal(usageJSON, &counted) == nil && counted.PromptTokens > 0 {
@@ -877,6 +879,7 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 			_ = json.Unmarshal(citationsJSON, &item.Citations)
 			_ = json.Unmarshal(toolCallsJSON, &item.ToolCalls)
 			_ = json.Unmarshal(attachmentsJSON, &item.Attachments)
+			_ = json.Unmarshal(suggestionsJSON, &item.Suggestions)
 			items = append(items, item)
 		}
 	}
@@ -1315,6 +1318,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			writeSSE(w, "delta", map[string]string{"content": partialKnowledgeNotice})
 			flusher.Flush()
 		}
+		history = append([]modelgateway.Message{{Role: "system", Content: chatAnswerPresentation}}, history...)
 		execution.Checkpoint = &chatApprovalCheckpoint{Citations: citations, ContextParts: contextParts, ReadableHash: chatRuntimeHash(readable)}
 	}
 	// What this turn may call. An agent brings what it was wired to; a plain
@@ -1429,6 +1433,12 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 
 	citations = citationsUsedByAnswer(assistant.String(), citations)
 	assistantMessage := Message{ID: assistantID, ConversationID: conversationID, Role: "assistant", Content: assistant.String(), CreatedAt: time.Now(), Model: models.ResolveModel(options), Citations: citations, ToolCalls: toolCalls}
+	// Persist suggestions with the answer before publishing terminal status.
+	// Subscribers may replay the saved answer as soon as the turn succeeds.
+	if evidenceAnswer == "" && (agentSuggests || conversationAgentID == "") {
+		assistantMessage.Suggestions = s.agents.SuggestFollowUps(modelgateway.WithPhase(r.Context(), "suggestions"), input.Content, assistantMessage.Content, models, options)
+	}
+	suggestionsJSON, _ := json.Marshal(assistantMessage.Suggestions)
 	citationsJSON, _ := json.Marshal(citations)
 	toolCallsJSON, _ := json.Marshal(toolCalls)
 	var usageJSON []byte
@@ -1442,9 +1452,9 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	tag, saveErr := s.db.Exec(r.Context(), `WITH active AS (
 		SELECT t.conversation_id FROM chat_turns t JOIN runs r ON r.id=t.run_id WHERE t.conversation_id=$2 AND t.client_message_id=$10 AND t.lease_owner=$11 AND t.status='executing' AND t.lease_expires_at>NOW() AND r.status='running' FOR UPDATE OF t,r
 	), saved AS (
-		INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, usage, created_at) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9 FROM active RETURNING id
+		INSERT INTO messages(id, conversation_id, role, content, model, citations, tool_calls, usage, created_at, suggestions) SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12 FROM active RETURNING id
 	) UPDATE chat_turns SET status='succeeded',finished_at=NOW()
-	WHERE conversation_id=$2 AND client_message_id=$10 AND assistant_message_id=(SELECT id FROM saved)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, usageJSON, assistantMessage.CreatedAt, identity.ClientMessageID, execution.Owner)
+	WHERE conversation_id=$2 AND client_message_id=$10 AND assistant_message_id=(SELECT id FROM saved)`, assistantMessage.ID, conversationID, assistantMessage.Role, assistantMessage.Content, assistantMessage.Model, citationsJSON, toolCallsJSON, usageJSON, assistantMessage.CreatedAt, identity.ClientMessageID, execution.Owner, suggestionsJSON)
 	err = saveErr
 	if err == nil && tag.RowsAffected() != 1 {
 		err = fmt.Errorf("chat execution no longer owns completion")
@@ -1479,18 +1489,6 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Suggestions come after the answer is saved, so a failure here can never
-	// cost the reader the reply itself.
-	// An agent decides for itself whether it offers follow-ups; a plain chat
-	// always does. Without them the model writes its offers into the prose -
-	// "tôi có thể vẽ tiếp: biểu đồ theo ban, biểu đồ theo tư vấn viên" - and a
-	// reader has to retype the one they want.
-	if evidenceAnswer == "" && (agentSuggests || conversationAgentID == "") {
-		if followUps := s.agents.SuggestFollowUps(modelgateway.WithPhase(r.Context(), "suggestions"), input.Content, assistantMessage.Content, models, options); len(followUps) > 0 {
-			writeSSE(w, "suggestions", map[string]any{"questions": followUps})
-			flusher.Flush()
-		}
-	}
 	writeSSE(w, "done", map[string]any{"message": assistantMessage})
 	flusher.Flush()
 
@@ -1741,3 +1739,6 @@ func (s *Server) agentRuntime(ctx context.Context, user User, workspaceID, agent
 	}
 	return s.agents.Runtime(ctx, agentID)
 }
+
+// Presentation guidance applies to both direct answers and tool-backed replies.
+const chatAnswerPresentation = `Present a concise, readable answer in the user's language. For one record, prefer a two-column field/value table over a wide one-row table. Preserve identifiers exactly. Use tables for repeated records and short paragraphs for context. Summarize unavailable fields together instead of a long list of empty fields. Do not append offers, menus or numbered lists of suggested next actions: the application displays follow-up actions as separate buttons. Never imply an unavailable value is zero.`

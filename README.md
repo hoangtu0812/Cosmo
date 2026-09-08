@@ -4,7 +4,9 @@
 
 <h1 align="center">Cosmo</h1>
 
-<p align="center"><strong>Nền tảng AI nội bộ cho doanh nghiệp</strong></p>
+<p align="center"><a href="README.md">English</a> · <a href="README.vi.md">Tiếng Việt</a></p>
+
+<p align="center"><strong>An internal AI platform for enterprises</strong></p>
 <p align="center">Chat · Knowledge Base · Agents · MCP Tools · Workflows</p>
 
 <p align="center">
@@ -17,59 +19,59 @@
 </p>
 
 <p align="center">
-  <a href="#tổng-quan">Tổng quan</a> ·
-  <a href="#kiến-trúc">Kiến trúc</a> ·
-  <a href="#khởi-động-nhanh">Khởi động nhanh</a> ·
-  <a href="#cấu-hình">Cấu hình</a> ·
-  <a href="#phát-triển-và-kiểm-thử">Kiểm thử</a>
+  <a href="#overview">Overview</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#configuration">Configuration</a> ·
+  <a href="#development-and-testing">Testing</a>
 </p>
 
-## Tổng quan
+## Overview
 
-Cosmo cung cấp một không gian làm việc chung để nhân viên trò chuyện với AI, tra cứu tài liệu nội bộ và sử dụng các công cụ nghiệp vụ. Tổ chức quản lý model, dữ liệu, thành viên và các kết nối trong từng workspace.
+Cosmo provides a shared workspace where employees can chat with AI, search internal documents, and use business tools. Organizations manage models, data, members, and integrations within each workspace.
 
-Hệ thống có thể tự triển khai bằng Docker Compose. Model được cung cấp qua một **Model Gateway tương thích OpenAI**; tài liệu được xử lý bởi dịch vụ RAG riêng; các hệ thống như SAP được kết nối qua **MCP server độc lập**.
+The platform can be self-hosted with Docker Compose. Models are accessed through an **OpenAI-compatible Model Gateway**, documents are processed by a dedicated RAG service, and systems such as SAP connect through **independent MCP servers**.
 
-## Tính năng chính
+## Key features
 
-- **Workspace và tài khoản** — đăng nhập cục bộ hoặc Microsoft Entra ID, quản lý thành viên, vai trò và chuyển workspace.
-- **Chat** — trả lời streaming, lịch sử hội thoại, tệp đính kèm, trích dẫn nguồn, hiển thị lời gọi tool và nút gợi ý tiếp theo. Tin nhắn giữ nguyên xuống dòng.
-- **Knowledge Base** — nhập và lập chỉ mục tài liệu, truy xuất theo quyền workspace, snapshot dữ liệu và bộ công cụ đánh giá chất lượng truy xuất.
-- **Agents** — cấu hình chỉ dẫn, model, kiến thức, tool và phiên bản phát hành; thử agent trước khi sử dụng.
-- **Tools và MCP** — công cụ tích hợp sẵn, HTTP API và MCP Streamable HTTP; khám phá action, lưu JSON Schema, thử gọi và quản lý chính sách từng action.
-- **Workflows** — thiết kế luồng xử lý, thực thi bằng worker, theo dõi từng bước và lưu trạng thái khi chờ xác nhận.
-- **Quản trị và quan sát** — quản lý gateway, cấu hình hệ thống, nhật ký audit, lịch sử thực thi và thống kê sử dụng model.
+- **Workspaces and accounts** — local or Microsoft Entra ID sign-in, membership management, roles, and workspace switching.
+- **Chat** — streaming responses, conversation history, attachments, source citations, tool call details, and follow-up buttons. Messages preserve line breaks.
+- **Knowledge Base** — document ingestion and indexing, retrieval scoped to workspace permissions, data snapshots, and retrieval evaluation tools.
+- **Agents** — configure instructions, models, knowledge, tools, and published versions; try agents before using them.
+- **Tools and MCP** — built-in tools, HTTP APIs, and MCP Streamable HTTP; discover actions, store JSON Schema, test calls, and manage policies for each action.
+- **Workflows** — design flows, execute them through workers, monitor individual steps, and save checkpoints while awaiting approval.
+- **Administration and observability** — gateway management, system configuration, audit logs, execution history, and model usage statistics.
 
-## Kiến trúc
+## Architecture
 
-### Các lớp hệ thống
+### System layers
 
-| Lớp | Công nghệ | Trách nhiệm |
+| Layer | Technology | Responsibility |
 | --- | --- | --- |
-| Web | React 19, TypeScript, Vinext, Astryx, Tailwind CSS | Chat, workspace, agent, tool, workflow và giao diện quản trị |
-| API và điều phối | Go 1.26, Chi | Xác thực, phân quyền, xử lý hội thoại, gọi model/tool và API nghiệp vụ |
-| Xử lý nền | Go workers, PostgreSQL | Hàng đợi chat/workflow, nhập tài liệu, checkpoint và khôi phục trạng thái |
-| Knowledge | Python 3.12, FastAPI, LlamaIndex | Đọc tài liệu, chia đoạn và truy xuất nội dung |
-| Dữ liệu ứng dụng | PostgreSQL 17 | Người dùng, workspace, hội thoại, cấu hình, chính sách và lịch sử thực thi |
-| Vector và tệp | Qdrant, MinIO | Chỉ mục vector và lưu trữ đối tượng |
-| Tích hợp | Model Gateway, MCP, HTTP, SearXNG | Suy luận AI, kết nối nghiệp vụ và tìm kiếm web |
-| Triển khai | Docker Compose | Chạy các service và lưu dữ liệu bằng volume |
+| Web | React 19, TypeScript, Vinext, Astryx, Tailwind CSS | Chat, workspaces, agents, tools, workflows, and administration UI |
+| API and orchestration | Go 1.26, Chi | Authentication, authorization, conversation handling, model/tool calls, and business APIs |
+| Background processing | Go workers, PostgreSQL | Chat/workflow queues, document ingestion, checkpoints, and recovery |
+| Knowledge | Python 3.12, FastAPI, LlamaIndex | Document parsing, chunking, and content retrieval |
+| Application data | PostgreSQL 17 | Users, workspaces, conversations, configuration, policies, and execution history |
+| Vectors and files | Qdrant, MinIO | Vector indexes and object storage |
+| Integrations | Model Gateway, MCP, HTTP, SearXNG | AI inference, business integrations, and web search |
+| Deployment | Docker Compose | Service execution and persistent volumes |
 
-### Sơ đồ tổng thể
+### System overview
 
 ```mermaid
 flowchart TB
-    User["Người dùng"] --> Web["Web UI<br/>React · Vinext · Astryx"]
+    User["User"] --> Web["Web UI<br/>React · Vinext · Astryx"]
     Web <-->|"REST · SSE"| API
 
     subgraph Cosmo["Cosmo — Docker Compose"]
         API["Go API<br/>Auth · Workspace · Chat · Agents · Tools"]
-        Workers["Workers trong backend<br/>Chat · Workflow · Knowledge"]
-        DB[("PostgreSQL<br/>Dữ liệu · Queue · Checkpoint · Audit")]
+        Workers["Workers inside backend<br/>Chat · Workflow · Knowledge"]
+        DB[("PostgreSQL<br/>Data · Queue · Checkpoint · Audit")]
         RAG["RAG Service<br/>FastAPI · LlamaIndex"]
         Vector[("Qdrant<br/>Vector index")]
-        Objects[("MinIO<br/>Tài liệu và đối tượng")]
-        Search["SearXNG<br/>Tìm kiếm web"]
+        Objects[("MinIO<br/>Documents and objects")]
+        Search["SearXNG<br/>Web search"]
         API <--> DB
         API --> Workers
         Workers <--> DB
@@ -80,24 +82,24 @@ flowchart TB
         API --> Search
     end
 
-    Entra["Microsoft Entra ID<br/>Đăng nhập OIDC"] <--> API
+    Entra["Microsoft Entra ID<br/>OIDC sign-in"] <--> API
     Gateway["Model Gateway<br/>Chat · Embedding · Rerank"]
     API --> Gateway
     Workers --> Gateway
     RAG --> Gateway
-    API -->|"Streamable HTTP"| MCP["MCP Servers<br/>SAP hoặc hệ thống khác"]
-    API -->|"HTTP"| Services["API nghiệp vụ"]
-    MCP --> Business["Dữ liệu và dịch vụ nghiệp vụ"]
-    Search --> Internet["Nguồn tìm kiếm công khai"]
+    API -->|"Streamable HTTP"| MCP["MCP Servers<br/>SAP or other systems"]
+    API -->|"HTTP"| Services["Business APIs"]
+    MCP --> Business["Business data and services"]
+    Search --> Internet["Public search sources"]
 ```
 
-PostgreSQL lưu cả dữ liệu ứng dụng và trạng thái hàng đợi; cấu hình Compose hiện tại không có Redis hay một service worker riêng. Gateway và MCP server là các hệ thống bên ngoài, không được khởi tạo bởi Compose mặc định.
+PostgreSQL stores both application data and queue state. The current Compose configuration has no Redis or separate worker service. The Model Gateway and MCP servers are external systems and are not provisioned by the default Compose stack.
 
-### Luồng xử lý một lượt chat
+### Chat turn lifecycle
 
 ```mermaid
 sequenceDiagram
-    actor User as Người dùng
+    actor User as User
     participant Web as Web UI
     participant API as Go API
     participant DB as PostgreSQL
@@ -106,82 +108,82 @@ sequenceDiagram
     participant LLM as Model Gateway
     participant Tool as MCP / HTTP Tool
 
-    User->>Web: Gửi câu hỏi hoặc chọn nút gợi ý
-    Web->>API: Gửi nội dung và mã định danh lượt
-    API->>DB: Lưu câu hỏi và đưa vào hàng đợi
-    API-->>Web: Mở luồng sự kiện SSE
-    Worker->>DB: Nhận lượt và giữ lease
-    Worker->>LLM: Xác định cách xử lý
-    opt Cần tài liệu nội bộ
-        Worker->>RAG: Truy xuất trong phạm vi được phép
-        RAG-->>Worker: Nội dung và nguồn tham chiếu
+    User->>Web: Send a question or select a suggestion
+    Web->>API: Submit content and turn identifier
+    API->>DB: Save question and enqueue turn
+    API-->>Web: Open SSE event stream
+    Worker->>DB: Claim turn and maintain lease
+    Worker->>LLM: Determine how to handle the request
+    opt Internal documents needed
+        Worker->>RAG: Retrieve within authorized scope
+        RAG-->>Worker: Content and source references
     end
-    opt Model yêu cầu gọi tool
-        Worker->>DB: Kiểm tra chính sách action
-        alt Action cần xác nhận
-            Worker->>DB: Lưu checkpoint và yêu cầu xác nhận
-            API-->>Web: Hiển thị yêu cầu xác nhận
-            User->>Web: Xác nhận hoặc từ chối
-            Web->>API: Gửi quyết định
-            API->>DB: Lưu quyết định
-            Worker->>DB: Khôi phục và kiểm tra lại quyền, định nghĩa
+    opt Model requests a tool call
+        Worker->>DB: Check action policy
+        alt Action requires approval
+            Worker->>DB: Save checkpoint and approval request
+            API-->>Web: Display approval request
+            User->>Web: Approve or reject
+            Web->>API: Submit decision
+            API->>DB: Save decision
+            Worker->>DB: Resume and recheck permissions and definitions
         end
-        opt Action được phép thực hiện
-            Worker->>Tool: Gọi action với tham số hợp lệ
-            Tool-->>Worker: Kết quả thực thi
+        opt Action is authorized
+            Worker->>Tool: Invoke action with validated arguments
+            Tool-->>Worker: Execution result
         end
     end
-    Worker->>LLM: Hoàn thiện câu trả lời và gợi ý
-    Worker->>DB: Lưu câu trả lời, trích dẫn và gợi ý
-    DB-->>API: Sự kiện và trạng thái lượt
-    API-->>Web: Nội dung streaming và kết quả hoàn tất
-    Web-->>User: Câu trả lời cùng các nút thao tác tiếp theo
+    Worker->>LLM: Complete response and suggestions
+    Worker->>DB: Save response, citations, and suggestions
+    DB-->>API: Turn events and state
+    API-->>Web: Stream content and completion result
+    Web-->>User: Response with follow-up action buttons
 ```
 
-## Khởi động nhanh
+## Quick start
 
-### Yêu cầu
+### Requirements
 
-- Docker Engine hoặc Docker Desktop với Docker Compose v2.
-- PowerShell để sử dụng script trong `scripts/`.
-- Kết nối tới Model Gateway để sử dụng các tính năng AI.
-- Lần build đầu cần truy cập registry và kho package để tải image, dependency.
+- Docker Engine or Docker Desktop with Docker Compose v2.
+- PowerShell to run the scripts in `scripts/`.
+- Access to a Model Gateway for AI features.
+- Registry and package repository access for the initial image and dependency build.
 
-### 1. Tạo cấu hình
+### 1. Create configuration
 
-Từ thư mục gốc repository, nếu chưa có `.env`:
+From the repository root, if `.env` does not already exist:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Chỉnh `.env` trước khi chạy:
+Edit `.env` before starting:
 
-- Thay `POSTGRES_PASSWORD` và cập nhật mật khẩu tương ứng trong `DATABASE_URL`.
-- Đặt `SESSION_SECRET`, `ADMIN_PASSWORD`, `MINIO_SECRET_KEY` và `SEARXNG_SECRET` bằng giá trị riêng.
-- Cấu hình Model Gateway và Microsoft Entra ID nếu sử dụng.
+- Replace `POSTGRES_PASSWORD` and update the matching password in `DATABASE_URL`.
+- Set unique values for `SESSION_SECRET`, `ADMIN_PASSWORD`, `MINIO_SECRET_KEY`, and `SEARXNG_SECRET`.
+- Configure the Model Gateway and Microsoft Entra ID if used.
 
-Danh sách biến và chú thích đầy đủ nằm trong [.env.example](.env.example). Không ghi đè `.env` đang dùng bằng file mẫu.
+See [.env.example](.env.example) for the complete variable list and comments. Do not overwrite an existing `.env` with the sample file.
 
-### 2. Build và khởi động
+### 2. Build and start
 
 ```powershell
 .\scripts\start-local.ps1
 ```
 
-Script chạy `docker compose up -d --build`. Đây là lệnh **có build**, không phải chế độ chạy hoàn toàn offline.
+The script runs `docker compose up -d --build`. It **builds images** and is not a fully offline startup mode.
 
-Nếu đã có đầy đủ image local và chỉ muốn khởi động chúng:
+If all required images are already available locally and you only want to start them:
 
 ```powershell
 docker compose up -d --no-build --pull never
 ```
 
-### 3. Truy cập
+### 3. Access services
 
-| Dịch vụ | Địa chỉ local |
+| Service | Local address |
 | --- | --- |
-| Giao diện Cosmo | [localhost:3100](http://localhost:3100) |
+| Cosmo UI | [localhost:3100](http://localhost:3100) |
 | API health | [localhost:8080/api/health](http://localhost:8080/api/health) |
 | RAG health | [localhost:8001/health](http://localhost:8001/health) |
 | PostgreSQL | `localhost:55432` |
@@ -189,9 +191,9 @@ docker compose up -d --no-build --pull never
 | MinIO Console | [localhost:9011](http://localhost:9011) |
 | MinIO S3 API | `localhost:9010` |
 
-SearXNG chỉ mở trong mạng Compose, không công bố cổng ra host.
+SearXNG is available only within the Compose network and does not publish a host port.
 
-### Dừng và xem trạng thái
+### Stop and inspect status
 
 ```powershell
 docker compose ps
@@ -199,13 +201,13 @@ docker compose logs --tail=100 backend
 .\scripts\stop-local.ps1
 ```
 
-Dừng bình thường giữ các volume `cosmo-postgres`, `cosmo-qdrant`, `cosmo-minio`. Tùy chọn `start-local.ps1 -ResetData` xóa cả ba volume; chỉ dùng khi chủ động muốn bỏ toàn bộ dữ liệu local.
+Normal shutdown preserves the `cosmo-postgres`, `cosmo-qdrant`, and `cosmo-minio` volumes. The `start-local.ps1 -ResetData` option deletes all three volumes; use it only when you intend to discard all local data.
 
-## Cấu hình
+## Configuration
 
 ### Model Gateway
 
-Có thể cấu hình gateway theo workspace trong giao diện hoặc dùng các biến môi trường:
+Configure the gateway per workspace in the UI or through environment variables:
 
 ```dotenv
 LLM_BASE_URL=https://gateway.example.com/v1
@@ -214,44 +216,44 @@ LLM_MODEL=<model-alias>
 LLM_REQUEST_TIMEOUT=90s
 ```
 
-Gateway cần cung cấp API tương thích OpenAI Chat Completions. Chọn model hỗ trợ tool calling khi dùng MCP/HTTP tools; cấu hình model embedding và rerank phù hợp khi dùng Knowledge Base. Khóa gateway được sử dụng ở phía server, không đưa vào biến `NEXT_PUBLIC_*`.
+The gateway must provide an OpenAI-compatible Chat Completions API. Choose a model that supports tool calling for MCP/HTTP tools, and configure suitable embedding and reranking models for the Knowledge Base. Gateway keys are used on the server; do not expose them through `NEXT_PUBLIC_*` variables.
 
 ### Microsoft Entra ID
 
-Đăng ký ứng dụng Web với redirect URI local:
+Register a Web application with the local redirect URI:
 
 ```text
 http://localhost:8080/api/auth/entra/callback
 ```
 
-Điền `AZURE_AD_TENANT_ID`, `AZURE_AD_CLIENT_ID`, `AZURE_AD_CLIENT_SECRET` và `AZURE_AD_REDIRECT_URL` trong `.env`. Khi Entra được bật, đăng nhập/đăng ký bằng mật khẩu cục bộ bị tắt. `ADMIN_EMAILS` dùng để chỉ định quản trị viên; permission Microsoft Graph `User.Read` phục vụ ảnh đại diện.
+Set `AZURE_AD_TENANT_ID`, `AZURE_AD_CLIENT_ID`, `AZURE_AD_CLIENT_SECRET`, and `AZURE_AD_REDIRECT_URL` in `.env`. Enabling Entra disables local password sign-in and registration. Use `ADMIN_EMAILS` to designate administrators; the Microsoft Graph `User.Read` permission supports profile photos.
 
-### MCP và quyền gọi tool
+### MCP and tool permissions
 
-1. Tạo tool loại MCP, nhập endpoint và cấu hình xác thực.
-2. Chạy **Discover MCP tools**, kiểm tra schema và thử action.
-3. Chọn chính sách từng action: **Chỉ đọc**, **Chủ tool xác nhận**, **Người sử dụng xác nhận** hoặc **Chặn action**.
-4. Cài tool vào workspace và bật **Callable in chat** để sử dụng trong chat thường; hoặc gắn tool vào agent.
+1. Create an MCP tool, enter its endpoint, and configure authentication.
+2. Run **Discover MCP tools**, review the schemas, and test actions.
+3. Select a policy for each action: **Read-only**, **Tool owner approval**, **User approval**, or **Block action**.
+4. Install the tool in the workspace and enable **Callable in chat** for regular chat, or attach the tool to an agent.
 
-Tool dùng khóa chung vẫn có thể được gọi trong workspace khi được bật và chính sách action cho phép. OAuth theo người dùng yêu cầu từng người kết nối tài khoản của mình. MCP server vẫn chịu trách nhiệm xác thực và phân quyền tại hệ thống đích.
+Tools using shared credentials can be called within the workspace when enabled and permitted by the action policy. Per-user OAuth requires each user to connect their own account. The MCP server remains responsible for authentication and authorization in the target system.
 
-Discover giữ chính sách cho action không đổi; thay đổi định nghĩa action hoặc thông tin xác thực có thể yêu cầu duyệt lại. Lưu thông tin chung và publish không tự làm mất chính sách “Chỉ đọc”.
+Discovery preserves policies for unchanged actions. Changes to action definitions or credentials may require renewed approval. Saving general metadata and publishing do not automatically invalidate a read-only policy.
 
-Đối với endpoint nội bộ, cấu hình `TOOL_EGRESS_ALLOWED_HOSTS` theo hostname cần truy cập. Hướng dẫn giao thức, các profile OAuth và MCP demo nằm tại [MCP integration](docs/mcp-integration.md).
+For internal endpoints, configure `TOOL_EGRESS_ALLOWED_HOSTS` with the required hostnames. See [MCP integration](docs/mcp-integration.md) for protocol details, OAuth profiles, and the MCP demo.
 
-## Phát triển và kiểm thử
+## Development and testing
 
-Phát triển ngoài container cần Go 1.26+, Node.js 22.13+ và Python 3.12 cho RAG.
+Development outside containers requires Go 1.26+, Node.js 22.13+, and Python 3.12 for RAG.
 
-**Backend** — chạy từ `backend/`:
+**Backend** — run from `backend/`:
 
 ```powershell
 go test ./...
 ```
 
-Các test tích hợp PostgreSQL chỉ chạy khi có `COSMO_TEST_DATABASE_URL`. Dùng database kiểm thử riêng đã chạy migration; không trỏ test vào database đang phục vụ người dùng vì worker có thể nhận nhầm các job fixture.
+PostgreSQL integration tests run only when `COSMO_TEST_DATABASE_URL` is set. Use a separate test database with migrations applied. Do not point tests at a database serving users, as live workers could claim fixture jobs.
 
-**Frontend** — chạy từ `frontend/`:
+**Frontend** — run from `frontend/`:
 
 ```powershell
 npm ci
@@ -259,62 +261,62 @@ node --test tests/*.test.mjs
 npm run build
 ```
 
-**RAG** — khi service đang chạy:
+**RAG** — with the service running:
 
 ```powershell
 docker compose exec -T rag python -m pytest tests
 ```
 
-**Kiểm tra cấu hình Compose** — chạy từ thư mục gốc:
+**Validate Compose configuration** — run from the repository root:
 
 ```powershell
 docker compose config --quiet
 ```
 
-## Cấu trúc repository
+## Repository structure
 
 ```text
 backend/
-  cmd/                     Server, migrate, seed và MCP demo
+  cmd/                     Server, migrations, seed, and MCP demo
   internal/
-    agents/                Agent, phiên bản và hỗ trợ hội thoại
-    httpapi/               REST, SSE, auth và điều phối worker
-    tools/                 HTTP/MCP, discovery, OAuth và chính sách
-    knowledge/             Client và hợp đồng với dịch vụ RAG
-    modelgateway/          Client model, context budget và usage
-    workflows/             Định nghĩa và thực thi workflow
-    runs/                  Run, step và sự kiện thực thi
-    database/              Schema và migrations
+    agents/                Agents, versions, and conversation support
+    httpapi/               REST, SSE, auth, and worker orchestration
+    tools/                 HTTP/MCP, discovery, OAuth, and policies
+    knowledge/             RAG service client and contracts
+    modelgateway/          Model client, context budget, and usage
+    workflows/             Workflow definitions and execution
+    runs/                  Runs, steps, and execution events
+    database/              Schema and migrations
 frontend/
-  app/                     Giao diện và API client
-  public/                  Logo và tài nguyên tĩnh
-  tests/                   Kiểm thử frontend
+  app/                     UI and API client
+  public/                  Logo and static assets
+  tests/                   Frontend tests
 rag-service/
-  app/                     Parsing, indexing và retrieval
-  eval/                    Bộ câu hỏi và báo cáo đánh giá
-  tests/                   Kiểm thử RAG
-scripts/                   Script local và đánh giá chat retrieval
-searxng/                   Cấu hình tìm kiếm web
-docs/                      Tài liệu tích hợp và vận hành
-docker-compose.yml         Bảy service mặc định
-docker-compose.mcpdemo.yml  MCP demo tùy chọn
-.env.example               Cấu hình mẫu
+  app/                     Parsing, indexing, and retrieval
+  eval/                    Evaluation questions and reports
+  tests/                   RAG tests
+scripts/                   Local scripts and chat retrieval evaluation
+searxng/                   Web search configuration
+docs/                      Integration and operations documentation
+docker-compose.yml         Seven default services
+docker-compose.mcpdemo.yml  Optional MCP demo
+.env.example               Sample configuration
 ```
 
-## Dữ liệu và triển khai
+## Data and deployment
 
-- `.env` và credential local không được commit. Thay toàn bộ secret mẫu trước khi triển khai.
-- Khi chạy ngoài máy phát triển, bật HTTPS, đặt `COOKIE_SECURE=true` và cấu hình origin/redirect URI theo domain thực tế.
-- Giới hạn truy cập các cổng PostgreSQL, Qdrant, MinIO và RAG theo mạng triển khai.
-- Sao lưu PostgreSQL cùng dữ liệu MinIO/Qdrant; không coi việc container còn tồn tại là đã có bản sao lưu.
-- Lượt tool bị gián đoạn sau dispatch không được tự động phát lại nếu chưa xác định kết quả; kiểm tra lịch sử và đối soát tại hệ thống đích.
+- Do not commit `.env` or local credentials. Replace all sample secrets before deployment.
+- Outside a development machine, enable HTTPS, set `COOKIE_SECURE=true`, and configure origins and redirect URIs for the actual domain.
+- Restrict access to PostgreSQL, Qdrant, MinIO, and RAG ports according to the deployment network.
+- Back up PostgreSQL together with MinIO/Qdrant data. Existing containers are not a substitute for backups.
+- Tool turns interrupted after dispatch are not automatically replayed when the outcome is unknown. Review execution history and reconcile with the target system.
 
-## Tài liệu liên quan
+## Related documentation
 
-- [Tích hợp MCP, OAuth và conformance test](docs/mcp-integration.md)
-- [Chính sách tool và lịch sử triển khai cơ chế xác nhận](docs/tool-write-policy.md)
-- [Đánh giá truy xuất trong chat](docs/evaluation-chat-retrieval.md)
-- [Hướng dẫn gán nhãn bộ câu hỏi đánh giá](docs/evaluation-chat-retrieval-labeling.md)
-- [Kế hoạch cải tiến chat, agent và Knowledge Base](docs/ke-hoach-cai-tien-chat-agent-knowledge-base.md)
+- [MCP integration, OAuth, and conformance tests](docs/mcp-integration.md)
+- [Tool policies and approval implementation history](docs/tool-write-policy.md)
+- [Chat retrieval evaluation](docs/evaluation-chat-retrieval.md)
+- [Evaluation dataset labeling guide](docs/evaluation-chat-retrieval-labeling.md)
+- [Chat, agent, and Knowledge Base improvement plan](docs/ke-hoach-cai-tien-chat-agent-knowledge-base.md)
 
-Các tài liệu kế hoạch và ghi nhận theo ngày mô tả cả những giai đoạn trước đây; đối chiếu code hiện tại khi đánh giá trạng thái một tính năng.
+Planning documents and dated implementation notes also describe earlier stages. Check the current code when assessing the status of a feature.

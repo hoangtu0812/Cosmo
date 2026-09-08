@@ -136,6 +136,7 @@ type Tool struct {
 	IsEditable            bool      `json:"is_editable"`
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
+	AuthUpdatedAt         time.Time `json:"-"`
 }
 
 // Parameter is one input an action takes. It is described rather than typed in

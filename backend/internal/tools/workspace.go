@@ -11,10 +11,8 @@ import (
 // narrows that to what it needs.
 
 var (
-	ErrNotOffered    = errors.New("Tool này chưa được chia sẻ cho workspace của bạn.")
-	ErrNotInstalled  = errors.New("Tool chưa được cài vào workspace này.")
-	ErrKeyedAutoCall = errors.New(
-		"Tool đang giữ khoá thì chưa được tự động gọi. Hãy bỏ khoá, hoặc chỉ gắn nó vào agent.")
+	ErrNotOffered   = errors.New("Tool này chưa được chia sẻ cho workspace của bạn.")
+	ErrNotInstalled = errors.New("Tool chưa được cài vào workspace này.")
 )
 
 // offeredSQL is the one definition of what a workspace may install: its own
@@ -57,24 +55,9 @@ func (repository *Repository) UninstallFromWorkspace(ctx context.Context, worksp
 	return err
 }
 
-// SetAutoCall decides whether the model may reach for this tool on its own.
-//
-// A tool holding a credential is refused. That is the rule as asked for, and
-// the reason is worth keeping in view: until now a tool ran because somebody
-// deliberately wired it into an agent they built. A tool that answers any
-// member's question on its own is a wider blast radius, and a stored key is
-// the part of that blast nobody would want to discover by accident.
+// SetAutoCall lets a workspace admin enable installed tools for member chats,
+// including tools using workspace-shared credentials.
 func (repository *Repository) SetAutoCall(ctx context.Context, workspaceID, toolID string, autoCall bool) error {
-	if autoCall {
-		var blocksAutoCall bool
-		if err := repository.db.QueryRow(ctx,
-			`SELECT auth_secret IS NOT NULL AND auth_type <> 'oauth2_user' FROM tools WHERE id = $1`, toolID).Scan(&blocksAutoCall); err != nil {
-			return ErrNotFound
-		}
-		if blocksAutoCall {
-			return ErrKeyedAutoCall
-		}
-	}
 	result, err := repository.db.Exec(ctx,
 		`UPDATE workspace_tools SET auto_call = $3 WHERE workspace_id = $1 AND tool_id = $2`,
 		workspaceID, toolID, autoCall)
@@ -92,10 +75,7 @@ func (repository *Repository) SetAutoCall(ctx context.Context, workspaceID, tool
 type WorkspaceInstall struct {
 	Tool     Tool `json:"tool"`
 	AutoCall bool `json:"auto_call"`
-	// True when the switch is on but the tool has since been given a key. The
-	// install survives and the switch still reads as on; the calling does not
-	// happen, because the read-time guard refuses it. Saying so is better than
-	// letting somebody watch a switch they set quietly stop working.
+	// Retained for API compatibility; shared credentials no longer block chat.
 	IsBlockedByKey bool `json:"is_blocked_by_key"`
 }
 
@@ -124,21 +104,13 @@ func (repository *Repository) InstalledInWorkspace(ctx context.Context, workspac
 		list = append(list, WorkspaceInstall{
 			Tool:     tool,
 			AutoCall: tool.AutoCall,
-			// The key is what the read-time guard checks, so the same fact
-			// answers both questions: this one is only worth raising while the
-			// switch says the tool should be answering.
-			IsBlockedByKey: tool.AutoCall && tool.HasSecret && tool.AuthType != AuthOAuthUser,
 		})
 	}
 	return list, rows.Err()
 }
 
-// AutoCallable is what a plain chat may reach for: installed here, still
-// offered, switched on, and holding no credential.
-//
-// The credential check is repeated here rather than trusted from the switch,
-// because a tool can be given a key after it was switched on. Read time is the
-// only moment that cannot be out of date.
+// AutoCallable returns installed tools enabled for chat and still offered to
+// this workspace. Shared credentials are used by the normal invocation path.
 func autoCallableSQL() string {
 	return `
 		SELECT ` + columns + `
@@ -146,7 +118,7 @@ func autoCallableSQL() string {
 		JOIN tools t ON t.id = wt.tool_id
 		LEFT JOIN users u ON u.id = t.owner_user_id
 		WHERE wt.workspace_id = $1 AND wt.auto_call
-		  AND (t.auth_secret IS NULL OR t.auth_type = 'oauth2_user') AND (` + offeredSQL + `)
+		  AND (` + offeredSQL + `)
 		ORDER BY t.name`
 }
 

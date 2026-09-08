@@ -25,24 +25,18 @@ func TestOfferedSQLCoversTheFourRungs(t *testing.T) {
 	}
 }
 
-// A shared static key must not be reachable by a plain chat. A user OAuth
-// registration is different: the call still requires the current person's
-// private grant, so that profile is intentionally admitted.
-func TestAutoCallableRefusesKeyedToolsInTheQuery(t *testing.T) {
-	repository := &Repository{}
-	_ = repository
-	// The guard lives in the SQL, so that is what is checked. Asserting on a
-	// live database here would need one; asserting the clause exists catches
-	// the removal, which is the failure that matters.
+// Chat eligibility depends on workspace installation, opt-in and availability,
+// not on whether the tool uses shared or per-user credentials.
+func TestAutoCallableAllowsSharedCredentialsWithWorkspaceGates(t *testing.T) {
 	source := autoCallableSQL()
-	if !strings.Contains(source, "t.auth_secret IS NULL") {
-		t.Error("a keyed tool is not excluded at read time")
+	for _, fragment := range []string{"FROM workspace_tools wt", "wt.workspace_id = $1", "wt.auto_call", offeredSQL} {
+		if !strings.Contains(source, fragment) {
+			t.Errorf("missing workspace eligibility gate %q", fragment)
+		}
 	}
-	if !strings.Contains(source, "t.auth_type = 'oauth2_user'") {
-		t.Error("a per-user OAuth grant cannot be enabled in chat")
-	}
-	if !strings.Contains(source, "wt.auto_call") {
-		t.Error("the switch is not consulted")
+	where := source[strings.Index(source, "WHERE wt.workspace_id"):]
+	if strings.Contains(where, "auth_secret") || strings.Contains(where, "auth_type") {
+		t.Error("chat eligibility must not exclude tools based on credentials")
 	}
 }
 

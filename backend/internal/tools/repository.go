@@ -63,7 +63,7 @@ const columns = `
 		     OR EXISTS (SELECT 1 FROM tool_actions a
 		                WHERE a.tool_id = t.id AND a.updated_at > v.created_at))
 	)),
-	t.created_at, t.updated_at`
+	t.created_at, t.updated_at, t.auth_updated_at`
 
 // workspaceColumns carry the two things that are only true of a tool relative
 // to one workspace: how much of that workspace leans on it, and what it has
@@ -107,7 +107,7 @@ func scan(row pgx.Row, userID string) (Tool, error) {
 		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
 		&tool.ActionCount, &tool.WorkspaceName, &tool.PublishedVersion,
 		&tool.PublishedVersionID, &tool.HasUnpublishedChanges,
-		&tool.CreatedAt, &tool.UpdatedAt,
+		&tool.CreatedAt, &tool.UpdatedAt, &tool.AuthUpdatedAt,
 	); err != nil {
 		return Tool{}, err
 	}
@@ -128,7 +128,7 @@ func scanInWorkspace(row pgx.Row, userID string) (Tool, error) {
 		&tool.Kind, &tool.AuthType, &tool.AuthHeaderName, &tool.AuthHint, &tool.HasSecret,
 		&tool.ActionCount, &tool.WorkspaceName, &tool.PublishedVersion,
 		&tool.PublishedVersionID, &tool.HasUnpublishedChanges,
-		&tool.CreatedAt, &tool.UpdatedAt,
+		&tool.CreatedAt, &tool.UpdatedAt, &tool.AuthUpdatedAt,
 		&tool.ReferenceCount, &autoCall,
 	); err != nil {
 		return Tool{}, err
@@ -320,6 +320,13 @@ func (repository *Repository) Update(ctx context.Context, id, userID, workspaceI
 // value clears it, which is how a reader removes a key they no longer want
 // stored.
 func (repository *Repository) setSecret(ctx context.Context, id, authType, secret string) error {
+	// Re-encrypting an unchanged credential would look like a credential change
+	// to the revision trigger and unnecessarily invalidate reviewed policies.
+	if secret != "" {
+		if current, err := repository.secretFor(ctx, id); err == nil && current == secret {
+			return nil
+		}
+	}
 	if secret == "" {
 		_, err := repository.db.Exec(ctx, `UPDATE tools SET auth_secret = NULL, auth_hint = '', updated_at = NOW() WHERE id = $1`, id)
 		return err

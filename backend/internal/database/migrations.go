@@ -112,6 +112,7 @@ var migrations = []Migration{
 		`CREATE TABLE rag_model_calls(id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,observation JSONB NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
 		`CREATE INDEX rag_model_call_scope ON rag_model_calls(workspace_id,created_at,actor_id)`,
 	}},
+	{Version: 49, Name: "tool_auth_policy_revision", Statements: toolAuthPolicyRevisionStatements},
 }
 
 var knowledgeSnapshotStatements = []string{

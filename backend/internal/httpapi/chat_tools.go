@@ -320,8 +320,7 @@ func (s *Server) runToolRounds(
 // An agent brings what it was wired to - frozen by version when the
 // conversation is pinned, live when it is a draft. A plain chat brings what
 // the workspace installed *and* switched on, which is two deliberate acts by
-// somebody with the right to perform them, and never a tool holding a
-// credential.
+// a workspace admin, including tools using shared credentials.
 //
 // A workspace with nothing installed produces an empty set, and an empty set
 // skips the whole tool phase - so an ordinary chat costs exactly what it cost

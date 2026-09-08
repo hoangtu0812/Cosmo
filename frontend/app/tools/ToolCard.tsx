@@ -78,15 +78,11 @@ export function ToolCard({tool, actions, canInstall, isBusy, origin, onOpen, onI
                 <StatusLabel label={t(visibilityKey(tool))} variant="neutral" />
               </HStack>
 
-              {/* Installing puts the tool in the workspace; the switch decides
-                  whether a plain question may reach it. Two acts, so two
-                  controls - and the switch is dead while the tool holds a key,
-                  which the server refuses anyway. Letting go of it is in the
-                  menu, with the other things done once. */}
+              {/* Workspace admins enable installed tools for member chats. */}
               <HStack className="mt-auto" gap={2} onClick={(event) => event.stopPropagation()} vAlign="center" width="100%">
                 {tool.is_installed ? (
                   <Switch
-                    isDisabled={isBusy || (tool.has_secret && tool.auth_type !== 'oauth2_user') || !canInstall}
+                    isDisabled={isBusy || !canInstall}
                     label={t('tool.autoCall')}
                     onChange={(checked: boolean) => onAutoCall(checked)}
                     size="sm"

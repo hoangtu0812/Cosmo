@@ -93,7 +93,7 @@ func TestInlineApprovalRequiresExactLiveActorDecision(t *testing.T) {
 			case "cancel", "crash_ledger":
 				cancel()
 			case "changed":
-				_, err = s.db.Exec(base, `UPDATE tools SET updated_at=NOW() WHERE id=$1`, id)
+				_, err = s.db.Exec(base, `UPDATE tools SET base_url=base_url || '/changed', updated_at=NOW() WHERE id=$1`, id)
 			case "revoked":
 				_, err = s.db.Exec(base, `DELETE FROM workspace_memberships WHERE user_id=$1 AND workspace_id=$2`, owner.ID, agent.WorkspaceID)
 			}

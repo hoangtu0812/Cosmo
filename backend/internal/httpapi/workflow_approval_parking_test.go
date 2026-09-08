@@ -103,7 +103,7 @@ func TestWorkflowParksAndResumesExactConsent(t *testing.T) {
 				t.Fatal(err)
 			}
 			if mode == "changed" {
-				_, err = s.db.Exec(ctx, `UPDATE tools SET updated_at=NOW() WHERE id=$1`, toolID)
+				_, err = s.db.Exec(ctx, `UPDATE tools SET base_url=base_url || '/changed', updated_at=NOW() WHERE id=$1`, toolID)
 			}
 			if mode == "revoked" {
 				_, err = s.db.Exec(ctx, `DELETE FROM workspace_memberships WHERE user_id=$1 AND workspace_id=$2`, owner.ID, agent.WorkspaceID)

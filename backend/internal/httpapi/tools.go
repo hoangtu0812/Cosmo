@@ -30,7 +30,7 @@ func writeToolError(w http.ResponseWriter, err error) {
 	case errors.Is(err, tools.ErrWritePolicy):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, tools.ErrNotOffered), errors.Is(err, tools.ErrNotInstalled),
-		errors.Is(err, tools.ErrKeyedAutoCall), errors.Is(err, tools.ErrNoActions):
+		errors.Is(err, tools.ErrNoActions):
 		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, tools.ErrNotFound):
 		writeError(w, http.StatusNotFound, err.Error())
@@ -620,7 +620,7 @@ func (s *Server) toolName(ctx context.Context, toolID string) string {
 }
 
 // setWorkspaceToolAutoCall is the flag that lets the model reach for a tool on
-// its own. Separate from installing, and refused for a tool holding a key.
+// its own, including with shared credentials. Separate from installing.
 func (s *Server) setWorkspaceToolAutoCall(w http.ResponseWriter, r *http.Request) {
 	user, workspaceID, ok := s.agentWorkspace(w, r, chi.URLParam(r, "workspaceID"))
 	if !ok {

@@ -235,3 +235,98 @@ func TestUnchangedActionSaveKeepsReviewedPolicy(t *testing.T) {
 		t.Fatal("changed contract retained read policy", got, err)
 	}
 }
+
+func TestPolicySurvivesUnrelatedToolEdits(t *testing.T) {
+	repo, tool, action, ctx := writeFixture(t)
+	caller, _ := CallerFrom(ctx)
+	tool = prepareWriteTool(t, repo, tool, ctx, "https://example.com")
+	if err := repo.SetActionEffect(ctx, tool, action, caller.UserID, EffectRead); err != nil {
+		t.Fatal(err)
+	}
+	name, description, visibility := "Renamed", "Updated description", Shared
+	if _, err := repo.Update(ctx, tool.ID, caller.UserID, caller.WorkspaceID, Changes{Name: &name, Description: &description, Visibility: &visibility}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.SaveAction(ctx, tool.ID, "", Action{Name: "other", Method: "POST", Path: "/other"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Publish(ctx, tool.ID, caller.UserID, "metadata changes"); err != nil {
+		t.Fatal(err)
+	}
+	current, err := repo.Get(ctx, tool.ID, caller.UserID, caller.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.UpdatedAt.Equal(tool.UpdatedAt) {
+		t.Fatal("fixture did not change tool timestamp")
+	}
+	if got, err := repo.ActionEffect(ctx, current, action); err != nil || got != EffectRead {
+		t.Fatalf("unrelated edit reset policy: %s %v", got, err)
+	}
+	// A key change must invalidate policy even when its displayed suffix matches.
+	if err := repo.setSecret(ctx, tool.ID, AuthBearer, "first-same"); err != nil {
+		t.Fatal(err)
+	}
+	current, err = repo.Get(ctx, tool.ID, caller.UserID, caller.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetActionEffect(ctx, current, action, caller.UserID, EffectRead); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.setSecret(ctx, tool.ID, AuthBearer, "first-same"); err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := repo.Get(ctx, tool.ID, caller.UserID, caller.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.ActionEffect(ctx, unchanged, action); err != nil || got != EffectRead {
+		t.Fatalf("same credential reset policy: %s %v", got, err)
+	}
+	if err := repo.setSecret(ctx, tool.ID, AuthBearer, "second-same"); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := repo.Get(ctx, tool.ID, caller.UserID, caller.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := repo.ActionEffect(ctx, changed, action); err != nil || got != EffectApproval {
+		t.Fatalf("credential change retained policy: %s %v", got, err)
+	}
+}
+
+func TestPolicyHashBindsOnlyRelevantChanges(t *testing.T) {
+	tool := Tool{ID: "tool", Kind: KindMCP, BaseURL: "https://example.com/mcp", AuthType: AuthBearer, AuthUpdatedAt: time.Now()}
+	action := registryAction("lookup")
+	before := definitionHash(tool, action)
+	otherZone := tool
+	otherZone.AuthUpdatedAt = tool.AuthUpdatedAt.In(time.FixedZone("UTC+7", 7*60*60))
+	if definitionHash(otherZone, action) != before {
+		t.Fatal("server time zone changed policy hash")
+	}
+	metadata := tool
+	metadata.UpdatedAt = time.Now().Add(time.Hour)
+	metadata.Name = "Renamed"
+	metadata.Description = "Updated"
+	if definitionHash(metadata, action) != before {
+		t.Fatal("metadata changed policy hash")
+	}
+	for name, change := range map[string]func(*Tool, *Action){
+		"destination":    func(t *Tool, a *Action) { t.BaseURL += "/other" },
+		"authentication": func(t *Tool, a *Action) { t.AuthType = AuthHeader },
+		"credential":     func(t *Tool, a *Action) { t.AuthUpdatedAt = t.AuthUpdatedAt.Add(time.Second) },
+		"path":           func(t *Tool, a *Action) { a.Path = "/other" },
+		"schema": func(t *Tool, a *Action) {
+			a.MCPTool = json.RawMessage(`{"name":"lookup","inputSchema":{"type":"object","required":["id"]}}`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			copyTool, copyAction := tool, action
+			change(&copyTool, &copyAction)
+			if definitionHash(copyTool, copyAction) == before {
+				t.Fatal("relevant change did not invalidate policy")
+			}
+		})
+	}
+}

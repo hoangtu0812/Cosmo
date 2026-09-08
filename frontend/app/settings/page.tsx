@@ -555,7 +555,7 @@ function InstalledToolSettings({canAdmin, onError, workspaceID}: {canAdmin: bool
     try {
       await api.setToolAutoCall(workspaceID, install.tool.id, autoCall);
       setInstalls((current) => current.map((item) => item.tool.id === install.tool.id
-        ? {...item, auto_call: autoCall, is_blocked_by_key: autoCall && item.tool.has_secret && item.tool.auth_type !== 'oauth2_user'}
+        ? {...item, auto_call: autoCall, is_blocked_by_key: false}
         : item));
     } catch (caught) {
       onError(caught instanceof Error ? caught.message : t('tool.saveFailed'));
@@ -564,21 +564,9 @@ function InstalledToolSettings({canAdmin, onError, workspaceID}: {canAdmin: bool
     }
   }
 
-  const blocked = installs.filter((item) => item.is_blocked_by_key);
-
   return (
     <VStack gap={4}>
       <Text size="lg" type="large">{t('settings.installedTools')}</Text>
-
-      {/* Raised here rather than at the switch: the switch reads as on, and
-          the tool is not being called, and nothing on the card can say so. */}
-      {blocked.length > 0 ? (
-        <Banner
-          description={blocked.map((item) => item.tool.name).join(', ')}
-          status="warning"
-          title={t('tool.blockedByKey')}
-        />
-      ) : null}
 
       <Card padding={0} width="100%">
         {isLoading ? (
@@ -602,7 +590,7 @@ function InstalledToolSettings({canAdmin, onError, workspaceID}: {canAdmin: bool
                   </Text>
                 </VStack>
                 <Switch
-                  isDisabled={!canAdmin || busy === install.tool.id || (install.tool.has_secret && install.tool.auth_type !== 'oauth2_user')}
+                  isDisabled={!canAdmin || busy === install.tool.id}
                   label={t('tool.autoCall')}
                   onChange={(checked: boolean) => void setAutoCall(install, checked)}
                   size="sm"

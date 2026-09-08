@@ -36,10 +36,11 @@ func WithApprovalHandler(ctx context.Context, handler ApprovalHandler) context.C
 
 func definitionHash(tool Tool, action Action) string {
 	// Canonicalize JSONB and omit credentials, while binding fixed parameters,
-	// schema, destination, authentication scheme and tool revision to review.
+	// schema, destination and authentication revision to review. General tool
+	// edits and changes to other actions do not invalidate this action's policy.
 	var contract any
 	_ = json.Unmarshal(action.MCPTool, &contract)
-	raw, _ := json.Marshal([]any{tool.ID, tool.Kind, tool.BaseURL, tool.AuthType, tool.AuthHeaderName, tool.AuthHint, tool.UpdatedAt, action.ID, action.Name, action.Method, action.Path, action.Parameters, contract})
+	raw, _ := json.Marshal([]any{tool.ID, tool.Kind, tool.BaseURL, tool.AuthType, tool.AuthHeaderName, tool.AuthHint, tool.AuthUpdatedAt.UTC(), action.ID, action.Name, action.Method, action.Path, action.Parameters, contract})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }

@@ -97,7 +97,7 @@ func TestSharedToolRequiresOwnerOptInAndActorConsent(t *testing.T) {
 			case "membership_revoked":
 				_, err = s.db.Exec(base, `DELETE FROM workspace_memberships WHERE workspace_id=$1 AND user_id=$2`, agent.WorkspaceID, member.ID)
 			case "changed":
-				_, err = s.db.Exec(base, `UPDATE tools SET updated_at=NOW() WHERE id=$1`, id)
+				_, err = s.db.Exec(base, `UPDATE tools SET base_url=base_url || '/changed', updated_at=NOW() WHERE id=$1`, id)
 			}
 			if err != nil {
 				t.Fatal(err)

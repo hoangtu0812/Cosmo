@@ -194,9 +194,6 @@ function ToolsScreen() {
     }
   }
 
-  // The server refuses this for a tool holding a key, and says why. The message
-  // is shown rather than swallowed: a switch that flicks back without a reason
-  // is the worst of the outcomes available here.
   async function setAutoCall(tool: Tool, autoCall: boolean) {
     setBusy(tool.id);
     setError('');

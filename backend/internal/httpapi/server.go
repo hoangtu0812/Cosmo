@@ -1164,7 +1164,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		assistant.WriteString(cp.Tools.Answer)
 		for _, citation := range citations {
 			var visible bool
-			accessErr := s.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=$3 AND (`+workspaceVisibleKnowledgeSQL+`))`, user.ID, conversationWorkspaceID, citation.KBID).Scan(&visible)
+			accessErr := s.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=$2 AND (`+strings.ReplaceAll(workspaceVisibleKnowledgeSQL, "$2", "$1")+`))`, conversationWorkspaceID, citation.KBID).Scan(&visible)
 			if accessErr != nil || !visible {
 				writeError(w, 403, "Quyền truy cập nguồn đã thay đổi trong lúc chờ xác nhận.")
 				return

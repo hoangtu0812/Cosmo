@@ -82,3 +82,52 @@ func TestPublishAndMCPReplacementObserveCompleteRegistry(t *testing.T) {
 	}()
 	wg.Wait()
 }
+
+func TestMCPDiscoveryPreservesPoliciesForRetainedActions(t *testing.T) {
+	repo, tool, user := mcpDatabaseFixture(t, AuthNone, "")
+	ctx := context.Background()
+	original, err := repo.SaveAction(ctx, tool.ID, "", registryAction("original"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.db.QueryRow(ctx, `SELECT owner_workspace_id FROM tools WHERE id=$1`, tool.ID).Scan(&tool.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	tool, err = repo.Get(ctx, tool.ID, user, tool.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = repo.SetActionEffect(ctx, tool, original, user, EffectRead); err != nil {
+		t.Fatal(err)
+	}
+	saved, _, err := repo.ReplaceMCPActions(ctx, tool, []Action{registryAction("original"), registryAction("new")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool, err = repo.Get(ctx, tool.ID, user, tool.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved[0].ID != original.ID {
+		t.Fatal("retained action changed identity")
+	}
+	if effect, err := repo.ActionEffect(ctx, tool, saved[0]); err != nil || effect != EffectRead {
+		t.Fatalf("discovery erased policy: %s %v", effect, err)
+	}
+	if effect, err := repo.ActionEffect(ctx, tool, saved[1]); err != nil || effect != EffectApproval {
+		t.Fatalf("new action inherited policy: %s %v", effect, err)
+	}
+	changed := registryAction("original")
+	changed.MCPTool = json.RawMessage(`{"name":"original","inputSchema":{"type":"object","required":["id"]}}`)
+	saved, _, err = repo.ReplaceMCPActions(ctx, tool, []Action{changed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool, err = repo.Get(ctx, tool.ID, user, tool.WorkspaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect, err := repo.ActionEffect(ctx, tool, saved[0]); err != nil || effect != EffectApproval {
+		t.Fatalf("changed action retained read approval: %s %v", effect, err)
+	}
+}

@@ -154,6 +154,12 @@ func TestChatParkSurvivesWorkerRestartAndPreservesFIFO(t *testing.T) {
 			if err := s.db.QueryRow(ctx, `SELECT a.id,a.request->>'definition',c.run_id FROM tool_approvals a JOIN chat_approval_checkpoints c ON c.approval_id=a.id WHERE a.source_id=$1`, conversation).Scan(&id, &definition, &runID); err != nil {
 				t.Fatal(err)
 			}
+			// Real chats can retrieve knowledge before parking for a tool.
+			// Resume must validate these citations without an unused SQL parameter.
+			kbID := createRetrievalKB(t, s, agent.WorkspaceID, "", "private", "fixture")
+			if _, err := s.db.Exec(ctx, `UPDATE chat_approval_checkpoints SET state=jsonb_set(state,'{Citations}',jsonb_build_array(jsonb_build_object('kb_id',$2::text))) WHERE run_id=$1`, runID, kbID); err != nil {
+				t.Fatal(err)
+			}
 			loadMessages := func() []Message {
 				req := httptest.NewRequest("GET", "/conversations/"+conversation+"/messages", nil).WithContext(context.WithValue(ctx, userContextKey, owner))
 				w := httptest.NewRecorder()

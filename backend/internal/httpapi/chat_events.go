@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -24,9 +25,22 @@ func (w *chatEventWriter) Header() http.Header    { return w.header }
 func (w *chatEventWriter) WriteHeader(status int) { w.status = status }
 func (w *chatEventWriter) Flush()                 {}
 func (w *chatEventWriter) Write(frame []byte) (int, error) {
+	originalSize := len(frame)
 	if w.status >= 400 {
-		w.cancel()
-		return len(frame), nil
+		// HTTP errors from the worker must reach SSE subscribers before its
+		// context is cancelled; otherwise they see only "interrupted".
+		defer w.cancel()
+		var body struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		message := "Không thể tiếp tục lượt chat. Vui lòng kiểm tra lịch sử."
+		if json.Unmarshal(frame, &body) == nil && body.Error.Message != "" {
+			message = body.Error.Message
+		}
+		payload, _ := json.Marshal(map[string]string{"message": message})
+		frame = []byte(fmt.Sprintf("event: error\ndata: %s\n\n", payload))
 	}
 	tag, err := w.server.db.Exec(w.ctx, `INSERT INTO chat_turn_events(conversation_id,client_message_id,frame)
 	SELECT conversation_id,client_message_id,$4 FROM chat_turns WHERE conversation_id=$1 AND client_message_id=$2 AND lease_owner=$3 AND lease_expires_at>NOW() AND status IN ('executing','succeeded') FOR SHARE`, w.execution.Conversation, w.execution.Identity.ClientMessageID, w.execution.Owner, string(frame))
@@ -37,7 +51,7 @@ func (w *chatEventWriter) Write(frame []byte) (int, error) {
 		}
 		return 0, err
 	}
-	return len(frame), nil
+	return originalSize, nil
 }
 
 func (s *Server) followChatTurn(w http.ResponseWriter, r *http.Request, conversation, key, hash string) {

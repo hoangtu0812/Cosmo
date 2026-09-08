@@ -37,7 +37,13 @@ func (repository *Repository) ReplaceMCPActions(ctx context.Context, tool Tool, 
 	for _, action := range previous {
 		ids[action.Name] = action.ID
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM tool_actions WHERE tool_id=$1`, tool.ID); err != nil {
+	names := make([]string, 0, len(discovered))
+	for _, action := range discovered {
+		names = append(names, action.Name)
+	}
+	// Remove only withdrawn actions. Recreating retained rows would cascade
+	// delete their policies even if their IDs were restored afterwards.
+	if _, err = tx.Exec(ctx, `DELETE FROM tool_actions WHERE tool_id=$1 AND NOT (name=ANY($2::text[]))`, tool.ID, names); err != nil {
 		return nil, 0, err
 	}
 	saved := make([]Action, 0, len(discovered))
@@ -47,16 +53,14 @@ func (repository *Repository) ReplaceMCPActions(ctx context.Context, tool Tool, 
 			return nil, 0, ErrMCPContract
 		}
 		seen[action.Name] = true
-		result, saveErr := draft.saveAction(ctx, tool.ID, "", action)
+		result, saveErr := draft.saveAction(ctx, tool.ID, ids[action.Name], action)
 		if saveErr != nil {
 			return nil, 0, saveErr
 		}
-		if id := ids[action.Name]; id != "" {
-			if _, err = tx.Exec(ctx, `UPDATE tool_actions SET id=$1 WHERE id=$2`, id, result.ID); err != nil {
-				return nil, 0, err
-			}
-			result.ID = id
+		if _, err = tx.Exec(ctx, `UPDATE tool_actions SET position=$2 WHERE id=$1`, result.ID, len(saved)); err != nil {
+			return nil, 0, err
 		}
+		result.Position = len(saved)
 		saved = append(saved, result)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE tools SET updated_at=clock_timestamp() WHERE id=$1`, tool.ID); err != nil {

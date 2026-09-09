@@ -40,6 +40,12 @@ func (s *Server) knowledgeModelSettingsForKB(ctx context.Context, kbID string) (
 	if indexed.EmbeddingScope != current.EmbeddingScope || strings.TrimRight(indexed.GatewayBaseURL, "/") != strings.TrimRight(current.GatewayBaseURL, "/") {
 		return indexed, fmt.Errorf("live index gateway changed; reindex required")
 	}
+	// Apply current retrieval controls while retaining the indexed embedding model.
+	indexed.RetrievalMode = current.RetrievalMode
+	indexed.RerankerModel = current.RerankerModel
+	indexed.RerankEnabled = current.RerankEnabled
+	indexed.ScoreThreshold = current.ScoreThreshold
+	indexed.TopK = current.TopK
 	indexed.GatewayAPIKey = current.GatewayAPIKey
 	indexed.LiveIndexID = id
 	indexed.KBID = kbID
@@ -51,11 +57,11 @@ func (s *Server) configuredKnowledgeModelSettings(ctx context.Context, kbID stri
 	var settings knowledge.ModelSettings
 	err := s.db.QueryRow(ctx, `
 		SELECT owner_workspace_id, embedding_model, reranker_model, retrieval_mode,
-		       rerank_enabled, score_threshold, retrieval_top_k, chunk_size, chunk_overlap
+		       rerank_enabled, score_threshold, retrieval_top_k, chunk_size, chunk_overlap, layout_mode
 		FROM knowledge_bases WHERE id = $1`, kbID).Scan(
 		&workspaceID, &settings.EmbeddingModel, &settings.RerankerModel, &settings.RetrievalMode,
 		&settings.RerankEnabled, &settings.ScoreThreshold, &settings.TopK,
-		&settings.ChunkSize, &settings.ChunkOverlap,
+		&settings.ChunkSize, &settings.ChunkOverlap, &settings.LayoutMode,
 	)
 	if err != nil {
 		return settings, err
@@ -108,6 +114,7 @@ const (
 // who created it is retained solely as audit metadata; ownership, reach and
 // use are answered by owner_workspace_id, visibility, and knowledge_mounts.
 type KnowledgeBase struct {
+	NeedsReindex     bool      `json:"needs_reindex"`
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
 	Description      string    `json:"description"`
@@ -214,10 +221,10 @@ const accessSQL = `CASE WHEN kb.owner_workspace_id = $2 AND (
 // unpublishedSQL reports whether documents changed since the last publish.
 // Derived rather than stored, so it cannot fall out of step with reality.
 const unpublishedSQL = `
-	EXISTS (
+ (kb.updated_at > COALESCE(kb.published_at, TIMESTAMPTZ 'epoch') OR EXISTS (
 		SELECT 1 FROM knowledge_documents d
 		WHERE d.kb_id = kb.id AND d.updated_at > COALESCE(kb.published_at, TIMESTAMPTZ 'epoch')
-	)`
+	))`
 
 // knowledgeAccess reports the caller's role in their currently selected
 // workspace, or an empty string when that workspace cannot see the KB.
@@ -237,6 +244,13 @@ func (s *Server) knowledgeAccess(ctx context.Context, userID, kbID string) strin
 	return access
 }
 
+const knowledgeNeedsReindexSQL = `EXISTS(SELECT 1 FROM knowledge_documents d WHERE d.kb_id=kb.id) AND (
+ kb.live_index_id='' OR
+ COALESCE(kb.live_index_settings->>'EmbeddingModel','')<>kb.embedding_model OR
+ COALESCE((kb.live_index_settings->>'ChunkSize')::int,0)<>kb.chunk_size OR
+ COALESCE((kb.live_index_settings->>'ChunkOverlap')::int,-1)<>kb.chunk_overlap OR
+ COALESCE(kb.live_index_settings->>'LayoutMode',(SELECT i.manifest::jsonb->>'layout' FROM knowledge_ingestion_jobs i WHERE i.kb_id=kb.id AND i.attempt_id=kb.live_index_id AND i.status='succeeded' ORDER BY i.created_at DESC LIMIT 1),'')<>kb.layout_mode)`
+
 // knowledgeColumns is the shared projection. $1 is the caller, $2 the
 // workspace the answer is framed against (empty string when none).
 const knowledgeColumns = `
@@ -254,7 +268,8 @@ const knowledgeColumns = `
 	(SELECT COUNT(*) FROM knowledge_documents d WHERE d.kb_id = kb.id AND d.status = 'failed'),
 	(SELECT COUNT(*) FROM knowledge_shares sh WHERE sh.kb_id = kb.id),
 	(SELECT COUNT(*) FROM agent_knowledge_bases ak WHERE ak.kb_id = kb.id),
-	COALESCE((SELECT km.snapshot_id FROM knowledge_mounts km WHERE km.kb_id=kb.id AND km.target_type='workspace' AND km.target_id=$2),'')`
+	COALESCE((SELECT km.snapshot_id FROM knowledge_mounts km WHERE km.kb_id=kb.id AND km.target_type='workspace' AND km.target_id=$2),''),
+ (` + knowledgeNeedsReindexSQL + `)`
 
 func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 	var item KnowledgeBase
@@ -269,7 +284,7 @@ func scanKnowledgeBase(scan func(...any) error) (KnowledgeBase, error) {
 		&item.CreatedAt, &item.Version,
 		&item.Access, &item.HasUnpublishedChanges, &installed,
 		&item.DocumentCount, &item.ProcessingCount, &item.FailedCount, &item.SharedCount,
-		&item.ReferenceCount, &item.SnapshotID)
+		&item.ReferenceCount, &item.SnapshotID, &item.NeedsReindex)
 	if err != nil {
 		return item, err
 	}
@@ -390,9 +405,41 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		RetrievalTopK  *int      `json:"retrieval_top_k"`
 		ChunkSize      *int      `json:"chunk_size"`
 		ChunkOverlap   *int      `json:"chunk_overlap"`
+		Reindex        bool      `json:"reindex"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
+	}
+
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		writeError(w, 500, "Không thể lưu cấu hình.")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var previousLayout string
+	if err = tx.QueryRow(r.Context(), `SELECT layout_mode FROM knowledge_bases WHERE id=$1 FOR UPDATE`, kbID).Scan(&previousLayout); err != nil {
+		writeError(w, 404, "Không tìm thấy Knowledge Base.")
+		return
+	}
+	var active bool
+	if err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM knowledge_ingestion_jobs WHERE kb_id=$1 AND status IN ('uploading','queued','running'))`, kbID).Scan(&active); err != nil {
+		writeError(w, 500, "Không thể kiểm tra tác vụ.")
+		return
+	}
+	if active {
+		writeError(w, 409, errIngestionBusy.Error())
+		return
+	}
+	nextLayout := previousLayout
+	if input.LayoutMode != nil {
+		nextLayout = *input.LayoutMode
+	}
+	if nextLayout != layoutOff && (nextLayout != previousLayout || input.Reindex) {
+		if err = s.requireKnowledgeLayout(r.Context()); err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
 	}
 
 	if input.Name != nil {
@@ -401,7 +448,7 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Tên knowledge base phải từ 1 đến 120 ký tự.")
 			return
 		}
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET name = $2, updated_at = NOW() WHERE id = $1`, kbID, name); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET name = $2, updated_at = NOW() WHERE id = $1`, kbID, name); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu thay đổi.")
 			return
 		}
@@ -411,7 +458,7 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Mô tả quá dài.")
 			return
 		}
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET description = $2, updated_at = NOW() WHERE id = $1`, kbID, strings.TrimSpace(*input.Description)); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET description = $2, updated_at = NOW() WHERE id = $1`, kbID, strings.TrimSpace(*input.Description)); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu thay đổi.")
 			return
 		}
@@ -425,7 +472,7 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		}
 		// Only documents ingested from now on are affected. Changing this does
 		// not re-read what is already indexed, which is what re-index is for.
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET layout_mode = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.LayoutMode); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET layout_mode = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.LayoutMode); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu thay đổi.")
 			return
 		}
@@ -436,14 +483,14 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Biểu tượng knowledge base không hợp lệ.")
 			return
 		}
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET icon = $2, updated_at = NOW() WHERE id = $1`, kbID, icon); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET icon = $2, updated_at = NOW() WHERE id = $1`, kbID, icon); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu biểu tượng.")
 			return
 		}
 	}
 	if input.Tags != nil {
 		tags, _ := json.Marshal(cleanStringList(*input.Tags, 10, 40))
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET tags = $2, updated_at = NOW() WHERE id = $1`, kbID, tags); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET tags = $2, updated_at = NOW() WHERE id = $1`, kbID, tags); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu tags.")
 			return
 		}
@@ -454,7 +501,7 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Chế độ truy xuất không hợp lệ.")
 			return
 		}
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET retrieval_mode = $2, updated_at = NOW() WHERE id = $1`, kbID, mode); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET retrieval_mode = $2, updated_at = NOW() WHERE id = $1`, kbID, mode); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu chế độ truy xuất.")
 			return
 		}
@@ -469,13 +516,13 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		query := `UPDATE knowledge_bases SET ` + label + ` = $2, updated_at = NOW() WHERE id = $1`
-		if _, err := s.db.Exec(r.Context(), query, kbID, model); err != nil {
+		if _, err := tx.Exec(r.Context(), query, kbID, model); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu model knowledge.")
 			return
 		}
 	}
 	if input.RerankEnabled != nil {
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET rerank_enabled = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.RerankEnabled); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET rerank_enabled = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.RerankEnabled); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình rerank.")
 			return
 		}
@@ -485,7 +532,7 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Ngưỡng vector phải nằm trong khoảng 0 đến 1.")
 			return
 		}
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET score_threshold = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.ScoreThreshold); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET score_threshold = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.ScoreThreshold); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu ngưỡng vector.")
 			return
 		}
@@ -495,14 +542,14 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Top K phải nằm trong khoảng 1 đến 50.")
 			return
 		}
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET retrieval_top_k = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.RetrievalTopK); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET retrieval_top_k = $2, updated_at = NOW() WHERE id = $1`, kbID, *input.RetrievalTopK); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu Top K.")
 			return
 		}
 	}
 	if input.ChunkSize != nil || input.ChunkOverlap != nil {
 		chunkSize, overlap := 900, 150
-		if err := s.db.QueryRow(r.Context(), `SELECT chunk_size, chunk_overlap FROM knowledge_bases WHERE id = $1`, kbID).Scan(&chunkSize, &overlap); err != nil {
+		if err := tx.QueryRow(r.Context(), `SELECT chunk_size, chunk_overlap FROM knowledge_bases WHERE id = $1`, kbID).Scan(&chunkSize, &overlap); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể đọc cấu hình chunking.")
 			return
 		}
@@ -512,11 +559,11 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 		if input.ChunkOverlap != nil {
 			overlap = *input.ChunkOverlap
 		}
-		if chunkSize < 256 || chunkSize > 4096 || overlap < 0 || overlap >= chunkSize {
-			writeError(w, http.StatusBadRequest, "Chunk size phải từ 256 đến 4096 và overlap phải nhỏ hơn chunk size.")
+		if chunkSize < 256 || chunkSize > 4096 || overlap < 0 || overlap > 2048 || overlap >= chunkSize {
+			writeError(w, http.StatusBadRequest, "Chunk size phải từ 256 đến 4096 và overlap tối đa 2048, nhỏ hơn chunk size.")
 			return
 		}
-		if _, err := s.db.Exec(r.Context(), `UPDATE knowledge_bases SET chunk_size = $2, chunk_overlap = $3, updated_at = NOW() WHERE id = $1`, kbID, chunkSize, overlap); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE knowledge_bases SET chunk_size = $2, chunk_overlap = $3, updated_at = NOW() WHERE id = $1`, kbID, chunkSize, overlap); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu cấu hình chunking.")
 			return
 		}
@@ -528,15 +575,40 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Phạm vi chia sẻ không hợp lệ.")
 			return
 		}
-		if err := s.setKnowledgeVisibility(r.Context(), kbID, *input.Visibility, input.Workspaces); err != nil {
+		if err := setKnowledgeVisibilityTx(r.Context(), tx, kbID, *input.Visibility, input.Workspaces); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu phạm vi chia sẻ.")
 			return
 		}
 	} else if input.Workspaces != nil {
-		if err := s.setKnowledgeShares(r.Context(), kbID, *input.Workspaces); err != nil {
+		if err := replaceShares(r.Context(), tx, kbID, *input.Workspaces); err != nil {
 			writeError(w, http.StatusInternalServerError, "Không thể lưu phạm vi chia sẻ.")
 			return
 		}
+	}
+
+	var embedding, reranker string
+	var rerank bool
+	if err = tx.QueryRow(r.Context(), `SELECT embedding_model,reranker_model,rerank_enabled FROM knowledge_bases WHERE id=$1`, kbID).Scan(&embedding, &reranker, &rerank); err != nil {
+		writeError(w, 500, "Không thể đọc cấu hình.")
+		return
+	}
+	if (input.EmbeddingModel != nil && embedding == "") || ((input.RerankEnabled != nil || input.RerankerModel != nil) && rerank && reranker == "") {
+		writeError(w, 400, "Cần chọn embedding model và reranker model khi bật rerank.")
+		return
+	}
+	if input.Reindex {
+		if s.knowledge == nil {
+			writeError(w, 503, "Dịch vụ tri thức chưa được cấu hình.")
+			return
+		}
+		if _, err = enqueueIngestion(r.Context(), tx, kbID, user.ID, "queued"); err != nil {
+			writeError(w, 409, err.Error())
+			return
+		}
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeError(w, 500, "Không thể lưu cấu hình.")
+		return
 	}
 
 	// Reach is recorded on its own line rather than as one more changed field:
@@ -586,13 +658,7 @@ func (s *Server) updateKnowledgeBase(w http.ResponseWriter, r *http.Request) {
 // Leaving those mounts in place would keep feeding a workspace's chat from a
 // base it is no longer entitled to — visibility has to stay the single source
 // of truth for what can be retrieved.
-func (s *Server) setKnowledgeVisibility(ctx context.Context, kbID, visibility string, workspaces *[]string) error {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
+func setKnowledgeVisibilityTx(ctx context.Context, tx pgx.Tx, kbID, visibility string, workspaces *[]string) error {
 	if _, err := tx.Exec(ctx, `UPDATE knowledge_bases SET visibility = $2, updated_at = NOW() WHERE id = $1`, kbID, visibility); err != nil {
 		return err
 	}
@@ -618,19 +684,7 @@ func (s *Server) setKnowledgeVisibility(ctx context.Context, kbID, visibility st
 		  )`, kbID); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
-}
-
-func (s *Server) setKnowledgeShares(ctx context.Context, kbID string, workspaces []string) error {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	if err := replaceShares(ctx, tx, kbID, workspaces); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 // replaceShares makes the share list exactly what was asked for. Replacing

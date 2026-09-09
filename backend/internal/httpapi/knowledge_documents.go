@@ -107,7 +107,9 @@ func (s *Server) getKnowledgeDocumentDetail(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "Không thể tải nhật ký xử lý.")
 		return
 	}
-	detail := KnowledgeDocumentDetail{Document: document, Events: events}
+	detail := KnowledgeDocumentDetail{Document: document, Events: events,
+		Inspection: knowledge.DocumentInspection{Chunks: []knowledge.DocumentChunk{}},
+	}
 	if s.knowledge != nil && document.Status == "ready" {
 		models, settingsErr := s.knowledgeModelSettingsForKB(r.Context(), kbID)
 		if settingsErr != nil {
@@ -120,6 +122,9 @@ func (s *Server) getKnowledgeDocumentDetail(w http.ResponseWriter, r *http.Reque
 			slog.Error("could not inspect knowledge document", "document", documentID, "error", inspectionErr)
 			detail.IndexError = "Không thể đọc dữ liệu Qdrant của tài liệu."
 		} else {
+			if inspection.Chunks == nil {
+				inspection.Chunks = []knowledge.DocumentChunk{}
+			}
 			detail.Inspection = inspection
 		}
 	}

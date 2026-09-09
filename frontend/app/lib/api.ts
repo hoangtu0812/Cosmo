@@ -28,6 +28,7 @@ export type LLMSettings = {
   configured: boolean;
 };
 export type KnowledgeBase = {
+  needs_reindex: boolean;
   id: string;
   name: string;
   description: string;
@@ -748,7 +749,7 @@ export const api = {
 		'name' | 'description' | 'visibility' | 'layout_mode' | 'icon' | 'tags' |
 		'retrieval_mode' | 'embedding_model' | 'reranker_model' | 'rerank_enabled' |
 		'score_threshold' | 'retrieval_top_k' | 'chunk_size' | 'chunk_overlap'
-	>> & {workspaces?: string[]}) =>
+	>> & {workspaces?: string[]; reindex?: boolean}) =>
     request<{knowledge_base: KnowledgeBase}>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'PATCH', body: JSON.stringify(body)}),
   deleteKnowledgeBase: (kbID: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(kbID)}`, {method: 'DELETE'}),
@@ -764,6 +765,8 @@ export const api = {
     files.forEach((file) => form.append('files', file));
     return upload<{job_id: string; document_ids: string[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/document-batches`, form);
   },
+  knowledgeCapabilities: (kbID: string) => request<{layout_available: boolean}>(`/api/knowledge/${encodeURIComponent(kbID)}/capabilities`),
+  reindexKnowledgeBase: (kbID: string) => request<{job_id: string}>(`/api/knowledge/${encodeURIComponent(kbID)}/reindex`, {method: 'POST'}),
   knowledgeIngestionJobs: (kbID: string) =>
     request<{jobs: {id: string; status: string; files: number; completed_documents: number; total_documents: number}[]}>(`/api/knowledge/${encodeURIComponent(kbID)}/ingestion-jobs`),
   knowledgeDocuments: (kbID: string) =>

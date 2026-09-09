@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
-import {ArrowLeft, ExternalLink, FileText, FlaskConical, Home, Plus, Search, SlidersHorizontal, Trash2, Upload} from 'lucide-react';
+import {ArrowLeft, ExternalLink, FileText, FlaskConical, Home, Plus, ScrollText, Search, SlidersHorizontal, Trash2, Upload} from 'lucide-react';
 import {AlertDialog} from '@astryxdesign/core/AlertDialog';
 import {Banner} from '@astryxdesign/core/Banner';
 import {Button} from '@astryxdesign/core/Button';
@@ -55,6 +55,7 @@ export default function KnowledgeDetailPage() {
   const [retryBatch, setRetryBatch] = useState<{files: File[]; requestID: string} | null>(null);
   const [ingestion, setIngestion] = useState<{id: string; status: string; files: number; completed_documents: number; total_documents: number} | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeDocument | null>(null);
+  const [reindexing, setReindexing] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pipelineDocument, setPipelineDocument] = useState<KnowledgeDocument | null>(null);
@@ -81,12 +82,14 @@ export default function KnowledgeDetailPage() {
     async () => {
       const result = await api.knowledgeDocuments(kbID);
       setDocuments(result.documents);
+      const bases = await api.knowledgeBases(workspaceID || undefined);
+      setBase(bases.knowledge_bases.find((item) => item.id === kbID) ?? null);
       if (canEdit) {
         const result = await api.knowledgeIngestionJobs(kbID);
         setIngestion(result.jobs[0] ?? null);
       }
     },
-    [kbID, canEdit],
+    [kbID, canEdit, workspaceID],
   );
 
   // Stable across renders: the log subscribes on this callback, and a fresh
@@ -156,6 +159,14 @@ export default function KnowledgeDetailPage() {
 
   // Publishing captures indexed passages for snapshot releases. Live queries
   // continue reading the mutable index.
+  async function reindex() {
+    setReindexing(true);
+    setError('');
+    try { await api.reindexKnowledgeBase(kbID); await loadDocuments(); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : t('kb.saveFailed')); }
+    finally { setReindexing(false); }
+  }
+
   async function publish() {
     setPublishing(true);
     setError('');
@@ -283,22 +294,23 @@ export default function KnowledgeDetailPage() {
           <LayoutHeader hasDivider>
             <Toolbar
               endContent={
-                canEdit ? (
                   <HStack gap={2} vAlign="center">
+                    {selectedDocument ? <Button icon={<ScrollText size={16} />} label={t('kb.viewLog')} onClick={() => setPipelineDocument(selectedDocument)} size="sm" variant="secondary" /> : null}
+                    {canEdit ? <>
                     <StatusLabel
                       label={base && base.version > 0 ? t('kb.published', {version: base.version}) : t('kb.draft')}
                       variant={base && base.version > 0 ? 'neutral' : 'warning'}
                     />
                     <Button
-                      isDisabled={publishing || documents.length === 0 || documents.some((item) => item.status !== 'ready')}
+                      isDisabled={publishing || base?.needs_reindex || documents.length === 0 || documents.some((item) => item.status !== 'ready')}
                       isLoading={publishing}
                       label={base && base.version > 0 ? t('kb.republish') : t('kb.publish')}
                       onClick={() => void publish()}
                       size="sm"
                       variant="primary"
                     />
+                    </> : null}
                   </HStack>
-                ) : undefined
               }
               label={base?.name ?? ''}
               startContent={
@@ -322,6 +334,8 @@ export default function KnowledgeDetailPage() {
               {canEdit && retryBatch && <Button label="Thử lại lô tải lên" variant="secondary" isDisabled={uploading} onClick={() => void upload(retryBatch.files, retryBatch.requestID)} />}
               {canEdit && ingestion && <Text>Lô gần nhất: {({uploading: 'Đang lưu tệp', queued: 'Đang chờ', running: 'Đang xử lý', succeeded: 'Hoàn tất', failed: 'Thất bại'} as Record<string, string>)[ingestion.status] ?? ingestion.status} · {ingestion.completed_documents}/{ingestion.total_documents} tài liệu</Text>}
 
+              {canEdit && base?.needs_reindex ? <Banner status="warning" title={t('kb.needsReindex')} /> : null}
+              {canEdit && selectedDocument && (base?.needs_reindex || failedCount > 0) ? <Button label={t('kb.reindex')} isDisabled={isSettling || reindexing} isLoading={reindexing} onClick={() => void reindex()} variant="secondary" /> : null}
               {base && !base.embedding_model ? <Banner status="warning" title={t('kbd.needEmbedding')} /> : null}
 
               <input
@@ -391,6 +405,7 @@ export default function KnowledgeDetailPage() {
                       size="sm"
                       variant="primary"
                     />
+                    {canEdit && documents.length > 0 ? <Button label={t('kb.reindex')} isDisabled={isSettling || reindexing} isLoading={reindexing} onClick={() => void reindex()} size="sm" variant="secondary" /> : null}
                     <Button icon={<FlaskConical size={14} />} isDisabled label={t('kb.recallTest')} size="sm" variant="secondary" />
                     <Button
                       icon={<SlidersHorizontal size={14} />}
@@ -420,12 +435,12 @@ export default function KnowledgeDetailPage() {
       />
 
       {pipelineDocument ? (
-        <PipelineDialog
-          document={pipelineDocument}
-          kbID={kbID}
-          onClose={() => setPipelineDocument(null)}
-          onSettled={handleSettled}
-        />
+        <Dialog isOpen maxHeight="75dvh" position={{end: 'var(--spacing-4)'}} onOpenChange={() => setPipelineDocument(null)} width={440}>
+          <Layout
+            header={<DialogHeader title={t('kb.log')} subtitle={pipelineDocument.title || pipelineDocument.filename} onOpenChange={() => setPipelineDocument(null)} />}
+            content={<LayoutContent><IngestionLog key={pipelineDocument.id} document={documents.find((item) => item.id === pipelineDocument.id) ?? pipelineDocument} kbID={kbID} onSettled={handleSettled} /></LayoutContent>}
+          />
+        </Dialog>
       ) : null}
 
       {settingsOpen && base ? (
@@ -433,7 +448,7 @@ export default function KnowledgeDetailPage() {
           base={base}
           onClose={() => setSettingsOpen(false)}
           onError={setError}
-          onSaved={(next) => { setBase(next); setSettingsOpen(false); }}
+          onSaved={(next) => { setBase(next); setSettingsOpen(false); void loadDocuments(); }}
 					workspaceID={workspaceID || base.owner_workspace_id || ''}
         />
       ) : null}
@@ -488,6 +503,19 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 	const [modelMessage, setModelMessage] = useState('');
 	const [modelsLoading, setModelsLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [layoutAvailable, setLayoutAvailable] = useState<boolean | null>(null);
+  const [capabilityError, setCapabilityError] = useState('');
+  useEffect(() => {
+    api.knowledgeCapabilities(base.id).then((result) => setLayoutAvailable(result.layout_available))
+      .catch((caught) => setCapabilityError(caught instanceof Error ? caught.message : t('kb.saveFailed')));
+  }, [base.id, t]);
+  const indexChanged = embeddingModel !== base.embedding_model || chunkSize !== base.chunk_size || chunkOverlap !== base.chunk_overlap || layoutMode !== base.layout_mode;
+  const hasDocuments = base.document_count + base.processing_count + base.failed_count > 0;
+  const invalid = !embeddingModel || (rerankEnabled && !rerankerModel) || chunkSize < 256 || chunkSize > 4096 || chunkOverlap < 0 || chunkOverlap > Math.min(2048, chunkSize - 1);
+  const needsLayout = layoutMode !== 'off';
+  const cannotSave = busy || !gatewayConfigured || invalid || base.processing_count > 0 || (layoutMode !== base.layout_mode && needsLayout && layoutAvailable !== true);
+
 
 	useEffect(() => {
 		api.workspaceKnowledgeModels(workspaceID)
@@ -513,11 +541,13 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 	const embeddingOptions = modelOptions('embedding', embeddingModel);
 	const rerankerOptions = modelOptions('rerank', rerankerModel);
 
-  async function save() {
+  async function save(reindex = false) {
+    setSaveError('');
     setBusy(true);
     try {
 			const result = await api.updateKnowledgeBase(base.id, {
 				layout_mode: layoutMode,
+        reindex,
 				retrieval_mode: retrievalMode,
 				embedding_model: embeddingModel,
 				reranker_model: rerankerModel,
@@ -529,7 +559,7 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 			});
       onSaved(result.knowledge_base);
     } catch (caught) {
-      onError(caught instanceof Error ? caught.message : t('kb.saveFailed'));
+      setSaveError(caught instanceof Error ? caught.message : t('kb.saveFailed'));
     } finally {
       setBusy(false);
     }
@@ -541,10 +571,12 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
         content={
           <LayoutContent>
 						<VStack gap={6}>
+                {saveError ? <Banner status="error" title={saveError} /> : null}
+                {hasDocuments && (indexChanged || base.needs_reindex) ? <Banner status="warning" title={t('kb.needsReindex')} /> : null}
 							<VStack gap={3}>
 								<VStack gap={1}>
 									<Text type="label">Tìm nội dung</Text>
-									<Text color="secondary" type="supporting">Cách Cosmo tìm đoạn văn phù hợp để trả lời câu hỏi.</Text>
+									<Text color="secondary" type="supporting">Áp dụng cho lượt tìm kiếm tiếp theo sau khi lưu.</Text>
 								</VStack>
 								<Grid columns={{minWidth: 180, max: 3}} gap={2} width="100%">
 									<SelectableCard isSelected={retrievalMode === 'semantic'} label="Semantic Search" onChange={(selected) => { if (selected) setRetrievalMode('semantic'); }}>
@@ -566,15 +598,6 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 								) : null}
 								{!gatewayConfigured ? <Button label={t('kbd.openWorkspaceSettings')} onClick={() => router.push('/settings?section=model')} variant="secondary" /> : null}
 
-								<Selector
-									isDisabled={modelsLoading || embeddingOptions.length === 0}
-									label="Embedding model"
-									onChange={setEmbeddingModel}
-									options={embeddingOptions}
-									placeholder={modelsLoading ? t('kbd.loadingModels') : t('kbd.pickEmbedding')}
-									value={embeddingModel}
-									width="100%"
-								/>
 								<Slider
 									description="Bỏ qua kết quả vector có độ tương đồng thấp hơn ngưỡng này."
 									isDisabled={retrievalMode === 'keyword'}
@@ -608,19 +631,29 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
 							<Section dividers={['top']} padding={0}>
 								<VStack gap={3} padding={4}>
 									<VStack gap={1}>
-										<Text type="label">Tách tài liệu mới</Text>
-										<Text color="secondary" type="supporting">Chỉ áp dụng cho tài liệu import sau khi lưu.</Text>
+										<Text type="label">Tạo chỉ mục</Text>
+										<Text color="secondary" type="supporting">Thay đổi cần re-index tài liệu đã có.</Text>
 									</VStack>
-									<Grid columns={{minWidth: 220, max: 2}} gap={3} width="100%">
+									<Selector
+									isDisabled={modelsLoading || embeddingOptions.length === 0}
+									label="Embedding model"
+									onChange={setEmbeddingModel}
+									options={embeddingOptions}
+									placeholder={modelsLoading ? t('kbd.loadingModels') : t('kbd.pickEmbedding')}
+									value={embeddingModel}
+									width="100%"
+								/>
+                  <Grid columns={{minWidth: 220, max: 2}} gap={3} width="100%">
 										<NumberInput isIntegerOnly label="Chunk size" max={4096} min={256} onChange={setChunkSize} units="tokens" value={chunkSize} width="100%" />
-										<NumberInput isIntegerOnly label="Chunk overlap" max={Math.max(0, chunkSize - 1)} min={0} onChange={setChunkOverlap} units="tokens" value={chunkOverlap} width="100%" />
+										<NumberInput isIntegerOnly label="Chunk overlap" max={Math.max(0, Math.min(2048, chunkSize - 1))} min={0} onChange={setChunkOverlap} units="tokens" value={chunkOverlap} width="100%" />
 									</Grid>
 									<Selector
 										label={t('kb.layoutMode')}
+                    description={capabilityError || (layoutAvailable === false ? t('kb.layoutUnavailable') : layoutAvailable === null ? t('kb.checkingLayout') : undefined)}
 										onChange={(value) => setLayoutMode(value as KnowledgeBase['layout_mode'])}
 										options={[
-											{value: 'auto', label: t('kb.layoutAuto')},
-											{value: 'always', label: t('kb.layoutAlways')},
+											{value: 'auto', label: t('kb.layoutAuto'), disabled: layoutAvailable !== true},
+											{value: 'always', label: t('kb.layoutAlways'), disabled: layoutAvailable !== true},
 											{value: 'off', label: t('kb.layoutOff')},
 										]}
 										value={layoutMode}
@@ -635,7 +668,8 @@ function LayoutDialog({base, onClose, onError, onSaved, workspaceID}: {
           <LayoutFooter>
             <HStack gap={2} hAlign="end">
               <Button label={t('common.cancel')} onClick={onClose} variant="secondary" />
-						<Button isDisabled={busy || !gatewayConfigured || !embeddingModel || (rerankEnabled && !rerankerModel)} isLoading={busy} label={t('common.save')} onClick={() => void save()} variant="primary" />
+						<Button isDisabled={cannotSave} isLoading={busy} label={t('common.save')} onClick={() => void save()} variant="secondary" />
+              {hasDocuments ? <Button isDisabled={cannotSave || (needsLayout && layoutAvailable !== true)} isLoading={busy} label={t('kb.saveReindex')} onClick={() => void save(true)} variant="primary" /> : null}
             </HStack>
           </LayoutFooter>
         }
@@ -702,12 +736,13 @@ function DocumentReader({
       </HStack>
 
       {detail?.index_error ? <Banner status="error" title={detail.index_error} /> : null}
+      {document.error ? <Banner status="error" title={document.error} /> : null}
 
       {isLoading ? (
         <VStack gap={2} width="100%">
           {[0, 1, 2].map((index) => <Skeleton height={72} index={index} key={index} width="100%" />)}
         </VStack>
-      ) : inspection?.chunks.length ? (
+      ) : inspection?.chunks?.length ? (
         <VStack gap={4} width="100%">
           {inspection.chunks.map((chunk) => (
             <VStack gap={1} key={chunk.chunk_index} width="100%">
@@ -735,7 +770,6 @@ function DocumentReader({
             <Item label={t('kbd.status')} description={inspection?.indexed ? t('kbd.indexed') : t('kbd.notIndexed')} />
             <Item label={t('kbd.chunksRead')} description={String(inspection?.total ?? 0)} />
           </List>
-          <IngestionLog document={document} kbID={kbID} onSettled={onSettled} />
         </VStack>
       </Collapsible>
     </VStack>
@@ -924,12 +958,14 @@ function IngestionLog({document, kbID, onSettled}: {
         {events.length === 0 ? (
           <Text color="secondary" type="supporting">{t('kb.logEmpty')}</Text>
         ) : (
-          events.map((event) => (
-            <HStack gap={3} key={event.id} vAlign="start">
+          [...events].reverse().map((event) => (
+            <VStack gap={1} key={event.id} width="100%">
+              <HStack gap={3}>
               <Text color="secondary" type="code">{formatTime(event.created_at)}</Text>
               <Text type="code" weight="medium">{stageLabel(event.stage, t)}</Text>
-              <Text color="secondary" type="code">{event.message}</Text>
-            </HStack>
+              </HStack>
+              <Text className="break-words" color="secondary" type="code">{event.message}</Text>
+            </VStack>
           ))
         )}
       </VStack>

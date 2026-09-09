@@ -167,8 +167,8 @@ class TestLayoutRouting:
         monkeypatch.setattr(layout, "configured", lambda: False)
         monkeypatch.setattr(layout, "analyze", _explode)
         monkeypatch.setattr(ingest, "_read", lambda path: [Document(text="")])
-        _, structured, _ = read(Path("document.pdf"), b"pdf", "qt.pdf", "always")
-        assert structured is False
+        with pytest.raises(RuntimeError, match="not configured"):
+            read(Path("document.pdf"), b"pdf", "qt.pdf", "always")
 
 
 class TestLayoutModeResolution:

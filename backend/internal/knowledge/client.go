@@ -80,6 +80,7 @@ type ModelSettings struct {
 	TopK           int
 	ChunkSize      int
 	ChunkOverlap   int
+	LayoutMode     string
 }
 
 func (m ModelSettings) applyGatewayHeaders(request *http.Request) {
@@ -440,4 +441,15 @@ func (c *Client) ExtractText(ctx context.Context, filename, contentType string, 
 		return ExtractedFile{}, err
 	}
 	return result, nil
+}
+
+func (c *Client) LayoutAvailable(ctx context.Context) (bool, error) {
+	if c == nil {
+		return false, errors.New("knowledge service unavailable")
+	}
+	var result struct {
+		Layout bool `json:"layout_available"`
+	}
+	err := c.call(ctx, http.MethodGet, "/capabilities", nil, &result, nil)
+	return result.Layout, err
 }

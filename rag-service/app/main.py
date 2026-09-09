@@ -18,7 +18,7 @@ from fastapi import Body, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import ingest, objects, pipeline, retrieve, store
+from . import ingest, objects, pipeline, retrieve, store, layout
 from . import snapshots
 from . import models as ml
 from .config import settings
@@ -27,6 +27,11 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Cosmo Knowledge Service", docs_url=None, redoc_url=None)
+
+
+@app.get("/capabilities")
+def capabilities() -> dict:
+    return {"layout_available": layout.configured()}
 
 
 @app.exception_handler(store.ProfileNotIndexed)

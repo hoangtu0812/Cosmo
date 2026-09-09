@@ -135,6 +135,9 @@ def _parse(path: Path, content: bytes, filename: str, mode: str) -> Iterator[dic
     if suffix in STRUCTURED:
         return _tag(_read(path), filename), True
 
+    if suffix in SCANNABLE and mode == "always" and not layout.configured():
+        raise RuntimeError("Layout analysis service is not configured; select Off or configure Document Intelligence")
+
     if suffix in SCANNABLE and mode != "off" and layout.configured():
         if mode == "always":
             yield {"stage": "layout", "message": "Analysing layout with Document Intelligence"}

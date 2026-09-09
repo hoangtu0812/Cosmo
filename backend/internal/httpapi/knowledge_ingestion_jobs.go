@@ -314,6 +314,9 @@ func (s *Server) executeIngestionJob(ctx context.Context, job ingestionJob) erro
 		stage, message := "retry", "Xử lý tạm gián đoạn; tác vụ sẽ tự thử lại."
 		if status == "failed" {
 			stage, message = "error", "Không thể hoàn tất chỉ mục mới; giữ chỉ mục trước. Hãy kiểm tra cấu hình và chạy lại re-index."
+			if code == "permission_revoked" {
+				message = "Tài khoản tạo tác vụ không còn quyền xử lý Knowledge Base. Hãy chạy lại re-index bằng tài khoản có quyền."
+			}
 			if _, finishErr = tx.Exec(finish, `UPDATE knowledge_documents SET status='failed',error=$2,updated_at=NOW() WHERE kb_id=$1 AND status='processing'`, job.KBID, message); finishErr != nil {
 				return finishErr
 			}

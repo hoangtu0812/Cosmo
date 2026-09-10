@@ -46,6 +46,7 @@ import {TextInput} from '@astryxdesign/core/TextInput';
 import {Selector} from '@astryxdesign/core/Selector';
 import {ChartSpec, ChartView, chartFromResult} from '../components/ChartView';
 import {HTMLSpec, HTMLView, htmlFromResult} from '../components/HTMLView';
+import {ImageSpec, ImageView, imageFromResult} from '../components/ImageView';
 import {StatusLabel} from '../components/StatusLabel';
 import {useTranslation} from '../lib/i18n';
 
@@ -486,6 +487,8 @@ export default function ChatPage() {
             if (drawn) setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')});
             const page = call.action === 'render_html' ? htmlFromResult(call.detail) : null;
             if (page) setPreview({kind: 'html', page, title: page.title});
+            const image = call.action === 'generate_image' ? imageFromResult(call.detail) : null;
+            if (image) setPreview({kind: 'image', image, title: image.title});
           }
         },
         onTitle: ({title}) => setConversations((current) => current.map(
@@ -741,6 +744,14 @@ export default function ChatPage() {
                 <ConversationFiles conversationID={conversationID} onClose={() => setPreview(null)} t={t} />
               ) : preview.kind === 'chart' ? (
                 <ChartPanel chart={preview.chart} onClose={() => setPreview(null)} t={t} title={preview.title} />
+              ) : preview.kind === 'image' ? (
+                <VStack gap={3} padding={3} width="100%">
+                  <HStack gap={2} hAlign="between" vAlign="center" width="100%">
+                    <Text type="label">{preview.title}</Text>
+                    <IconButton icon={<X size={16} />} label={t('doc.close')} onClick={() => setPreview(null)} size="sm" variant="ghost" />
+                  </HStack>
+                  <ImageView image={preview.image} />
+                </VStack>
               ) : preview.kind === 'html' ? (
                 <VStack gap={0} height="100%" width="100%" className="min-h-0">
                   <Section dividers={['bottom']} padding={3}>
@@ -961,6 +972,7 @@ export default function ChatPage() {
                             ? <VStack gap={3}>
                               <AnswerWithToolCalls
                                 messageID={message.id}
+                                onOpenImage={(image) => setPreview({kind: 'image', image, title: image.title})}
                                 onOpenHTML={(page) => setPreview({kind: 'html', page, title: page.title})}
                                 onOpenChart={(drawn) => setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')})}
                                 calls={isActiveStream ? liveToolCalls : message.tool_calls ?? []}
@@ -980,6 +992,7 @@ export default function ChatPage() {
                               <AnswerWithToolCalls
                                 messageID={message.id}
                                 calls={liveToolCalls}
+                                onOpenImage={(image) => setPreview({kind: 'image', image, title: image.title})}
                                 onOpenHTML={(page) => setPreview({kind: 'html', page, title: page.title})}
                                 onOpenChart={(drawn) => setPreview({kind: 'chart', chart: drawn, title: drawn.title || t('chart.panel')})}
                               >{''}</AnswerWithToolCalls>
@@ -1254,6 +1267,7 @@ type PreviewTarget =
   | {kind: 'document'; kbID: string; documentID: string; snapshotID?: string; title: string}
   | {kind: 'chart'; chart: ChartSpec; title: string}
   | {kind: 'html'; page: HTMLSpec; title: string}
+  | {kind: 'image'; image: ImageSpec; title: string}
   | {kind: 'files'; title: string};
 
 /**

@@ -78,6 +78,14 @@ func fixed(name, description, value string) Parameter {
 // caller cannot mutate the shared list by accident.
 func Catalog() []CatalogEntry {
 	return []CatalogEntry{
+		{ID: "image", Name: "Image Generation", Icon: "🎨", Category: CategoryBuiltin, Kind: KindBuiltin,
+			Description: "Tạo ảnh từ mô tả bằng gateway của workspace",
+			Actions: []Action{{Name: "generate_image", Method: "POST", Path: "/", ResultType: "object",
+				Description:       "Generate one image from a detailed prompt using the workspace image gateway. Use for illustrations, photos, posters and visual concepts. The image is displayed automatically. Never retry a failed or timed-out image generation in the same turn. Do not invent a model name: omit model for automatic discovery.",
+				ResultDescription: "Generated image displayed to the user with download and side preview.",
+				Parameters:        []Parameter{text("prompt", "Detailed description of the image, including any exact text", "body", true), text("model", "Optional exact image model ID supplied by the user", "body", false), text("size", "Optional size supported by the model, e.g. 1024x1024; omit for provider default", "body", false)},
+			}},
+		},
 		{
 			ID: "html", Name: "HTML", Icon: "🖥️", Category: CategoryBuiltin, Kind: KindBuiltin,
 			Description: "Tạo trang HTML và dashboard tương tác với nhiều biểu đồ",

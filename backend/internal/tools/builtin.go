@@ -89,6 +89,17 @@ var callerBuiltins = map[string]func(Caller) (string, error){
 // a status, because there is no endpoint whose status could be reported.
 func (repository *Repository) invokeBuiltin(ctx context.Context, action Action, arguments map[string]any) (CallResult, error) {
 	started := time.Now()
+	if action.Name == "generate_image" {
+		caller, ok := CallerFrom(ctx)
+		if !ok || repository.ImageGenerator == nil {
+			return CallResult{}, fmt.Errorf("tool tạo ảnh chưa được cấu hình cho workspace")
+		}
+		body, err := repository.ImageGenerator(ctx, caller, arguments)
+		if err != nil {
+			return CallResult{}, err
+		}
+		return CallResult{Status: 200, Body: body, DurationMS: time.Since(started).Milliseconds()}, nil
+	}
 	if run, found := callerBuiltins[action.Name]; found {
 		caller, ok := CallerFrom(ctx)
 		if !ok {

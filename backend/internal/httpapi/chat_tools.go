@@ -72,6 +72,9 @@ func summarise(raw string) string {
 // summariseResult keeps a drawable result whole and shortens everything else.
 func summariseResult(raw string) string {
 	trimmed := strings.TrimSpace(raw)
+	if strings.HasPrefix(trimmed, `{"image":`) && len(trimmed) <= tools.MaxImageResultBytes {
+		return trimmed
+	}
 	if strings.HasPrefix(trimmed, `{"html":`) && len(trimmed) <= tools.MaxHTMLResultBytes {
 		return trimmed
 	}
@@ -206,13 +209,17 @@ func (s *Server) runToolRounds(
 				}
 			} else {
 				attempts[call.Name]++
+				timeoutMS := int64(20000)
+				if actionName == "generate_image" {
+					timeoutMS = 300000
+				}
 				step, stepErr = s.runs.CreateStep(ctx, runs.NewStep{
 					RunID:     runID,
 					NodeID:    "tool:" + call.Name,
 					Type:      "tool",
 					Name:      call.Name,
 					Attempt:   attempts[call.Name],
-					TimeoutMS: 20000,
+					TimeoutMS: timeoutMS,
 				})
 				if stepErr == nil {
 					step, stepErr = s.runs.TransitionStep(ctx, step.ID, runs.Running, nil, "", "", "")
@@ -272,6 +279,13 @@ func (s *Server) runToolRounds(
 				callErr = errors.New(blocked[call.Name])
 			}
 			content := result.Body
+			if actionName == "generate_image" {
+				if callErr == nil {
+					content = "Ảnh đã tạo và hiển thị cho người dùng. Không lặp lại dữ liệu ảnh trong câu trả lời."
+				} else {
+					blocked[call.Name] = "Không tự thử lại yêu cầu tạo ảnh đã thất bại."
+				}
+			}
 			if callErr != nil {
 				// The failure is handed to the model rather than hidden: told
 				// what went wrong, it can try different arguments or say it

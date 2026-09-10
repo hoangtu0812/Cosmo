@@ -154,6 +154,7 @@ func New(ctx context.Context, cfg config.Config, db *pgxpool.Pool, models *model
 		secrets:   box,
 		logger:    logger,
 	}
+	s.tools.ImageGenerator = s.generateToolImage
 	if s.knowledge != nil {
 		s.knowledge.Observer = s.observeRAGModel
 	}

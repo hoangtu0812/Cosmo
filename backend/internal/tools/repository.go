@@ -24,11 +24,12 @@ type toolDatabase interface {
 }
 
 type Repository struct {
-	db      toolDatabase
-	logger  *slog.Logger
-	secrets *secrets.Box
-	egress  EgressPolicy
-	search  SearchBackend
+	ImageGenerator func(context.Context, Caller, map[string]any) (string, error)
+	db             toolDatabase
+	logger         *slog.Logger
+	secrets        *secrets.Box
+	egress         EgressPolicy
+	search         SearchBackend
 	// Access tokens fetched for tools that authenticate with OAuth. Not
 	// constructed here: a repository built by hand in a test has no need of it
 	// until something asks for a token.

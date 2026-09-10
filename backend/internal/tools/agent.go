@@ -272,6 +272,9 @@ func DescribeSet(list []Tool, actions map[string][]Action) []modelgateway.ToolDe
 			}
 
 			description := action.Description
+			if tool.Kind == KindBuiltin && action.Name == "render_html" {
+				description += " For charts, define one numeric dataset and compute SVG/canvas coordinates, value labels, tables and totals from that same dataset using JavaScript. Never hand-write repeated point coordinates. Use one shared numeric axis scale: y = top + (max - value) / (max - min) * plotHeight, handling max == min. Verify zero, minimum and maximum points against axis ticks and leave enough SVG viewBox space for axis labels. Do not replace missing or unavailable data with zero."
+			}
 			if tool.Description != "" {
 				description = strings.TrimSpace(tool.Description + ". " + description)
 			}

@@ -500,7 +500,9 @@ export default function ChatPage() {
           setStatus(message);
           // A stage carrying detail is a decision worth keeping; the headline
           // moves on either way.
-          if (detail) setTrace((current) => [...current, {stage, message, detail}]);
+          if (detail || stage === 'tool_preparing') setTrace((current) => stage === 'reasoning' || stage === 'tool_preparing'
+            ? [...current.filter((item) => item.stage !== stage), {stage, message, detail}]
+            : [...current, {stage, message, detail}]);
           setOrbState(activityOrb(stage));
           if (stage === 'retrieval_failed') setError(message);
         },
@@ -970,6 +972,7 @@ export default function ChatPage() {
                         >
                           {message.content || message.is_pending
                             ? <VStack gap={3}>
+                              {isActiveStream && trace.some((step) => step.stage === 'reasoning' || step.stage === 'tool_preparing') ? <TurnActivity orbState={orbState} status={status} t={t} trace={trace} /> : null}
                               <AnswerWithToolCalls
                                 messageID={message.id}
                                 onOpenImage={(image) => setPreview({kind: 'image', image, title: image.title})}

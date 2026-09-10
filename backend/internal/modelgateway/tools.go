@@ -1,6 +1,7 @@
 package modelgateway
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,10 +12,8 @@ import (
 	"time"
 )
 
-// Tool calling is a separate, non-streaming request rather than a variation of
-// Stream. A stream exists to put words on the screen as they arrive; a tool
-// round produces no words at all, only a decision about what to call. Keeping
-// them apart means the streaming path stays as simple as it was.
+// Tool decisions stream progress separately from answer text. Arguments are
+// assembled completely before any tool is allowed to execute.
 type ToolDefinition struct {
 	Name        string
 	Description string
@@ -49,9 +48,14 @@ func (c *Client) Decide(ctx context.Context, history []Message, definitions []To
 	messages = append(messages, history...)
 
 	body := map[string]any{
-		"model":       c.ResolveModel(options),
-		"messages":    messages,
-		"temperature": 0.2,
+		"stream":         true,
+		"stream_options": map[string]any{"include_usage": true},
+		"model":          c.ResolveModel(options),
+		"messages":       messages,
+		"temperature":    0.2,
+	}
+	if options.ReasoningEffort != "" {
+		body["reasoning_effort"] = options.ReasoningEffort
 	}
 	if len(definitions) > 0 {
 		encoded := make([]map[string]any, 0, len(definitions))
@@ -97,6 +101,12 @@ func (c *Client) Decide(ctx context.Context, history []Message, definitions []To
 		return "", nil, fmt.Errorf("model gateway returned %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 
+	reader := bufio.NewReader(resp.Body)
+	prefix, _ := reader.Peek(5)
+	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") || string(prefix) == "data:" {
+		text, calls, counted, err = readToolStream(ctx, reader)
+		return text, calls, err
+	}
 	var decoded struct {
 		Usage   *Usage `json:"usage"`
 		Choices []struct {
@@ -112,7 +122,7 @@ func (c *Client) Decide(ctx context.Context, history []Message, definitions []To
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+	if err := json.NewDecoder(reader).Decode(&decoded); err != nil {
 		return "", nil, fmt.Errorf("decode model reply: %w", err)
 	}
 	counted = decoded.Usage

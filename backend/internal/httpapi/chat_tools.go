@@ -131,7 +131,8 @@ func (s *Server) runToolRounds(
 					definitions = append(definitions, definition)
 				}
 			}
-			narration, calls, err := models.Decide(modelgateway.WithPhase(ctx, "tool_decision"), history, definitions, options)
+			decisionHistory, definitions := dashboardToolHistory(history, definitions)
+			narration, calls, err := models.Decide(modelProgressContext(modelgateway.WithPhase(ctx, "tool_decision"), w, flusher), decisionHistory, definitions, options)
 			if err != nil {
 				if errors.Is(err, modelgateway.ErrContextBudget) || errors.Is(err, modelgateway.ErrToolHistory) {
 					return history, reported, "", err

@@ -258,6 +258,7 @@ func attachmentPrompt(files []attachmentText) string {
 		fmt.Fprintf(&builder, "\n--- %s ---\n%s\n", file.Name, file.Text)
 		if file.IsTruncated {
 			fmt.Fprintf(&builder, "(Tệp %s đã bị cắt bớt vì quá dài.)\n", file.Name)
+			builder.WriteString("Chỉ sử dụng các bản ghi đọc được đầy đủ; không suy ra tổng toàn tệp hoặc coi phần thiếu là 0. Việc cắt dữ liệu không ngăn tạo bộ lọc, biểu đồ tương tác hoặc drill-down: nếu tool HTML có sẵn và người dùng yêu cầu dashboard, hãy tạo dashboard hoạt động trên các bản ghi hiện có, ghi rõ phạm vi dữ liệu chưa đầy đủ. Không chỉ đưa bản thiết kế thay cho sản phẩm được yêu cầu.\n")
 		}
 	}
 	return builder.String()

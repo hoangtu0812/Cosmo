@@ -1388,7 +1388,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		err = onDelta(decidedAnswer)
 	} else {
-		usage, err = models.StreamWithUsage(modelgateway.WithPhase(r.Context(), "generation"), history, options, onDelta)
+		usage, err = models.StreamWithUsage(modelProgressContext(modelgateway.WithPhase(r.Context(), "generation"), w, flusher), history, options, onDelta)
 	}
 	if err != nil {
 		s.logger.Error("model stream failed", "conversation_id", conversationID, "error", err)

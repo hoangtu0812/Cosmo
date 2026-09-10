@@ -138,6 +138,7 @@ func (c *Client) Stream(ctx context.Context, history []Message, options Options,
 
 // StreamWithUsage is the same call, and hands back what the gateway counted.
 func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options Options, onDelta func(string) error) (usage Usage, err error) {
+	defer reportProgress(ctx, Progress{Done: true})
 	started := time.Now()
 	knownUsage := false
 	var budget *BudgetReport
@@ -218,7 +219,9 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 			Choices []struct {
 				FinishReason string `json:"finish_reason"`
 				Delta        struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					Reasoning string `json:"reasoning_content"`
+					Summary   string `json:"reasoning"`
 				} `json:"delta"`
 			} `json:"choices"`
 			// The usage chunk arrives last and carries no choices at all.
@@ -253,6 +256,15 @@ func (c *Client) StreamWithUsage(ctx context.Context, history []Message, options
 			usage.PromptTokens = chunk.Usage.PromptTokens
 			usage.CompletionTokens = chunk.Usage.CompletionTokens
 			usage.TotalTokens = chunk.Usage.TotalTokens
+		}
+		if len(chunk.Choices) > 0 {
+			reasoning := chunk.Choices[0].Delta.Reasoning
+			if reasoning == "" {
+				reasoning = chunk.Choices[0].Delta.Summary
+			}
+			if reasoning != "" {
+				reportProgress(ctx, Progress{Reasoning: reasoning})
+			}
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
 			if err := onDelta(chunk.Choices[0].Delta.Content); err != nil {

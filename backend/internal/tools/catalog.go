@@ -78,6 +78,19 @@ func fixed(name, description, value string) Parameter {
 // caller cannot mutate the shared list by accident.
 func Catalog() []CatalogEntry {
 	return []CatalogEntry{
+		{
+			ID: "html", Name: "HTML", Icon: "🖥️", Category: CategoryBuiltin, Kind: KindBuiltin,
+			Description: "Tạo trang HTML và dashboard tương tác với nhiều biểu đồ",
+			Actions: []Action{{
+				Name: "render_html", Method: "POST", Path: "/", ResultType: "object",
+				Description:       "Create and render an HTML page, interactive dashboard with multiple charts, or custom visualization. Supply complete self-contained HTML with inline CSS and JavaScript. Use SVG or canvas for charts; external scripts, network requests, frames and forms are blocked. Use actual supplied data; label sample data explicitly. The result is displayed in chat, so do not repeat the HTML in your answer.",
+				ResultDescription: "Returns html with title and content, rendered as a sandboxed preview with an HTML download. Maximum serialized result: 200000 bytes.",
+				Parameters: []Parameter{
+					text("title", "Short page title", "body", true),
+					text("html", "Complete self-contained HTML document with inline styles/scripts; no CDN dependencies", "body", true),
+				},
+			}},
+		},
 		// ---------------------------------------------------------------
 		// Built-in: no endpoint to configure and no credential to store.
 		//

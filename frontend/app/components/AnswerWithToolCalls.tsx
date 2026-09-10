@@ -19,6 +19,7 @@ import {StatusLabel} from './StatusLabel';
 import {ToolCallApproval} from './InlineToolApprovals';
 import {MessageToolCall} from '../lib/api';
 import {ChartSpec, ChartView, chartFromResult} from './ChartView';
+import {HTMLSpec, HTMLView, htmlFromResult} from './HTMLView';
 import {useTranslation} from '../lib/i18n';
 
 /**
@@ -30,7 +31,7 @@ import {useTranslation} from '../lib/i18n';
  * the part that explains the pause. Each call carries the point in the answer
  * it was made at, so the text is split there and the pill dropped in.
  */
-export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, messageID}: {
+export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, onOpenHTML, messageID}: {
   calls: MessageToolCall[];
   messageID?: string;
   children: string;
@@ -38,6 +39,7 @@ export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, 
   /** Given where there is somewhere to open a chart into - the chat's side
       panel. Without it a chart still draws, it just has nowhere to go. */
   onOpenChart?: (chart: ChartSpec) => void;
+  onOpenHTML?: (page: HTMLSpec) => void;
 }) {
   // autolink: a model writing a source table puts the address in a cell as bare
   // text, not as a markdown link, and web search made that the common case. GFM
@@ -60,7 +62,7 @@ export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, 
     if (text.trim()) {
       parts.push(<Markdown className="w-full min-w-0 [&_table]:table-auto [&_table]:min-w-max [&_th]:whitespace-nowrap [&_td]:whitespace-nowrap" autolink="gfm" headingLevelStart={2} key={`text-${index}`}>{text}</Markdown>);
     }
-    parts.push(<VStack key={call.id} gap={2} width="100%"><ToolCallPill call={call} onOpenChart={onOpenChart} /><ToolCallApproval call={call} messageID={messageID} /></VStack>);
+    parts.push(<VStack key={call.id} gap={2} width="100%"><ToolCallPill call={call} onOpenChart={onOpenChart} onOpenHTML={onOpenHTML} /><ToolCallApproval call={call} messageID={messageID} /></VStack>);
     cursor = at;
   });
 
@@ -77,9 +79,10 @@ export function AnswerWithToolCalls({calls, children, isStreaming, onOpenChart, 
  * and what came back. Closed by default, because the answer is the thing being
  * read and the call is the thing being checked.
  */
-function ToolCallPill({call, onOpenChart}: {
+function ToolCallPill({call, onOpenChart, onOpenHTML}: {
   call: MessageToolCall;
   onOpenChart?: (chart: ChartSpec) => void;
+  onOpenHTML?: (page: HTMLSpec) => void;
 }) {
   const t = useTranslation();
   const isRunning = call.status === 'running';
@@ -87,9 +90,13 @@ function ToolCallPill({call, onOpenChart}: {
   // so it is drawn above the pill instead of hidden inside it. The JSON stays
   // where every other result is, for anyone checking the numbers.
   const chart = call.status === 'complete' ? chartFromResult(call.detail) : null;
+  const html = call.status === 'complete' && call.action === 'render_html' ? htmlFromResult(call.detail) : null;
 
   return (
     <VStack gap={2} width="100%">
+    {html ? (onOpenHTML
+      ? <Button icon={<Maximize2 size={16} />} label={html.title} variant="secondary" onClick={() => onOpenHTML(html)} />
+      : <HTMLView page={html} />) : null}
     {chart ? (
       // The whole thing is the way in, because that is what a reader will
       // click at: the picture, not a control beside it.

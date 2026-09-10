@@ -72,6 +72,9 @@ func summarise(raw string) string {
 // summariseResult keeps a drawable result whole and shortens everything else.
 func summariseResult(raw string) string {
 	trimmed := strings.TrimSpace(raw)
+	if strings.HasPrefix(trimmed, `{"html":`) && len(trimmed) <= tools.MaxHTMLResultBytes {
+		return trimmed
+	}
 	if strings.HasPrefix(trimmed, `{"chart":`) && len([]rune(trimmed)) <= chartDetailRunes {
 		return trimmed
 	}

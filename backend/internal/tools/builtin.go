@@ -41,6 +41,7 @@ var builtins = map[string]builtinFunc{
 	},
 	"describe_numbers": describeNumbers,
 	"draw_chart":       drawChart,
+	"render_html":      renderHTML,
 	"current_time": func(arguments map[string]any) (string, error) {
 		name, _ := arguments["timezone"].(string)
 		if strings.TrimSpace(name) == "" {

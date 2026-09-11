@@ -91,7 +91,11 @@ func (c *Client) Decide(ctx context.Context, history []Message, definitions []To
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	client := *c.httpClient
+	if options.RequestTimeout > 0 {
+		client.Timeout = options.RequestTimeout
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("call model gateway: %w", err)
 	}

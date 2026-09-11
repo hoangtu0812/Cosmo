@@ -33,6 +33,28 @@ func TestToolRoundBudgetErrorStopsBeforeInvocation(t *testing.T) {
 	}
 }
 
+func TestDashboardDecisionFailureDoesNotFallBackToTextGeneration(t *testing.T) {
+	for _, code := range []int{http.StatusBadGateway, http.StatusOK} {
+		gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(code)
+			if code == http.StatusOK {
+				json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": "```html\n<!doctype html><html></html>\n```"}}}})
+			}
+		}))
+		s := &Server{logger: slog.Default()}
+		recorder := httptest.NewRecorder()
+		var answer strings.Builder
+		_, calls, final, err := s.runToolRounds(context.Background(), recorder, recorder,
+			toolSet{definitions: []modelgateway.ToolDefinition{{Name: "html__render_html"}}},
+			[]modelgateway.Message{{Role: "user", Content: "Tạo dashboard"}}, modelgateway.Options{},
+			modelgateway.New(gateway.URL, "", "test", "", time.Second), "unused", &answer)
+		gateway.Close()
+		if err != nil || len(calls) != 0 || final == "" || strings.Contains(final, "<!doctype") {
+			t.Fatalf("unsafe fallback: %q %v", final, err)
+		}
+	}
+}
+
 func TestChatToolFailuresAndMissingStepNeverSucceed(t *testing.T) {
 	for _, missingStep := range []bool{false, true} {
 		t.Run(fmt.Sprint(missingStep), func(t *testing.T) {

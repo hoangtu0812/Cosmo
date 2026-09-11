@@ -1576,7 +1576,11 @@ function TurnActivity({status, trace, orbState, t}: {
           <VStack gap={0} key={`${step.stage}-${index}`} width="100%">
             <Text type="supporting">{step.message}</Text>
             {step.detail ? (
-              <Text color="secondary" type="supporting">{step.detail}</Text>
+              step.stage === 'tool_preparing' ? (
+                <VStack className="max-h-80 overflow-auto" width="100%" padding={2}>
+                  <Text className="whitespace-pre-wrap break-all" type="code">{step.detail}</Text>
+                </VStack>
+              ) : <Text color="secondary" type="supporting">{step.detail}</Text>
             ) : null}
           </VStack>
         ))}

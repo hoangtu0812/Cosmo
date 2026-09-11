@@ -7,6 +7,7 @@ type Progress struct {
 	Reasoning     string
 	Tool          string
 	ArgumentBytes int
+	Arguments     string
 }
 type progressKey struct{}
 

@@ -105,7 +105,7 @@ func readToolStream(ctx context.Context, reader io.Reader) (string, []ToolCall, 
 			c.Name += delta.Function.Name
 			c.Arguments += delta.Function.Arguments
 			total += len(delta.Function.Arguments)
-			reportProgress(ctx, Progress{Tool: c.Name, ArgumentBytes: len(c.Arguments)})
+			reportProgress(ctx, Progress{Tool: c.Name, ArgumentBytes: len(c.Arguments), Arguments: c.Arguments})
 		}
 		if total > 2<<20 {
 			return "", nil, usage, ErrInvalidStream

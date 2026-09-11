@@ -132,7 +132,12 @@ func (s *Server) runToolRounds(
 				}
 			}
 			decisionHistory, definitions := dashboardToolHistory(history, definitions)
-			narration, calls, err := models.Decide(modelProgressContext(modelgateway.WithPhase(ctx, "tool_decision"), w, flusher), decisionHistory, definitions, options)
+			isDashboard := len(decisionHistory) > len(history)
+			decisionOptions := options
+			if isDashboard {
+				decisionOptions.RequestTimeout = 5 * time.Minute
+			}
+			narration, calls, err := models.Decide(modelProgressContext(modelgateway.WithPhase(ctx, "tool_decision"), w, flusher), decisionHistory, definitions, decisionOptions)
 			if err != nil {
 				if errors.Is(err, modelgateway.ErrContextBudget) || errors.Is(err, modelgateway.ErrToolHistory) {
 					return history, reported, "", err
@@ -142,9 +147,15 @@ func (s *Server) runToolRounds(
 				s.logger.Error("tool round failed", "source", set.source, "error", err)
 				writeSSE(w, "status", map[string]string{"stage": "tool_failed", "message": "Không gọi được tool."})
 				flusher.Flush()
+				if isDashboard {
+					return history, reported, "Chưa tạo được dashboard: gateway không hoàn tất yêu cầu gọi tool HTML. Bạn có thể thử lại. Không có dashboard mới được render trong lượt này.", nil
+				}
 				return history, reported, "", nil
 			}
 			if len(calls) == 0 {
+				if isDashboard && (strings.Contains(strings.ToLower(narration), "```html") || strings.Contains(strings.ToLower(narration), "<!doctype html")) {
+					return history, reported, "Model đã trả mã HTML thay vì gọi tool render_html, nên dashboard chưa được tạo. Vui lòng thử lại yêu cầu tạo dashboard.", nil
+				}
 				return history, reported, strings.TrimSpace(narration), nil
 			}
 

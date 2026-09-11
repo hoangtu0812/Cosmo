@@ -69,6 +69,8 @@ func (c *Client) Model() string {
 // entirely rather than guessing a level, because models that do not reason
 // reject the field on some providers.
 type Options struct {
+	// RequestTimeout is an internal override for large artifact tool decisions.
+	RequestTimeout  time.Duration
 	Model           string
 	ReasoningEffort string
 	// ContextWindow is trusted gateway metadata, not a client-supplied limit.
